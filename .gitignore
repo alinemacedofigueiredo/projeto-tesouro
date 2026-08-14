@@ -1,11 +1,11 @@
 # Dados do Tesouro: baixados/gerados, nao versionados.
 # Os brutos vem do site do Tesouro; os processados sao reconstruidos pelos parsers.
-data/raw/*
-data/processed/*
-!data/raw/.gitkeep
-!data/raw/rmd/.gitkeep
-!data/raw/leiloes/.gitkeep
-!data/processed/.gitkeep
+#
+# Nota: as subpastas precisam ser reincluidas (!data/**/) antes dos .gitkeep,
+# porque o git nao reinclui um arquivo se o diretorio-pai esta excluido.
+data/**
+!data/**/
+!data/**/.gitkeep
 
 # Python
 __pycache__/
