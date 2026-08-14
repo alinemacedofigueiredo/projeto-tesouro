@@ -48,6 +48,16 @@ def normalizar_data(valor):
     """Leva uma data ja reconhecida pelo pandas para o fim do mes."""
     if valor is None:
         return None
+    # pd.NaT (sentinela do pandas para data ausente numa coluna datetime64)
+    # e a unica coisa, alem de NaN, para a qual "valor != valor" e
+    # verdadeiro -- e o jeito de reconhece-lo sem importar pandas aqui.
+    # Essa checagem tem que vir antes do isinstance abaixo: pd.NaT passa em
+    # isinstance(valor, datetime.datetime) por compatibilidade do pandas,
+    # entao cairia no proximo bloco, valor.date() devolveria outro NaT, e
+    # calendar.monthrange(ano, nan) quebraria mais adiante com
+    # IllegalMonthError em vez de devolver None. Nao remova esta linha.
+    if valor != valor:
+        return None
     if isinstance(valor, datetime.datetime):
         valor = valor.date()
     if not isinstance(valor, datetime.date):

@@ -1,5 +1,6 @@
 import datetime
 import math
+import pandas as pd
 import pytest
 from tesouro import conversoes
 
@@ -30,6 +31,21 @@ def test_normalizar_data_aceita_datetime_e_vai_para_fim_do_mes():
     entrada = datetime.datetime(2011, 2, 28, 0, 0)
     assert conversoes.normalizar_data(entrada) == datetime.date(2011, 2, 28)
     assert conversoes.normalizar_data(datetime.datetime(2007, 1, 1)) == datetime.date(2007, 1, 31)
+
+
+def test_normalizar_data_devolve_none_para_nat_do_pandas():
+    # pd.NaT e o sentinela do pandas para data ausente numa coluna
+    # datetime64; e o caso real que motivou este teste (colunas vazias
+    # numa aba do RMD chegam como NaT, nao como None).
+    assert conversoes.normalizar_data(pd.NaT) is None
+
+
+def test_normalizar_data_devolve_none_para_none():
+    assert conversoes.normalizar_data(None) is None
+
+
+def test_normalizar_data_devolve_none_para_valor_que_nao_e_data():
+    assert conversoes.normalizar_data("nao e uma data") is None
 
 
 def test_para_milhoes_converte_bilhoes_e_reais():
