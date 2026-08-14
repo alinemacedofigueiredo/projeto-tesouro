@@ -20,7 +20,7 @@
 - **Nada derivado é gravado.** Percentuais de composição, médias móveis, acumulados e participações são calculados na análise, não persistidos. Onde uma aba traz o par (valor, %), grava-se apenas o valor.
 - **Formato longo**, nunca largo: `data` + dimensões + `valor`.
 - **`data/raw/` é imutável.** Nenhum código escreve, move ou apaga arquivo lá dentro.
-- **Idioma:** código, nomes de coluna e mensagens em português sem acentos (`data_referencia`, `valor_milhoes`); comentários e documentação em português normal.
+- **Idioma e codificação:** os arquivos `.py` são **inteiramente ASCII**, inclusive comentários e docstrings (`data_referencia`, `valor_milhoes`, `# converte para o fim do mes`). Os arquivos `.md` de documentação usam português acentuado normalmente. Motivo: o projeto vai rodar em ambiente Windows corporativo, onde a codificação padrão do console e de editores varia entre UTF-8 e cp1252 — código-fonte só-ASCII elimina uma classe inteira de falha que aparece longe da causa. **Isto não vale para dados:** valores lidos das fontes preservam seus acentos (`Índice de Preços`, `Câmbio`, `Oferta Pública`), inclusive quando aparecem como literais em testes e em dicionários de mapeamento.
 
 ---
 
