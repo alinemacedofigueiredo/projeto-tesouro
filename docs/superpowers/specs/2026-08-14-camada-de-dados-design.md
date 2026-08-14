@@ -123,9 +123,26 @@ Dataset `ds013` no portal de dados abertos, acessível pela API CKAN:
 tesourotransparente.gov.br/ckan/api/3/action/package_show?id=ds013
 ```
 
-A resposta lista os recursos: um arquivo com todo o histórico desde 2000 e
-arquivos anuais (2000–2024) em XLS/XLSX. As URLs vêm da API, não são fixadas
-no código.
+A resposta lista os recursos: um arquivo com todo o histórico desde 2000
+(`historico-leiloes-todos.xls`, ~5 MB) e arquivos anuais. As URLs vêm da API,
+não são fixadas no código.
+
+**Decidido usar o arquivo único.** Ele traz uma aba por ano (`Ano 2000` a
+`Ano 2026`) com layout idêntico em todas: cabeçalho em português na linha 5,
+em inglês na linha 6, dados a partir da linha 7, primeira coluna vazia. Isso
+torna o parser um laço simples sobre as abas — bem mais simples que o do RMD.
+Os arquivos anuais servem como conferência opcional.
+
+**Dependência `xlrd`.** O arquivo é `.xls` legado (formato OLE2), que o pandas
+só lê com `xlrd`. Não há como evitar: entre os arquivos anuais, 2011–2018
+também são `.xls`. Caso a biblioteca não esteja disponível no ambiente do
+banco, o contorno é abrir o arquivo no Excel e salvar como `.xlsx` — o parser
+passa a lê-lo sem alteração. Isso fica registrado em `como-baixar.md`.
+
+Colunas disponíveis: data do leilão, título, tipo de leilão, volta, data de
+liquidação, data de vencimento, oferta, taxa média, taxa de corte, venda,
+financeiro, venda para o Bacen, financeiro para o Bacen e referência (o
+vértice de *benchmark*, como `LFT 6 anos`).
 
 ### 5.3 Fontes descartadas
 
@@ -193,7 +210,7 @@ Dezessete CSVs em `data/processed/`.
 | `custo_medio` | 4.1 + 4.2 + 4.3 | data, medida, nivel, titulo, custo_aa_pct |
 | `paf_metas` | 5.7 | ano, versao, indicador, minimo, maximo, realizado |
 | `reserva_liquidez` | 6.1 | data, reserva_milhoes, valor_prudencial_milhoes, indice_liquidez_meses |
-| `leiloes` | CKAN ds013 | definido na implementação, após inspeção do arquivo |
+| `leiloes` | CKAN ds013 | data_leilao, titulo, tipo_leilao, volta, data_liquidacao, data_vencimento, oferta_qtd, taxa_media_pct, taxa_corte_pct, venda_qtd, financeiro_milhoes, venda_bacen_qtd, financeiro_bacen_milhoes, referencia |
 
 ### Critério de consolidação
 
@@ -229,7 +246,13 @@ explícito e de um teste.
 4. **Revisões do PAF aparecem como colunas extras** (`PAF 2008 revisado`,
    `PAF 2015 revisado`, `PAF 2016 revisado`), mas **a aba não traz a data de
    publicação da revisão**. Como cada banda vale até a publicação seguinte, essa
-   data precisa vir de fora — é o único ponto de entrada manual do projeto.
+   data precisa vir de fora. Decidido: este sub-projeto lê da 5.7 o que ela
+   oferece (ano, versão, mínimo, máximo, realizado) e não tenta inferir
+   vigência. Um trabalho separado e posterior levantará as datas de divulgação
+   e produzirá um arquivo de referência. Por serem datas imutáveis, esse
+   arquivo é **dado de referência curado por pessoas** — fica versionado no
+   git junto ao código, não em `data/processed/`, e só cresce quando sai uma
+   revisão nova.
 5. **A aba 4.3 parece mudar de layout a partir de Jan/21**, com um segundo nível
    de cabeçalho ausente no trecho antigo. Confirmar na implementação.
 6. **Custo negativo é legítimo** (NTN-D em 2005, na 4.1) e não deve ser tratado
@@ -240,13 +263,32 @@ explícito e de um teste.
 8. **A 2.2 agrupa títulos em blocos por indexador**, com cabeçalhos de seção no
    meio da planilha, e usa duas colunas por mês (quantidade e financeiro).
 
-### Questão em aberto
+E no arquivo de leilões:
 
-O campo `Financeiro` da aba 2.2 precisa ser confirmado como **preço de mercado
-ou preço de curva**, consultando a metodologia do Tesouro. A entrega 2 deriva o
-preço unitário desse campo para extrair a taxa implícita; se for preço de curva,
-a taxa não é de mercado e o DV01 sai enviesado. Resolver antes de iniciar a
-entrega 2 — não bloqueia esta camada de dados.
+9. **As taxas vêm como fração** (`0.07828` significa 7,828% a.a.), convenção
+   oposta à do RMD, que grava percentual. Precisam ser convertidas na entrada,
+   ou o mesmo CSV misturaria duas escalas.
+10. **O `Financeiro` vem em reais**, não em milhões como no RMD.
+11. **Para LFT, a "taxa" é o ágio/deságio sobre a Selic**, não uma taxa
+    absoluta. Comparar essa coluna entre LFT e LTN sem atenção compara
+    grandezas diferentes.
+12. **`Venda para Bacen` é separada da venda ao mercado**, e vem em branco (não
+    zero) nos primeiros anos. Para a entrega 3, colocação no Banco Central não
+    é emissão a mercado e não deve entrar na conta de risco emitido.
+13. **Cada leilão tem 1.ª e 2.ª volta** em linhas distintas. O total emitido é a
+    soma das duas; usar só a primeira subestima.
+
+### Sobre o campo `Financeiro` da aba 2.2
+
+Não está confirmado se é marcação a mercado ou na curva — a suspeita é curva.
+Isso deixou de ser bloqueante: decidido que a entrega 2 calculará PU e DV01 a
+partir da taxa, com metodologia própria, para cada fim de mês. O campo relevante
+da 2.2 passa a ser a **quantidade** (a posição), e o `financeiro` serve apenas
+como conferência.
+
+Fica registrado que a entrega 2 depende de uma **fonte de taxas** (Anbima ou
+equivalente) que não está no escopo deste sub-projeto nem tem spec própria
+ainda.
 
 ---
 
@@ -290,3 +332,5 @@ código, para que os testes não dependam de rede.
 | Abas 5.1, 5.2, 5.3 (mercado secundário) | Fora | Se a análise de leilões pedir contexto de liquidez |
 | Calendário de leilões | Fora | Necessário para a entrega 5 |
 | Aba 5.4 (exposição com mercado aberto) | Descartada | — |
+| Datas de vigência das revisões do PAF | Trabalho separado, posterior | Antes da entrega 4 |
+| Fonte de taxas para PU e DV01 | Sem dono; fora deste sub-projeto | Antes da entrega 2 |
