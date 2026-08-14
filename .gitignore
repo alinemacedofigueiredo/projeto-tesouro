@@ -7,6 +7,9 @@ data/**
 !data/**/
 !data/**/.gitkeep
 
+# Area de rascunho da execucao assistida (briefs, relatorios, ledger)
+.superpowers/
+
 # Python
 __pycache__/
 *.py[cod]
