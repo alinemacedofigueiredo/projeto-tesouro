@@ -1181,7 +1181,7 @@ def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categori
 - [ ] **Step 6: Rode os testes e confirme que passam**
 
 Run: `python -m pytest tests/test_leitura_rmd.py -v`
-Expected: PASS, 8 testes
+Expected: PASS, 9 testes
 
 - [ ] **Step 7: Commit**
 
@@ -2640,11 +2640,28 @@ from tesouro import leitura_rmd
 from tesouro.parse_rmd import estoque, estoque_vencimento, vencimentos
 
 AMOSTRA = Path(__file__).parent / "fixtures" / "rmd_amostra.xlsx"
+RMD_REAL = Path(__file__).parents[1] / "data" / "raw" / "rmd"
 
 
 @pytest.fixture(scope="module")
 def xl():
     return leitura_rmd.abrir(AMOSTRA)
+
+
+@pytest.fixture(scope="module")
+def xl_real():
+    """O anexo completo do RMD, quando presente em data/raw/rmd/.
+
+    Alguns cruzamentos so fazem sentido sobre a serie inteira; na amostra
+    recortada eles passariam em verde sem verificar nada, que e pior do
+    que nao existir.
+    """
+    if not RMD_REAL.exists() or not list(RMD_REAL.glob("*.xlsx")):
+        pytest.skip(
+            "teste de integracao: exige o anexo do RMD em data/raw/rmd/ "
+            "(veja docs/como-baixar.md)"
+        )
+    return leitura_rmd.abrir()
 
 
 def test_composicao_soma_o_total_da_dpf(xl):
@@ -2664,20 +2681,28 @@ def test_faixas_de_vencimento_somam_o_total(xl):
     assert (por_data > 0).all()
 
 
-def test_estoque_por_vencimento_bate_com_estoque_por_titulo(xl):
+def test_estoque_por_vencimento_bate_com_estoque_por_titulo(xl_real):
     """Soma da 2.2 por titulo contra as linhas de titulo da 2.1.
 
     Esta e a principal defesa do projeto: a 2.2 e a aba mais dificil de
     ler e alimenta o calculo de DV01 inteiro. A 2.1 e independente dela.
+
+    Roda contra o RMD real, nao contra a amostra: no recorte de 30
+    colunas a 2.1 cobre Dez/00 em diante e a 2.2 comeca em Jan/10, sem
+    nenhum mes em comum -- e a 2.2 fica so com parte do bloco de
+    prefixados, entao a soma por titulo nao fecharia de qualquer forma.
+    E teste de integracao; pula com mensagem clara se o arquivo faltar.
     """
-    detalhe = estoque_vencimento.parse(xl)
-    agregado = estoque.parse_dpf(xl)
+    detalhe = estoque_vencimento.parse(xl_real)
+    agregado = estoque.parse_dpf(xl_real)
 
     datas_comuns = sorted(
         set(detalhe["data"]) & set(agregado["data"])
     )
-    if not datas_comuns:
-        pytest.skip("a amostra nao tem datas em comum entre as abas 2.1 e 2.2")
+    assert datas_comuns, (
+        "as abas 2.1 e 2.2 do RMD real deveriam ter meses em comum; "
+        "se nao tem, um dos dois parsers leu as datas errado"
+    )
 
     data = datas_comuns[-1]
     soma_detalhe = (
