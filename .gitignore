@@ -1,0 +1,22 @@
+# Dados do Tesouro: baixados/gerados, nao versionados.
+# Os brutos vem do site do Tesouro; os processados sao reconstruidos pelos parsers.
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/raw/rmd/.gitkeep
+!data/raw/leiloes/.gitkeep
+!data/processed/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Configuracao local do Claude Code (a compartilhada, settings.json, e versionada)
+.claude/settings.local.json
+
+# Windows / OneDrive
+Thumbs.db
+desktop.ini
