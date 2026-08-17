@@ -205,7 +205,7 @@ Dezessete CSVs em `data/processed/`.
 | `vencer_12m_indexador` | 3.3 | data, indexador, valor_milhoes |
 | `cronograma_vencimentos` | 3.4 | **data_referencia**, mes_vencimento, grupo_titulo, valor_milhoes |
 | `prazo_medio_por_titulo` | 3.7 | data, nivel, entidade, titulo, prazo_anos |
-| `prazo_medio_por_indexador` | 3.8 | data, nivel, categoria, prazo_anos |
+| `prazo_medio_por_indexador` | 3.8 | data, nivel, entidade, categoria, prazo_anos |
 | `prazo_medio_emissoes` | 3.9 | data, indexador, prazo_anos |
 | `custo_medio` | 4.1 + 4.2 + 4.3 | data, medida, nivel, titulo, custo_aa_pct |
 | `paf_metas` | 5.7 | ano, versao, indicador, minimo, maximo, realizado |

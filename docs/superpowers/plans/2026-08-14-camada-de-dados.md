@@ -2410,9 +2410,18 @@ git commit -m "Adiciona parsers de perfil de vencimento (abas 3.1, 3.3 e 3.4)"
 - Consumes: `leitura_rmd.ler_padrao_a`, `leitura_rmd.ler_padrao_b`
 - Produces:
   - `prazo.parse_por_titulo(xl) -> DataFrame` — `data, nivel, entidade, titulo, prazo_anos`
-  - `prazo.parse_por_indexador(xl) -> DataFrame` — `data, nivel, categoria, prazo_anos`
+  - `prazo.parse_por_indexador(xl) -> DataFrame` — `data, nivel, entidade, categoria, prazo_anos`
   - `prazo.parse_emissoes(xl) -> DataFrame` — `data, indexador, prazo_anos`
   - CSVs `prazo_medio_por_titulo.csv`, `prazo_medio_por_indexador.csv`, `prazo_medio_emissoes.csv`
+
+**Estrutura real das abas 3.7 e 3.8, verificada antes de escrever este brief.** As duas têm a mesma forma: `DPF` (linha 6) → `DPMFi` (8) → sob a DPMFi as folhas (títulos na 3.7, indexadores na 3.8) → `DPFe` → `Dívida Mobiliária` → instrumentos → `Dívida Contratual` → credores. E terminam com uma nota numerada (`1 Títulos de renegociação...`).
+
+Dois pontos que já causaram defeito silencioso em outras abas deste mesmo projeto:
+
+- **`Demais` aparece duas vezes em cada aba** — uma sob o `Tesouro Nacional`, outra sob a `Dívida Mobiliária`. Hierarquia indexada por texto de rótulo faz a segunda sobrescrever a primeira, e a linha da DPMFi vai para dentro da DPFe. A chave é `linha_origem`.
+- **`Dívida Mobiliária` e `Dívida Contratual` são subgrupos, não folhas.** Fazem na DPFe o papel que `Tesouro Nacional` e `Banco Central` fazem na DPMFi, e o prazo médio delas é média ponderada dos filhos — derivado. Entram como `entidade`, e é por isso que a tabela da 3.8 também leva essa coluna.
+
+As linhas de nível e de entidade são **preservadas** com a folha em branco, porque carregam o agregado — e o prazo médio da DPF é exatamente o número que a entrega 4 compara com a banda do PAF.
 
 **Contexto:** três tabelas separadas de propósito — as dimensões são diferentes (título, indexador, indexador-sobre-emissões) e uni-las produziria uma coluna que significa coisas distintas em linhas distintas. A 3.7 tem a mesma hierarquia da 2.1; a 3.8 abre por indexador na DPMFi e por instrumento na DPFe; a 3.9 é padrão B. Os valores são **anos**, não moeda — por isso `unidade="milhoes"` (fator 1) e a coluna é renomeada.
 
@@ -2449,9 +2458,56 @@ def test_por_titulo_traz_prazos_plausiveis(xl):
 
 def test_por_indexador_separa_dpmfi_de_dpfe(xl):
     df = prazo.parse_por_indexador(xl)
-    assert list(df.columns) == ["data", "nivel", "categoria", "prazo_anos"]
+    assert list(df.columns) == [
+        "data", "nivel", "entidade", "categoria", "prazo_anos"
+    ]
     niveis = set(df["nivel"].dropna().unique())
     assert "DPMFi" in niveis
+
+
+def test_demais_da_dpmfi_nao_se_confunde_com_o_da_dpfe(xl):
+    # 'Demais' aparece duas vezes nas duas abas: sob o Tesouro Nacional e
+    # sob a Divida Mobiliaria. Indexado por rotulo, o segundo sobrescreve
+    # o primeiro e a linha da DPMFi acaba dentro da DPFe.
+    por_titulo = prazo.parse_por_titulo(xl)
+    demais = por_titulo[por_titulo["titulo"] == "Demais"]
+    assert {"DPMFi", "DPFe"} <= set(demais["nivel"].unique())
+    assert not por_titulo.duplicated(
+        subset=["data", "nivel", "entidade", "titulo"]
+    ).any()
+
+
+def test_subgrupos_da_dpfe_sao_entidade_e_nao_folha(xl):
+    # 'Divida Mobiliaria' e 'Divida Contratual' agrupam os instrumentos da
+    # DPFe; o prazo medio deles e media ponderada dos filhos, e portanto
+    # derivado. Nao podem aparecer como folha.
+    for df, folha in (
+        (prazo.parse_por_titulo(xl), "titulo"),
+        (prazo.parse_por_indexador(xl), "categoria"),
+    ):
+        assert "Dívida Mobiliária" not in set(df[folha].dropna().unique())
+        assert "Dívida Mobiliária" in set(df["entidade"].dropna().unique())
+        assert "Dívida Contratual" in set(df["entidade"].dropna().unique())
+
+
+def test_preserva_o_prazo_medio_da_dpf(xl):
+    # E o numero que a analise compara com a banda do PAF; se a linha de
+    # nivel fosse descartada junto com os agregados, ele se perderia.
+    df = prazo.parse_por_titulo(xl)
+    da_dpf = df[(df["nivel"] == "DPF") & df["titulo"].isna()]
+    assert len(da_dpf) > 0
+    assert da_dpf["prazo_anos"].notna().any()
+
+
+def test_ignora_a_nota_de_rodape_numerada(xl):
+    # A ultima linha das duas abas comeca com '1 ' e explica a
+    # Reestruturada; nao e dado.
+    for df, folha in (
+        (prazo.parse_por_titulo(xl), "titulo"),
+        (prazo.parse_por_indexador(xl), "categoria"),
+    ):
+        rotulos = [str(v) for v in df[folha].dropna().unique()]
+        assert not any(r[:1].isdigit() for r in rotulos)
 
 
 def test_emissoes_tem_indexadores(xl):
@@ -2492,66 +2548,102 @@ agrupamento acidental somaria grandezas incomparaveis sem gerar erro.
 Os valores sao anos: a unidade 'milhoes' passada aos leitores genericos
 tem fator 1 e nao altera nada.
 """
+import re
+
 import pandas as pd
 
 from .. import config
 from ..leitura_rmd import ler_padrao_a, ler_padrao_b
 
 _ESFERAS = {"DPMFi", "DPFe"}
-_ENTIDADES = {"Tesouro Nacional", "Banco Central"}
-_TOTAIS = {"dpf"}
+
+# 'Divida Mobiliaria' e 'Divida Contratual' sao subgrupos da DPFe, no
+# mesmo papel que 'Tesouro Nacional' e 'Banco Central' tem na DPMFi.
+_ENTIDADES = {
+    "Tesouro Nacional",
+    "Banco Central",
+    "Dívida Mobiliária",
+    "Dívida Contratual",
+}
+
+# Nota de rodape numerada: '1 Titulos de renegociacao anteriores ao...'
+_PADRAO_NOTA = re.compile(r"^\d+\s")
 
 
-def _hierarquia(bruto, agrupadores):
-    """Resolve nivel/entidade/folha a partir da ordem e dos rotulos."""
-    ordem = bruto.drop_duplicates(subset=["rotulo"])["rotulo"].tolist()
+def _hierarquia(bruto):
+    """Marca cada linha com nivel, entidade e folha.
+
+    A chave e linha_origem, nunca o rotulo. 'Demais' aparece duas vezes
+    nas abas 3.7 e 3.8 -- uma sob o Tesouro Nacional, outra sob a Divida
+    Mobiliaria -- e indexar por texto faria a segunda sobrescrever a
+    primeira, jogando a linha da DPMFi para dentro da DPFe sem erro
+    nenhum.
+
+    As linhas de nivel e de entidade sao preservadas com folha None:
+    carregam o prazo medio agregado, e o prazo medio da DPF e exatamente
+    o numero que a analise compara com a banda do PAF.
+    """
+    ordem = (
+        bruto.drop_duplicates(subset=["linha_origem"])
+        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
+    )
+
     papel = {}
     nivel = None
     entidade = None
-    for rotulo in ordem:
-        limpo = rotulo.strip()
-        if limpo.upper() == "DPF":
-            nivel = "DPF"
-            entidade = None
-            papel[rotulo] = (nivel, None, None)
-        elif limpo in _ESFERAS:
-            nivel = limpo
-            entidade = None
-            papel[rotulo] = (nivel, None, None)
-        elif limpo in agrupadores:
-            entidade = limpo
-            papel[rotulo] = (nivel, entidade, None)
+
+    for _, linha in ordem.iterrows():
+        rotulo = str(linha["rotulo"]).strip()
+        origem = linha["linha_origem"]
+
+        if _PADRAO_NOTA.match(rotulo):
+            continue  # nota de rodape
+
+        if rotulo.upper() == "DPF":
+            nivel, entidade = "DPF", None
+            papel[origem] = (nivel, None, None)
+        elif rotulo in _ESFERAS:
+            nivel, entidade = rotulo, None
+            papel[origem] = (nivel, None, None)
+        elif rotulo in _ENTIDADES:
+            entidade = rotulo
+            papel[origem] = (nivel, entidade, None)
         else:
-            papel[rotulo] = (nivel, entidade, limpo)
+            papel[origem] = (nivel, entidade, rotulo)
+
     return papel
+
+
+def _anotar(bruto, nome_da_folha):
+    papel = _hierarquia(bruto)
+    df = bruto[bruto["linha_origem"].isin(papel)].copy()
+    df["nivel"] = [papel[o][0] for o in df["linha_origem"]]
+    df["entidade"] = [papel[o][1] for o in df["linha_origem"]]
+    df[nome_da_folha] = [papel[o][2] for o in df["linha_origem"]]
+    return df.rename(columns={"valor_milhoes": "prazo_anos"})
 
 
 def parse_por_titulo(xl):
     """Aba 3.7 -- prazo medio da DPF, por titulo."""
-    bruto = ler_padrao_a(xl, "3.7", "milhoes")
-    papel = _hierarquia(bruto, _ENTIDADES)
-    df = bruto.copy()
-    df["nivel"] = [papel[r][0] for r in df["rotulo"]]
-    df["entidade"] = [papel[r][1] for r in df["rotulo"]]
-    df["titulo"] = [papel[r][2] for r in df["rotulo"]]
-    df = df.rename(columns={"valor_milhoes": "prazo_anos"})
+    df = _anotar(ler_padrao_a(xl, "3.7", "milhoes"), "titulo")
     return df[
         ["data", "nivel", "entidade", "titulo", "prazo_anos"]
-    ].sort_values(["data", "nivel", "titulo"]).reset_index(drop=True)
+    ].sort_values(["data", "nivel", "entidade", "titulo"]).reset_index(drop=True)
 
 
 def parse_por_indexador(xl):
-    """Aba 3.8 -- prazo medio da DPF, por indexador (e instrumento na DPFe)."""
-    bruto = ler_padrao_a(xl, "3.8", "milhoes")
-    papel = _hierarquia(bruto, set())
-    df = bruto.copy()
-    df["nivel"] = [papel[r][0] for r in df["rotulo"]]
-    df["categoria"] = [papel[r][2] for r in df["rotulo"]]
-    df = df.rename(columns={"valor_milhoes": "prazo_anos"})
-    df = df[df["categoria"].notna()]
+    """Aba 3.8 -- prazo medio da DPF, por indexador (e instrumento na DPFe).
+
+    A coluna `entidade` existe pelo mesmo motivo da 3.7: 'Demais' aparece
+    sob a DPMFi e sob a Divida Mobiliaria da DPFe, e sem o subgrupo na
+    chave as duas linhas ficam indistinguiveis.
+    """
+    df = _anotar(ler_padrao_a(xl, "3.8", "milhoes"), "categoria")
     return df[
-        ["data", "nivel", "categoria", "prazo_anos"]
-    ].sort_values(["data", "nivel", "categoria"]).reset_index(drop=True)
+        ["data", "nivel", "entidade", "categoria", "prazo_anos"]
+    ].sort_values(
+        ["data", "nivel", "entidade", "categoria"]
+    ).reset_index(drop=True)
 
 
 def parse_emissoes(xl):
