@@ -3,7 +3,11 @@
 As dezoito abas usadas caem em dois formatos:
 
   Padrao A -- meses nas colunas, rotulos nas linhas (1.1, 1.2, 2.1, 3.7,
-  3.8, 4.1, 4.2, 4.3). A indentacao do rotulo carrega a hierarquia.
+  3.8, 4.1, 4.2, 4.3). A hierarquia sai de `linha_origem` mais conjuntos
+  de rotulo conhecidos, resolvidos por uma maquina de estados em cada
+  parser -- NAO da indentacao do rotulo, que nao e hierarquica: na 3.7
+  'Tesouro Nacional' tem recuo 0 e a 'DPMFi' que o contem tem 3; na 4.1
+  'Clube de Paris' tem 8 e as irmas dele 5; na 1.2 tudo tem 0.
 
   Padrao B -- meses nas linhas, categorias nas colunas (2.4, 2.7, 2.8,
   3.1, 3.3, 3.9, 6.1). Cada categoria costuma ocupar duas colunas, valor
@@ -76,10 +80,6 @@ def _linha_do_cabecalho_de_meses(bruto):
     raise LookupError("nenhuma linha de cabecalho com rotulos de mes")
 
 
-def _indentacao(texto):
-    return len(texto) - len(texto.lstrip())
-
-
 def ordem_dos_rotulos(bruto):
     """Os rotulos de uma aba padrao A, um por linha, na ordem da planilha.
 
@@ -148,43 +148,56 @@ def descartar_folhas_sem_dado(df, eh_folha, coluna_valor="valor_milhoes"):
     return df[~df["linha_origem"].isin(origens_vazias)]
 
 
-def ler_padrao_a(xl, nome_da_aba, unidade):
-    """Le uma aba com meses nas colunas e rotulos nas linhas.
+def _colunas_de_data(bruto, linha_cabecalho):
+    """{coluna: data} para as colunas cujo cabecalho e um mes de verdade.
 
-    Devolve tambem `linha_origem` -- o indice da linha na planilha lida.
-    O rotulo sozinho nao e uma chave confiavel: abas como a 1.1 repetem o
-    mesmo texto (ex.: "Trocas Oferta Publica", "Tesouro Direto") sob
-    secoes diferentes (emissao e resgate) e, em outras abas, ate a
-    indentacao pode ser identica em todas as linhas. linha_origem e a
-    unica chave estavel para quem for reconstruir a hierarquia ou separar
-    secoes repetidas.
+    Descarta os totais anuais que a aba 1.1 intercala entre os meses.
     """
-    bruto = aba(xl, nome_da_aba)
-    linha_cabecalho = _linha_do_cabecalho_de_meses(bruto)
-
-    # So as colunas cujo cabecalho e um mes de verdade; isso descarta os
-    # totais anuais que a aba 1.1 intercala entre os meses.
     datas = {}
     for coluna in bruto.columns:
         data = mes_para_data(bruto.iloc[linha_cabecalho, coluna])
         if data is not None:
             datas[coluna] = data
+    return datas
+
+
+def ler_padrao_a(xl, nome_da_aba, unidade, colunas=None):
+    """Le uma aba com meses nas colunas e rotulos nas linhas.
+
+    Devolve tambem `linha_origem` -- o indice da linha na planilha lida.
+    O rotulo sozinho nao e uma chave confiavel: abas como a 1.1 repetem o
+    mesmo texto (ex.: "Trocas Oferta Publica", "Tesouro Direto") sob
+    secoes diferentes (emissao e resgate). linha_origem e a unica chave
+    estavel para quem for reconstruir a hierarquia ou separar secoes
+    repetidas -- a indentacao do rotulo nao serve, porque nao e
+    hierarquica (ver a nota do modulo).
+
+    `colunas` aceita um mapa coluna->data pre-calculado, na forma
+    `(linha_cabecalho, {coluna: data})`. Serve a aba 4.3, cujo cabecalho
+    ganha um segundo nivel a partir de jan/2021 e nao e reconhecido pelo
+    detector generico -- ver parse_rmd/custo.py. O padrao None detecta o
+    cabecalho como nas demais abas.
+    """
+    bruto = aba(xl, nome_da_aba)
+    if colunas is None:
+        linha_cabecalho = _linha_do_cabecalho_de_meses(bruto)
+        datas = _colunas_de_data(bruto, linha_cabecalho)
+    else:
+        linha_cabecalho, datas = colunas
 
     registros = []
     for indice in range(linha_cabecalho + 1, len(bruto)):
         rotulo_bruto = bruto.iloc[indice, 0]
         if pd.isna(rotulo_bruto) or not str(rotulo_bruto).strip():
             continue
-        rotulo_bruto = str(rotulo_bruto)
-        rotulo = rotulo_bruto.strip()
-        nivel = _indentacao(rotulo_bruto.replace("\xa0", " "))
+        rotulo = str(rotulo_bruto).strip()
         for coluna, data in datas.items():
             valor = para_milhoes(limpar_nulo(bruto.iloc[indice, coluna]), unidade)
-            registros.append((data, indice, rotulo, nivel, valor))
+            registros.append((data, indice, rotulo, valor))
 
     return pd.DataFrame(
         registros,
-        columns=["data", "linha_origem", "rotulo", "nivel_indentacao", "valor_milhoes"],
+        columns=["data", "linha_origem", "rotulo", "valor_milhoes"],
     )
 
 

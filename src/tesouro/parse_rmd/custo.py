@@ -34,7 +34,7 @@ import re
 import pandas as pd
 
 from .. import config
-from ..conversoes import limpar_nulo, mes_para_data, para_milhoes
+from ..conversoes import mes_para_data
 from ..leitura_rmd import (
     aba,
     aplicar_papel,
@@ -88,14 +88,11 @@ def _hierarquia(bruto):
     return papel
 
 
-def _indentacao(texto):
-    return len(texto) - len(texto.lstrip())
-
-
 def _colunas_de_data_4_3(bruto):
     """Mapeia coluna -> data para a aba 4.3, nos seus dois leiautes.
 
-    Devolve (linha_cabecalho, colunas). Ate dez/2020 o mes esta na mesma
+    Devolve (linha_cabecalho, colunas), no formato que o parametro
+    `colunas` de ler_padrao_a aceita. Ate dez/2020 o mes esta na mesma
     linha da coluna, igual as outras abas. De jan/2021 em diante o mes
     vira uma trinca 'Taxa media' / 'Variacao do Indexador' / 'CME', com o
     rotulo do mes uma linha acima; so a coluna 'CME' interessa, pelo
@@ -136,34 +133,18 @@ def _colunas_de_data_4_3(bruto):
     return linha_cme, colunas
 
 
-def _ler_4_3(xl):
-    """Le a aba 4.3 (emissoes) com o leiaute proprio dela -- ver o
-    comentario do modulo e _colunas_de_data_4_3.
-    """
-    bruto = aba(xl, "4.3")
-    linha_cabecalho, colunas = _colunas_de_data_4_3(bruto)
-
-    registros = []
-    for indice in range(linha_cabecalho + 1, len(bruto)):
-        rotulo_bruto = bruto.iloc[indice, 0]
-        if pd.isna(rotulo_bruto) or not str(rotulo_bruto).strip():
-            continue
-        rotulo_bruto = str(rotulo_bruto)
-        rotulo = rotulo_bruto.strip()
-        nivel = _indentacao(rotulo_bruto.replace("\xa0", " "))
-        for coluna, data in colunas.items():
-            valor = para_milhoes(limpar_nulo(bruto.iloc[indice, coluna]), "milhoes")
-            registros.append((data, indice, rotulo, nivel, valor))
-
-    return pd.DataFrame(
-        registros,
-        columns=["data", "linha_origem", "rotulo", "nivel_indentacao", "valor_milhoes"],
-    )
-
-
 def _ler_aba(xl, nome_da_aba):
+    """Le uma das tres abas de custo.
+
+    O laco de linhas e o mesmo das outras abas padrao A; so o mapa
+    coluna->data e diferente na 4.3, e ele entra por parametro em
+    ler_padrao_a.
+    """
     if nome_da_aba == "4.3":
-        return _ler_4_3(xl)
+        return ler_padrao_a(
+            xl, "4.3", "milhoes",
+            colunas=_colunas_de_data_4_3(aba(xl, "4.3")),
+        )
     return ler_padrao_a(xl, nome_da_aba, "milhoes")
 
 

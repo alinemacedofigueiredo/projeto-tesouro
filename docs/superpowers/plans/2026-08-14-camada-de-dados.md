@@ -922,6 +922,17 @@ git commit -m "Adiciona coletor do anexo do RMD e compartilha a escrita atomica"
 
 A indentação do rótulo carrega hierarquia no padrão A (`DPF` → `   DPMFi` → `       LFT`), e é preservada em `nivel_indentacao` para os parsers reconstruírem a árvore.
 
+> **Correção posterior (revisão final, achado C14).** Este parágrafo está
+> errado, e o campo `nivel_indentacao` foi removido. A indentação **não** é
+> hierárquica: na aba 3.7 `Tesouro Nacional` tem recuo 0 enquanto a `DPMFi`
+> que o contém tem 3; na 4.1 `Clube de Paris` tem 8 e as irmãs dele 5; na 1.2
+> todos os rótulos têm recuo 0, inclusive os de esfera. Nenhum parser chegou a
+> usar o campo — a hierarquia sai de `linha_origem` mais conjuntos de rótulo
+> conhecidos, resolvidos por uma máquina de estados em cada parser. A
+> assinatura em produção é
+> `ler_padrao_a(xl, nome_da_aba, unidade, colunas=None)`, devolvendo `data`,
+> `linha_origem`, `rotulo`, `valor_milhoes`.
+
 - [ ] **Step 1: Acrescente a geração da amostra do RMD**
 
 ```python

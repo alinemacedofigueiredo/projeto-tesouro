@@ -1,8 +1,9 @@
 """Abas 2.1, 2.4, 2.7 e 2.8 -- estoque, composicao e detentores.
 
-Todas em R$ bilhoes. A 2.1 e padrao A com hierarquia por indentacao; as
-demais sao padrao B com pares (valor, percentual), dos quais so o valor
-e lido.
+Todas em R$ bilhoes. A 2.1 e padrao A, com a hierarquia resolvida por
+linha_origem mais conjuntos de rotulo conhecidos -- nao pela indentacao,
+que nesta aba (como nas outras) nao e hierarquica; as demais sao padrao B
+com pares (valor, percentual), dos quais so o valor e lido.
 """
 import pandas as pd
 

@@ -15,7 +15,7 @@ def xl():
 def test_padrao_a_devolve_formato_longo(xl):
     df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
     assert list(df.columns) == [
-        "data", "linha_origem", "rotulo", "nivel_indentacao", "valor_milhoes"
+        "data", "linha_origem", "rotulo", "valor_milhoes"
     ]
     assert len(df) > 0
 
@@ -60,11 +60,20 @@ def test_padrao_a_le_a_primeira_data_da_serie(xl):
     assert df["data"].min() == datetime.date(2006, 11, 30)
 
 
-def test_padrao_a_preserva_a_hierarquia_pela_indentacao(xl):
-    df = leitura_rmd.ler_padrao_a(xl, "2.1", "milhoes")
-    niveis = df.groupby("rotulo")["nivel_indentacao"].first()
-    assert niveis["DPF EM PODER DO PÚBLICO"] == 0
-    assert niveis["LFT"] > niveis["DPMFi"]
+def test_padrao_a_aceita_mapa_de_colunas_pre_calculado(xl):
+    # A aba 4.3 precisa disso: de jan/2021 em diante o cabecalho dela tem
+    # dois niveis e o detector generico para na linha errada. O laco de
+    # linhas e o mesmo, so o mapa coluna->data muda.
+    bruto = leitura_rmd.aba(xl, "2.1")
+    linha = leitura_rmd._linha_do_cabecalho_de_meses(bruto)
+    completo = leitura_rmd._colunas_de_data(bruto, linha)
+    duas = dict(list(completo.items())[:2])
+
+    df = leitura_rmd.ler_padrao_a(xl, "2.1", "milhoes", colunas=(linha, duas))
+
+    assert set(df["data"]) == set(duas.values())
+    padrao = leitura_rmd.ler_padrao_a(xl, "2.1", "milhoes")
+    assert set(df["rotulo"]) == set(padrao["rotulo"])
 
 
 def test_padrao_a_converte_bilhoes_para_milhoes(xl):
