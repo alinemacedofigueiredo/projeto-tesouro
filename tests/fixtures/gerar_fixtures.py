@@ -34,11 +34,15 @@ ABAS_DA_AMOSTRA = [
     "4.1", "4.2", "4.3", "5.7", "6.1",
 ]
 
-# 2.1, 2.7 e 2.8 precisam de amostra maior que as demais: 40 linhas nao
-# alcancam os rodapes da 2.1 (por volta das linhas 43-46), nem as datas
-# escritas como texto na 2.7/2.8 ('mar/18*', 'abr/18*'), nem, na 2.8, o
-# segundo bloco de titulo (LTN comeca por volta da linha 193).
-LINHAS_POR_ABA = {"2.1": 60, "2.7": 150, "2.8": 400}
+# 2.1, 2.2, 2.7 e 2.8 precisam de amostra maior que as demais: 40 linhas
+# nao alcancam os rodapes da 2.1 (por volta das linhas 43-46), nem as
+# datas escritas como texto na 2.7/2.8 ('mar/18*', 'abr/18*'), nem, na
+# 2.8, o segundo bloco de titulo (LTN comeca por volta da linha 193). Na
+# 2.2, 40 linhas pegam so parte do bloco Prefixados -- sem nenhum
+# subtotal, nota de rodape ou segundo bloco de indexador (Selic comeca na
+# linha 117, Indices de Precos na 188); 290 alcanca os tres blocos e todo
+# tipo de linha de ruido que a aba intercala entre eles.
+LINHAS_POR_ABA = {"2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400}
 
 # A 2.1 tambem precisa de mais colunas (meses) que as demais abas: o
 # rotulo 'Demais' se repete sob Tesouro Nacional (linha 19) e sob o memo
