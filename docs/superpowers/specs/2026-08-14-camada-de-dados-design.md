@@ -207,7 +207,7 @@ Dezessete CSVs em `data/processed/`.
 | `prazo_medio_por_titulo` | 3.7 | data, nivel, entidade, titulo, prazo_anos |
 | `prazo_medio_por_indexador` | 3.8 | data, nivel, entidade, categoria, prazo_anos |
 | `prazo_medio_emissoes` | 3.9 | data, indexador, prazo_anos |
-| `custo_medio` | 4.1 + 4.2 + 4.3 | data, medida, nivel, titulo, custo_aa_pct |
+| `custo_medio` | 4.1 + 4.2 + 4.3 | data, medida, nivel, entidade, titulo, custo_aa_pct |
 | `paf_metas` | 5.7 | ano, versao, indicador, minimo, maximo, realizado |
 | `reserva_liquidez` | 6.1 | data, reserva_milhoes, valor_prudencial_milhoes, indice_liquidez_meses |
 | `leiloes` | CKAN ds013 | data_leilao, titulo, tipo_leilao, volta, data_liquidacao, data_vencimento, oferta_qtd, taxa_media_pct, taxa_corte_pct, venda_qtd, financeiro_milhoes, venda_bacen_qtd, financeiro_bacen_milhoes, referencia |

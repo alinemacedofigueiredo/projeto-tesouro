@@ -2691,8 +2691,16 @@ git commit -m "Adiciona parsers de prazo medio (abas 3.7, 3.8 e 3.9)"
 **Interfaces:**
 - Consumes: `leitura_rmd.ler_padrao_a`
 - Produces:
-  - `custo.parse(xl) -> DataFrame` — `data, medida, nivel, titulo, custo_aa_pct`
+  - `custo.parse(xl) -> DataFrame` — `data, medida, nivel, entidade, titulo, custo_aa_pct`
   - CSV `custo_medio.csv`
+
+**Estrutura real das três abas, verificada antes de escrever este brief.** As 4.1 e 4.2 têm forma idêntica: `DPF` (linha 6) → `DPMFi` (8) → títulos (9-18) → `DPFe` (20) → `Dívida Mobiliária` (21) → instrumentos (22-26) → `Dívida Contratual` (27) → credores (28-30), e terminam com **duas** notas de rodapé: numerada (`1  Títulos de renegociação...`, linha 33) e prefixada (`Obs: O Tesouro Nacional...`, linha 34). A 4.3 é menor e começa direto em `DPMFi` (linha 6, sem linha de `DPF`), com cinco títulos e uma nota `Obs:` na linha 14.
+
+Os mesmos dois pontos sensíveis das abas de prazo valem aqui:
+- **`Demais` aparece duas vezes** em 4.1 e 4.2 — sob a DPMFi e sob a `Dívida Mobiliária`. A chave da hierarquia tem de ser `linha_origem`.
+- **`Dívida Mobiliária` e `Dívida Contratual` são subgrupos**, não títulos; entram como `entidade`.
+
+A nota da 4.3 diz que os dados mudaram a partir de janeiro de 2021 — o que confirma a suspeita de mudança de layout registrada na spec. Não é problema de parser: o cabeçalho de meses é detectado, não fixado.
 
 **Contexto:** ao contrário das abas de prazo, estas três **compartilham a mesma dimensão** (nível e título) e diferem apenas na medida — por isso viram uma tabela só, com coluna `medida` assumindo `mensal` (4.1), `acum_12m` (4.2) e `emissoes_12m` (4.3). Isso torna a comparação entre custo de emissão e custo de estoque um filtro, não um join. Os valores já vêm em percentual ao ano.
 
@@ -2716,8 +2724,33 @@ def df():
 
 def test_colunas_canonicas(df):
     assert list(df.columns) == [
-        "data", "medida", "nivel", "titulo", "custo_aa_pct"
+        "data", "medida", "nivel", "entidade", "titulo", "custo_aa_pct"
     ]
+
+
+def test_demais_da_dpmfi_nao_se_confunde_com_o_da_dpfe(df):
+    # 'Demais' aparece duas vezes em 4.1 e 4.2: sob a DPMFi e sob a
+    # Divida Mobiliaria. Indexado por rotulo, o segundo sobrescreve o
+    # primeiro e a linha da DPMFi acaba dentro da DPFe.
+    demais = df[df["titulo"] == "Demais"]
+    assert {"DPMFi", "DPFe"} <= set(demais["nivel"].unique())
+    assert not df.duplicated(
+        subset=["data", "medida", "nivel", "entidade", "titulo"]
+    ).any()
+
+
+def test_subgrupos_da_dpfe_sao_entidade_e_nao_titulo(df):
+    assert "Dívida Mobiliária" not in set(df["titulo"].dropna().unique())
+    assert "Dívida Mobiliária" in set(df["entidade"].dropna().unique())
+    assert "Dívida Contratual" in set(df["entidade"].dropna().unique())
+
+
+def test_ignora_as_duas_formas_de_nota_de_rodape(df):
+    # As abas terminam com nota numerada ('1  Titulos de renegociacao')
+    # e com nota prefixada ('Obs: O Tesouro Nacional...').
+    rotulos = [str(v) for v in df["titulo"].dropna().unique()]
+    assert not any(r[:1].isdigit() for r in rotulos)
+    assert not any(r.lower().startswith("obs") for r in rotulos)
 
 
 def test_traz_as_tres_medidas(df):
@@ -2761,6 +2794,8 @@ das emissoes com o custo do estoque -- o grafico mais informativo da secao
 Custo negativo e legitimo e nao deve ser filtrado: aparece na 4.1 para a
 NTN-D em 2005.
 """
+import re
+
 import pandas as pd
 
 from .. import config
@@ -2770,34 +2805,70 @@ _ABAS = {"4.1": "mensal", "4.2": "acum_12m", "4.3": "emissoes_12m"}
 
 _ESFERAS = {"DPF", "DPMFi", "DPFe"}
 
+# Subgrupos da DPFe, no mesmo papel que 'Tesouro Nacional' tem na DPMFi.
+_ENTIDADES = {"Dívida Mobiliária", "Dívida Contratual"}
 
-def _por_aba(xl, aba, medida):
-    bruto = ler_padrao_a(xl, aba, "milhoes")
+# As abas terminam com duas formas de nota: numerada ('1  Titulos de
+# renegociacao...') e prefixada ('Obs: O Tesouro Nacional...').
+_PADRAO_NOTA = re.compile(r"^(?:\d+\s|obs)", re.IGNORECASE)
 
-    ordem = bruto.drop_duplicates(subset=["rotulo"])["rotulo"].tolist()
+
+def _hierarquia(bruto):
+    """Marca cada linha com nivel, entidade e titulo.
+
+    A chave e linha_origem, nunca o rotulo: 'Demais' aparece duas vezes
+    em cada aba -- uma sob a DPMFi e outra sob a Divida Mobiliaria -- e
+    indexar por texto faria a segunda sobrescrever a primeira, jogando a
+    linha da DPMFi para dentro da DPFe sem erro nenhum.
+    """
+    ordem = (
+        bruto.drop_duplicates(subset=["linha_origem"])
+        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
+    )
+
     papel = {}
     nivel = None
-    for rotulo in ordem:
-        limpo = rotulo.strip()
-        if limpo in _ESFERAS:
-            nivel = limpo
-            papel[rotulo] = (nivel, None)
-        else:
-            papel[rotulo] = (nivel, limpo)
+    entidade = None
 
-    df = bruto.copy()
+    for _, linha in ordem.iterrows():
+        rotulo = str(linha["rotulo"]).strip()
+        origem = linha["linha_origem"]
+
+        if _PADRAO_NOTA.match(rotulo):
+            continue  # nota de rodape
+
+        if rotulo in _ESFERAS:
+            nivel, entidade = rotulo, None
+            papel[origem] = (nivel, None, None)
+        elif rotulo in _ENTIDADES:
+            entidade = rotulo
+            papel[origem] = (nivel, entidade, None)
+        else:
+            papel[origem] = (nivel, entidade, rotulo)
+
+    return papel
+
+
+def _por_aba(xl, nome_da_aba, medida):
+    bruto = ler_padrao_a(xl, nome_da_aba, "milhoes")
+    papel = _hierarquia(bruto)
+
+    df = bruto[bruto["linha_origem"].isin(papel)].copy()
     df["medida"] = medida
-    df["nivel"] = [papel[r][0] for r in df["rotulo"]]
-    df["titulo"] = [papel[r][1] for r in df["rotulo"]]
+    df["nivel"] = [papel[o][0] for o in df["linha_origem"]]
+    df["entidade"] = [papel[o][1] for o in df["linha_origem"]]
+    df["titulo"] = [papel[o][2] for o in df["linha_origem"]]
     return df.rename(columns={"valor_milhoes": "custo_aa_pct"})
 
 
 def parse(xl):
-    partes = [_por_aba(xl, aba, medida) for aba, medida in _ABAS.items()]
+    partes = [_por_aba(xl, nome, medida) for nome, medida in _ABAS.items()]
     df = pd.concat(partes, ignore_index=True)
     return df[
-        ["data", "medida", "nivel", "titulo", "custo_aa_pct"]
-    ].sort_values(["data", "medida", "nivel", "titulo"]).reset_index(drop=True)
+        ["data", "medida", "nivel", "entidade", "titulo", "custo_aa_pct"]
+    ].sort_values(
+        ["data", "medida", "nivel", "entidade", "titulo"]
+    ).reset_index(drop=True)
 
 
 def gravar(xl):
