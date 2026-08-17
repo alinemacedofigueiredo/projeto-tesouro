@@ -52,7 +52,7 @@ Emissões e resgates da DPF por indexador, mês a mês. Origem: aba 1.2.
 | `data` | data | Último dia do mês |
 | `esfera` | texto | `DPMFi` ou `DPFe` |
 | `operacao` | texto | `emissao` ou `resgate` |
-| `indexador` | texto | Indexador na DPMFi (Prefixado/Prefixados, Taxa Flutuante, Índice de Preços, Demais); moeda na DPFe (Dólar, Euro, Real, Câmbio, Demais) |
+| `indexador` | texto | Indexador na DPMFi (`Prefixado`/`Prefixados`, `Taxa Flutuante`, `Índice de Preços`, `Câmbio`, `Demais`); moeda na DPFe (`Dólar`, `Euro`, `Real`, `Demais`) |
 | `valor_milhoes` | número | R$ milhões |
 
 **Atenção:** `esfera` entra na chave porque "Demais" existe nas duas esferas
