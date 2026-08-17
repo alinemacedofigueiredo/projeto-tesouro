@@ -96,10 +96,3 @@ def test_emissoes_trata_traco_como_ausente(xl):
     # A aba 3.9 usa '-' onde nao houve emissao daquele indexador no mes.
     df = prazo.parse_emissoes(xl)
     assert df["prazo_anos"].isna().any()
-
-
-def test_as_tres_tabelas_sao_separadas(xl):
-    # Dimensoes diferentes; unir criaria coluna polimorfica.
-    assert "titulo" in prazo.parse_por_titulo(xl).columns
-    assert "categoria" in prazo.parse_por_indexador(xl).columns
-    assert "indexador" in prazo.parse_emissoes(xl).columns

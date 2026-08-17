@@ -1,5 +1,4 @@
 import datetime
-import math
 import pandas as pd
 import pytest
 from tesouro import conversoes

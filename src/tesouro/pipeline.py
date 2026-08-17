@@ -24,6 +24,15 @@ def main(argumentos=None):
     analisador.add_argument("--mes", type=int, help="mes do RMD a baixar")
     opcoes = analisador.parse_args(argumentos)
 
+    if opcoes.sem_coleta and (opcoes.ano or opcoes.mes):
+        # Combinacao plausivel: o README ensina as duas formas em blocos
+        # vizinhos. Sem o aviso, o operador fica achando que escolheu o mes,
+        # quando na verdade o pipeline usou o .xlsx mais recente da pasta.
+        print(
+            "aviso: --ano/--mes sao ignorados com --sem-coleta; o pipeline "
+            "usa o RMD mais recente ja presente em data/raw/rmd/"
+        )
+
     if not opcoes.sem_coleta:
         from . import fetch_leiloes, fetch_rmd
         fetch_leiloes.baixar()
