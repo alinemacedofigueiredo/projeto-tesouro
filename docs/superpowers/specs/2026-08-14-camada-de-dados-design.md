@@ -201,7 +201,7 @@ Dezessete CSVs em `data/processed/`.
 | `composicao_dpf` | 2.4 | data, indexador, valor_milhoes |
 | `detentores` | 2.7 | data, detentor, valor_milhoes |
 | `detentores_por_titulo` | 2.8 | data, detentor, titulo, valor_milhoes |
-| `vencimentos_faixa` | 3.1 | data, faixa, valor_milhoes |
+| `vencimentos_faixa` | 3.1 | data, nivel, faixa, valor_milhoes |
 | `vencer_12m_indexador` | 3.3 | data, indexador, valor_milhoes |
 | `cronograma_vencimentos` | 3.4 | **data_referencia**, mes_vencimento, grupo_titulo, valor_milhoes |
 | `prazo_medio_por_titulo` | 3.7 | data, nivel, entidade, titulo, prazo_anos |

@@ -1182,15 +1182,24 @@ def ler_padrao_a(xl, nome_da_aba, unidade):
     )
 
 
-def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categoria=2):
+def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade,
+                 colunas_por_categoria=2, linha_final=None):
     """Le uma aba com meses nas linhas e categorias nas colunas.
 
     Assume que a coluna 0 traz a data e que cada categoria ocupa
     `colunas_por_categoria` colunas a partir da coluna 1, sendo a primeira
     delas o valor. As demais (tipicamente o percentual) sao ignoradas, por
     serem derivadas.
+
+    `linha_final` limita a leitura, exclusive. Serve para abas que
+    empilham mais de um bloco verticalmente -- a 3.1 tem tres (DPF, DPMFi
+    e DPFe), cada um com o seu cabecalho e a sua serie completa. Sem esse
+    limite, os blocos se misturariam: a mesma data apareceria tres vezes
+    com valores diferentes e nada diria a qual bloco cada uma pertence.
     """
     bruto = aba(xl, nome_da_aba)
+    if linha_final is None:
+        linha_final = len(bruto)
 
     categorias = {}
     coluna = 1
@@ -1201,8 +1210,8 @@ def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categori
         coluna += colunas_por_categoria
 
     registros = []
-    for indice in range(linha_cabecalho + 1, len(bruto)):
-        data = normalizar_data(bruto.iloc[indice, 0])
+    for indice in range(linha_cabecalho + 1, linha_final):
+        data = data_da_celula(bruto.iloc[indice, 0])
         if data is None:
             continue
         for coluna, categoria in categorias.items():
@@ -2122,12 +2131,19 @@ git commit -m "Adiciona parser do estoque por vencimento (aba 2.2)"
 
 **Files:**
 - Create: `src/tesouro/parse_rmd/vencimentos.py`
+- Modify: `tests/fixtures/gerar_fixtures.py` (a aba 3.1 precisa da planilha inteira)
 - Test: `tests/test_vencimentos.py`
 
+**A aba 3.1 tem três blocos empilhados.** `DPF` na linha 4, `DPMFi` na 256 e `DPFe` na 581, cada um com o rótulo numa linha isolada, o cabeçalho de faixas duas linhas depois, e a série mensal completa em seguida. Lidos de uma vez, os três se misturam: cada data aparece três vezes, com valores diferentes e nada dizendo a qual série pertence. Daí a coluna `nivel` na tabela e o parâmetro `linha_final` no leitor genérico.
+
+Como o último bloco começa na linha 581, a amostra de teste precisa da aba quase inteira: acrescente `"3.1": 840` ao `LINHAS_POR_ABA`. Sem isso os testes dos três blocos não têm como falhar.
+
+As linhas agregadas da aba 3.4 (`Em 12 meses`, `Em 24 meses`, …, `Total`, `Participação`, nas linhas 68 a 75) e as notas de rodapé das três abas têm texto na primeira coluna, então já são descartadas pela verificação de data — não precisam de tratamento próprio.
+
 **Interfaces:**
-- Consumes: `leitura_rmd.ler_padrao_b`, `conversoes.*`
+- Consumes: `leitura_rmd.ler_padrao_b` (com `linha_final`), `leitura_rmd.aba`, `conversoes.*`
 - Produces:
-  - `vencimentos.parse_por_faixa(xl) -> DataFrame` — `data, faixa, valor_milhoes`
+  - `vencimentos.parse_por_faixa(xl) -> DataFrame` — `data, nivel, faixa, valor_milhoes`
   - `vencimentos.parse_a_vencer_12m(xl) -> DataFrame` — `data, indexador, valor_milhoes`
   - `vencimentos.parse_cronograma(xl) -> DataFrame` — `data_referencia, mes_vencimento, grupo_titulo, valor_milhoes`
   - CSVs `vencimentos_faixa.csv`, `vencer_12m_indexador.csv`, `cronograma_vencimentos.csv`
@@ -2155,7 +2171,7 @@ def xl():
 
 def test_faixa_tem_as_colunas_canonicas(xl):
     df = vencimentos.parse_por_faixa(xl)
-    assert list(df.columns) == ["data", "faixa", "valor_milhoes"]
+    assert list(df.columns) == ["data", "nivel", "faixa", "valor_milhoes"]
 
 
 def test_faixa_cobre_as_seis_faixas(xl):
@@ -2163,6 +2179,23 @@ def test_faixa_cobre_as_seis_faixas(xl):
     faixas = set(df["faixa"].unique())
     assert "Até 12 meses" in faixas
     assert "Acima de 5 anos" in faixas
+
+
+def test_faixa_separa_os_tres_blocos_empilhados(xl):
+    # A aba 3.1 traz DPF, DPMFi e DPFe um abaixo do outro, cada um com a
+    # serie completa. Lidos juntos, cada data apareceria tres vezes sem
+    # nada dizendo a qual serie pertence.
+    df = vencimentos.parse_por_faixa(xl)
+    assert set(df["nivel"].unique()) == {"DPF", "DPMFi", "DPFe"}
+    assert not df.duplicated(subset=["data", "nivel", "faixa"]).any()
+
+
+def test_faixa_dpf_e_maior_que_dpmfi(xl):
+    # DPF = DPMFi + DPFe, entao o total tem de ser maior que a parte.
+    # Se os blocos tivessem se misturado, os niveis viriam iguais.
+    df = vencimentos.parse_por_faixa(xl)
+    por_nivel = df.groupby("nivel")["valor_milhoes"].sum()
+    assert por_nivel["DPF"] > por_nivel["DPMFi"] > 0
 
 
 def test_faixa_trata_nd_como_ausente(xl):
@@ -2224,11 +2257,60 @@ _PADRAO_FECHAMENTO = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
 _COLUNAS_DERIVADAS = {"part %", "total"}
 
 
+_NIVEIS_DA_31 = ("DPF", "DPMFi", "DPFe")
+
+
+def _blocos_da_31(bruto):
+    """Acha os blocos empilhados da aba 3.1.
+
+    A aba traz tres series completas uma abaixo da outra -- DPF, DPMFi e
+    DPFe -- cada uma com o rotulo numa linha isolada, o cabecalho de
+    faixas duas linhas depois, e os meses em seguida. Ler a aba de uma vez
+    so misturaria as tres: cada data apareceria tres vezes, com valores
+    diferentes e nada dizendo a qual serie pertence.
+
+    Devolve [(nivel, linha_cabecalho, linha_final), ...].
+    """
+    inicios = []
+    for indice in range(len(bruto)):
+        celula = bruto.iloc[indice, 0]
+        if pd.isna(celula) or not isinstance(celula, str):
+            continue
+        if celula.strip() in _NIVEIS_DA_31:
+            inicios.append((celula.strip(), indice))
+
+    if not inicios:
+        raise LookupError(
+            "aba 3.1: nenhum bloco DPF/DPMFi/DPFe encontrado; "
+            "o layout da aba pode ter mudado"
+        )
+
+    blocos = []
+    for ordem, (nivel, linha) in enumerate(inicios):
+        fim = inicios[ordem + 1][1] if ordem + 1 < len(inicios) else len(bruto)
+        blocos.append((nivel, linha + 2, fim))
+    return blocos
+
+
 def parse_por_faixa(xl):
-    """Aba 3.1 -- vencimentos da DPF por faixa de prazo."""
-    df = ler_padrao_b(xl, "3.1", linha_cabecalho=6, unidade="bilhoes")
-    df = df[~df["categoria"].str.lower().isin(_COLUNAS_DERIVADAS)]
-    return df.rename(columns={"categoria": "faixa"}).reset_index(drop=True)
+    """Aba 3.1 -- vencimentos por faixa de prazo, nos tres niveis."""
+    bruto = aba(xl, "3.1")
+
+    partes = []
+    for nivel, linha_cabecalho, linha_final in _blocos_da_31(bruto):
+        parte = ler_padrao_b(
+            xl, "3.1", linha_cabecalho=linha_cabecalho, unidade="bilhoes",
+            linha_final=linha_final,
+        )
+        parte = parte[~parte["categoria"].str.lower().isin(_COLUNAS_DERIVADAS)]
+        partes.append(parte.assign(nivel=nivel))
+
+    df = pd.concat(partes, ignore_index=True).rename(
+        columns={"categoria": "faixa"}
+    )
+    return df[["data", "nivel", "faixa", "valor_milhoes"]].sort_values(
+        ["data", "nivel", "faixa"]
+    ).reset_index(drop=True)
 
 
 def parse_a_vencer_12m(xl):
