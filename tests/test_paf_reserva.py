@@ -124,3 +124,49 @@ def test_reserva_converte_bilhoes_mas_nao_o_indice(xl):
     # 71,998 bilhoes viram 71.998 milhoes; o indice em meses fica intacto.
     assert primeira["reserva_milhoes"] == pytest.approx(71997.6, abs=1.0)
     assert primeira["indice_liquidez_meses"] == pytest.approx(1.713, abs=0.01)
+
+
+def _aba_6_1(colunas_extra=0, cabecalhos=None):
+    """Uma 6.1 sintetica, opcionalmente com colunas inseridas antes dos dados."""
+    if cabecalhos is None:
+        cabecalhos = [
+            "Reserva de Liquidez", "Valor Prudencial (3 meses)",
+            "Índice de Liquidez",
+        ]
+    vazias = [None] * colunas_extra
+    return pd.DataFrame([
+        [None, *vazias, None, None, None],
+        ["Mês", *vazias, *cabecalhos],
+        [None, *vazias, "(R$ Bilhões)", "(R$ Bilhões)", "(Meses)"],
+        [datetime.date(2015, 1, 31), *vazias, 72.0, 205.5, 1.71],
+        [datetime.date(2015, 2, 28), *vazias, 133.8, 263.2, 1.54],
+    ])
+
+
+def test_reserva_acha_as_colunas_pelo_cabecalho_e_nao_pela_posicao(monkeypatch):
+    """Uma coluna inserida na aba nao pode deslocar as grandezas.
+
+    Era o unico parser do projeto que nao conferia nada: com posicoes
+    fixas, reserva_milhoes passaria a trazer outra coluna sem erro nenhum.
+    """
+    monkeypatch.setattr(
+        paf_reserva, "aba", lambda *a, **k: _aba_6_1(colunas_extra=2)
+    )
+
+    df = paf_reserva.parse_reserva(None)
+
+    assert len(df) == 2
+    primeira = df.sort_values("data").iloc[0]
+    assert primeira["reserva_milhoes"] == pytest.approx(72_000.0)
+    assert primeira["valor_prudencial_milhoes"] == pytest.approx(205_500.0)
+    assert primeira["indice_liquidez_meses"] == pytest.approx(1.71)
+
+
+def test_reserva_falha_alto_se_o_cabecalho_mudar(monkeypatch):
+    monkeypatch.setattr(
+        paf_reserva, "aba",
+        lambda *a, **k: _aba_6_1(cabecalhos=["Coluna A", "Coluna B", "Coluna C"]),
+    )
+
+    with pytest.raises(LookupError, match="6.1"):
+        paf_reserva.parse_reserva(None)

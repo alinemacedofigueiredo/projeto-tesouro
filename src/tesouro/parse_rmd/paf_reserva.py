@@ -164,25 +164,90 @@ def parse_paf(xl):
     ).sort_values(["ano", "versao", "indicador"]).reset_index(drop=True)
 
 
+# Cabecalho da aba 6.1, em fragmentos: o texto de cada coluna diz que
+# grandeza ela traz. O fragmento do indice comeca em 'ndice' de proposito
+# -- a grafia com e sem acento varia entre abas do anexo (a 2.4 escreve
+# 'Indice Precos' onde a 2.2 escreve 'Indices de Precos'), e nao vale a
+# pena que a leitura dependa disso.
+_CABECALHOS_6_1 = (
+    ("reserva de liquidez", "reserva_milhoes"),
+    ("valor prudencial", "valor_prudencial_milhoes"),
+    ("ndice de liquidez", "indice_liquidez_meses"),
+)
+
+_COL_DATA_6_1 = 0
+_CABECALHO_DATA_6_1 = {"mes", "mês"}
+
+
+def _colunas_da_reserva(bruto):
+    """Acha as colunas da aba 6.1 pelo texto do cabecalho.
+
+    Ler por posicao fixa e o unico ponto do projeto onde um parser nao
+    confere nada: se o Tesouro inserir uma coluna na aba, reserva_milhoes
+    passa a trazer outra grandeza sem erro nenhum. Conferir o cabecalho
+    custa pouco e falha alto.
+    """
+    for indice in range(len(bruto)):
+        achados = {}
+        for coluna in range(1, len(bruto.columns)):
+            celula = bruto.iloc[indice, coluna]
+            if pd.isna(celula):
+                continue
+            texto = str(celula).strip().lower()
+            for fragmento, nome in _CABECALHOS_6_1:
+                if fragmento in texto:
+                    achados.setdefault(nome, coluna)
+        if len(achados) < len(_CABECALHOS_6_1):
+            continue
+        rotulo_da_data = str(bruto.iloc[indice, _COL_DATA_6_1]).strip().lower()
+        if rotulo_da_data not in _CABECALHO_DATA_6_1:
+            raise LookupError(
+                f"aba 6.1: a coluna {_COL_DATA_6_1} do cabecalho deveria ser "
+                f"a do mes, mas traz {rotulo_da_data!r}"
+            )
+        return achados
+
+    esperados = [fragmento for fragmento, _ in _CABECALHOS_6_1]
+    raise LookupError(
+        f"aba 6.1: nenhuma linha de cabecalho com as tres colunas "
+        f"esperadas ({', '.join(esperados)}). O layout da aba pode ter "
+        f"mudado -- ler por posicao fixa traria outra grandeza em silencio."
+    )
+
+
 def parse_reserva(xl):
     """Aba 6.1 -- reserva de liquidez.
 
-    As duas primeiras colunas sao R$ bilhoes; a terceira e um indice em
-    meses e nao pode ser convertida.
+    As duas colunas de valor sao R$ bilhoes; o indice de liquidez esta em
+    meses e nao pode ser convertido.
+
+    As colunas sao localizadas pelo texto do cabecalho, nao por posicao --
+    ver _colunas_da_reserva.
     """
     bruto = aba(xl, "6.1")
+    colunas = _colunas_da_reserva(bruto)
 
     registros = []
     for indice in range(len(bruto)):
         # data_da_celula, e nao normalizar_data: se um mes futuro vier
         # escrito como texto (ja acontece nas abas 2.7 e 2.8), ele entra
         # em vez de desaparecer da serie em silencio.
-        data = data_da_celula(bruto.iloc[indice, 0])
+        data = data_da_celula(bruto.iloc[indice, _COL_DATA_6_1])
         if data is None:
             continue
-        reserva = para_milhoes(limpar_nulo(bruto.iloc[indice, 1]), "bilhoes")
-        prudencial = para_milhoes(limpar_nulo(bruto.iloc[indice, 2]), "bilhoes")
-        indice_meses = limpar_nulo(bruto.iloc[indice, 3])
+        reserva = para_milhoes(
+            limpar_nulo(bruto.iloc[indice, colunas["reserva_milhoes"]]),
+            "bilhoes",
+        )
+        prudencial = para_milhoes(
+            limpar_nulo(
+                bruto.iloc[indice, colunas["valor_prudencial_milhoes"]]
+            ),
+            "bilhoes",
+        )
+        indice_meses = limpar_nulo(
+            bruto.iloc[indice, colunas["indice_liquidez_meses"]]
+        )
         registros.append((data, reserva, prudencial, indice_meses))
 
     return pd.DataFrame(
