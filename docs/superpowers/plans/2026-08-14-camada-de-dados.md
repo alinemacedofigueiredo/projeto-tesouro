@@ -719,17 +719,23 @@ git commit -m "Adiciona parser do historico de leiloes"
 ### Task 4: Coletor do anexo do RMD
 
 **Files:**
+- Create: `src/tesouro/gravacao.py`
 - Create: `src/tesouro/fetch_rmd.py`
+- Modify: `src/tesouro/fetch_leiloes.py` (passa a usar o utilitário compartilhado)
+- Modify: `tests/test_fetch_leiloes.py` (testes do utilitário migram junto)
 - Test: `tests/test_fetch_rmd.py`
 
 **Interfaces:**
-- Consumes: `config.RMD_DIR`
+- Consumes: `config.RMD_DIR`, `gravacao.gravar_atomico`
 - Produces:
+  - `gravacao.gravar_atomico(conteudo: bytes, caminho: Path) -> None`
   - `fetch_rmd.url_da_publicacao(ano: int, mes: int) -> str`
   - `fetch_rmd.link_do_anexo(html: str) -> str`
   - `fetch_rmd.baixar(ano: int, mes: int, destino: Path | None = None) -> Path`
 
 **Contexto:** o anexo fica num servidor de arquivos com ID numérico imprevisível, que muda a cada publicação. Não dá para montar a URL: é preciso abrir a página do mês e extrair o link de lá.
+
+**Escrita atômica compartilhada.** A Tarefa 2 criou `_gravar_atomico` dentro de `fetch_leiloes.py`, depois que a revisão apontou que escrever direto no caminho final deixa arquivo truncado em `data/raw/` quando o processo morre no meio — e a execução seguinte o aceita como completo. Este coletor tem exatamente o mesmo problema, então a função sobe para um módulo próprio, `gravacao.py`, e os dois coletores passam a usá-la. Mova a função e os seus três testes; não duplique.
 
 - [ ] **Step 1: Escreva o teste que falha**
 
@@ -774,7 +780,13 @@ def test_url_da_publicacao_rejeita_mes_invalido():
 Run: `python -m pytest tests/test_fetch_rmd.py -v`
 Expected: FAIL com `ModuleNotFoundError: No module named 'tesouro.fetch_rmd'`
 
-- [ ] **Step 3: Implemente o coletor**
+- [ ] **Step 3: Extraia o utilitário de escrita atômica para `gravacao.py`**
+
+Mova `_gravar_atomico` de `src/tesouro/fetch_leiloes.py` para um módulo novo, renomeando para `gravar_atomico` (agora é pública). Mova junto os três testes que a exercitam, de `tests/test_fetch_leiloes.py` para `tests/test_gravacao.py`. Ajuste `fetch_leiloes.py` para importar do novo lugar. Preserve o comportamento exatamente: escrita no `.part`, `Path.replace` só depois da escrita completa, limpeza do `.part` com relance da exceção em qualquer falha.
+
+Rode `python -m pytest tests/ -v` depois de mover: a contagem total tem que continuar a mesma, só distribuída em outro arquivo.
+
+- [ ] **Step 4: Implemente o coletor**
 
 ```python
 """Baixa o anexo (tabelas) do Relatorio Mensal da Divida.
@@ -793,6 +805,7 @@ import zipfile
 from pathlib import Path
 
 from . import config
+from .gravacao import gravar_atomico
 
 BASE = (
     "https://www.tesourotransparente.gov.br/publicacoes/"
@@ -854,10 +867,10 @@ def baixar(ano, mes, destino=None):
                 )
             nome = planilhas[0]
             caminho = destino / Path(nome).name
-            caminho.write_bytes(zf.read(nome))
+            gravar_atomico(zf.read(nome), caminho)
     else:
         caminho = destino / f"Anexo RMD_{ano}_{mes:02d}.xlsx"
-        caminho.write_bytes(conteudo)
+        gravar_atomico(conteudo, caminho)
 
     print(f"salvo em {caminho} ({caminho.stat().st_size / 1e6:.1f} MB)")
     return caminho
@@ -870,16 +883,16 @@ if __name__ == "__main__":
     baixar(int(sys.argv[1]), int(sys.argv[2]))
 ```
 
-- [ ] **Step 4: Rode o teste e confirme que passa**
+- [ ] **Step 5: Rode os testes e confirme que passam**
 
-Run: `python -m pytest tests/test_fetch_rmd.py -v`
-Expected: PASS, 4 testes
+Run: `python -m pytest tests/ -v`
+Expected: PASS — os 4 testes novos de `test_fetch_rmd.py`, mais os anteriores, com os três de escrita atômica agora em `test_gravacao.py`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/tesouro/fetch_rmd.py tests/test_fetch_rmd.py
-git commit -m "Adiciona coletor do anexo do RMD"
+git add src/tesouro/gravacao.py src/tesouro/fetch_rmd.py src/tesouro/fetch_leiloes.py tests/test_gravacao.py tests/test_fetch_rmd.py tests/test_fetch_leiloes.py
+git commit -m "Adiciona coletor do anexo do RMD e compartilha a escrita atomica"
 ```
 
 ---
