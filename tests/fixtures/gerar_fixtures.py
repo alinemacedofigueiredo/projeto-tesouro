@@ -42,7 +42,13 @@ ABAS_DA_AMOSTRA = [
 # subtotal, nota de rodape ou segundo bloco de indexador (Selic comeca na
 # linha 117, Indices de Precos na 188); 290 alcanca os tres blocos e todo
 # tipo de linha de ruido que a aba intercala entre eles.
-LINHAS_POR_ABA = {"2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400}
+#
+# A 3.1 empilha tres blocos completos (DPF, DPMFi, DPFe) na mesma aba; o
+# ultimo comeca por volta da linha 581 e so termina perto do fim real da
+# aba (834 linhas). Com o corte padrao de 40, a amostra so pegaria o
+# comeco do bloco DPF, e os testes que separam os tres niveis nao teriam
+# como falhar mesmo se o parser misturasse tudo.
+LINHAS_POR_ABA = {"2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840}
 
 # A 2.1 tambem precisa de mais colunas (meses) que as demais abas: o
 # rotulo 'Demais' se repete sob Tesouro Nacional (linha 19) e sob o memo

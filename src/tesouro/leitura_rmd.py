@@ -113,15 +113,22 @@ def ler_padrao_a(xl, nome_da_aba, unidade):
     )
 
 
-def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categoria=2):
+def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categoria=2,
+                  linha_final=None):
     """Le uma aba com meses nas linhas e categorias nas colunas.
 
     Assume que a coluna 0 traz a data e que cada categoria ocupa
     `colunas_por_categoria` colunas a partir da coluna 1, sendo a primeira
     delas o valor. As demais (tipicamente o percentual) sao ignoradas, por
     serem derivadas.
+
+    `linha_final` limita a leitura a [linha_cabecalho, linha_final) -- usado
+    pela aba 3.1, que empilha tres blocos (DPF, DPMFi, DPFe) na mesma aba;
+    sem o limite, o bloco seguinte vazaria para dentro do anterior. O
+    padrao None preserva o comportamento de ler ate o fim da aba.
     """
     bruto = aba(xl, nome_da_aba)
+    fim = len(bruto) if linha_final is None else linha_final
 
     categorias = {}
     coluna = 1
@@ -132,7 +139,7 @@ def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categori
         coluna += colunas_por_categoria
 
     registros = []
-    for indice in range(linha_cabecalho + 1, len(bruto)):
+    for indice in range(linha_cabecalho + 1, fim):
         data = data_da_celula(bruto.iloc[indice, 0])
         if data is None:
             continue
