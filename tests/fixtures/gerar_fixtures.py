@@ -57,7 +57,14 @@ LINHAS_POR_ABA = {"2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840}
 # ficam sem nenhum dado na amostra e o filtro de nota de rodape (que
 # descarta titulo sem valor em toda a serie) as removeria, mascarando o
 # teste de colisao de rotulo em 'Demais' (ver test_estoque.py).
-COLUNAS_POR_ABA = {"2.1": 65}
+#
+# A 4.2 tambem precisa de mais colunas: seu primeiro mes e Dez/05, mas a
+# 4.3 (emissoes) so comeca em Dez/10 e, com o corte padrao de 30 colunas,
+# vai ate Abr/13 (coluna 89 de Dez/05). Com 30 colunas a 4.2 amostrada
+# para em meados de 2008, antes da 4.3 sequer comecar, e o teste que
+# compara as duas medidas pela mesma data (custo do estoque vs. custo das
+# emissoes) nao teria nenhuma data em comum para verificar.
+COLUNAS_POR_ABA = {"2.1": 65, "4.2": 95}
 
 
 def gerar_rmd():
