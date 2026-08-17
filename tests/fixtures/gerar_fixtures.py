@@ -34,10 +34,20 @@ ABAS_DA_AMOSTRA = [
     "4.1", "4.2", "4.3", "5.7", "6.1",
 ]
 
-# 2.7 e 2.8 precisam de amostra maior que as demais: 40 linhas nao alcancam
-# as datas escritas como texto ('mar/18*', 'abr/18*') nem, na 2.8, o
+# 2.1, 2.7 e 2.8 precisam de amostra maior que as demais: 40 linhas nao
+# alcancam os rodapes da 2.1 (por volta das linhas 43-46), nem as datas
+# escritas como texto na 2.7/2.8 ('mar/18*', 'abr/18*'), nem, na 2.8, o
 # segundo bloco de titulo (LTN comeca por volta da linha 193).
-LINHAS_POR_ABA = {"2.7": 150, "2.8": 400}
+LINHAS_POR_ABA = {"2.1": 60, "2.7": 150, "2.8": 400}
+
+# A 2.1 tambem precisa de mais colunas (meses) que as demais abas: o
+# rotulo 'Demais' se repete sob Tesouro Nacional (linha 19) e sob o memo
+# de DPMFi no Banco Central (linha 40), mas essas duas series so comecam
+# em Jan/06 (coluna 62) -- com o corte padrao de 30 colunas, as duas
+# ficam sem nenhum dado na amostra e o filtro de nota de rodape (que
+# descarta titulo sem valor em toda a serie) as removeria, mascarando o
+# teste de colisao de rotulo em 'Demais' (ver test_estoque.py).
+COLUNAS_POR_ABA = {"2.1": 65}
 
 
 def gerar_rmd():
@@ -65,7 +75,7 @@ def gerar_rmd():
             # colunas) sem erro.
             linhas = LINHAS_POR_ABA.get(aba, 40)
             bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=linhas)
-            bruto = bruto.iloc[:, :30]
+            bruto = bruto.iloc[:, :COLUNAS_POR_ABA.get(aba, 30)]
             bruto.to_excel(escritor, sheet_name=aba, header=False, index=False)
     print(f"gerado: {destino}")
 

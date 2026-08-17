@@ -12,7 +12,18 @@ from ..leitura_rmd import aba, ler_padrao_a, ler_padrao_b
 
 _EM_PODER_DO_PUBLICO = "DPF EM PODER DO PÚBLICO"
 _DPMFI_NO_BACEN = "DPMFi EM PODER DO BANCO CENTRAL"
-_ENTIDADES = {"Tesouro Nacional", "Banco Central"}
+# 'Divida Mobiliaria' e 'Divida Contratual' sao cabecalhos de subgrupo
+# dentro de DPFe, nao titulos: a celula deles traz o subtotal exato dos
+# titulos logo abaixo (conferido contra o arquivo real, todas as datas).
+# Tratados como entidade -- o mesmo papel de 'Tesouro Nacional' e 'Banco
+# Central' sob DPMFi -- ficam com titulo=None e os titulos abaixo herdam
+# a entidade; sem isso, o subtotal e gravado como se fosse titulo folha e
+# um consumidor que some por titulo.notna() conta a divida externa em
+# dobro.
+_ENTIDADES = {
+    "Tesouro Nacional", "Banco Central",
+    "Dívida Mobiliária", "Dívida Contratual",
+}
 _ESFERAS = {"DPMFi", "DPFe"}
 
 
@@ -41,6 +52,14 @@ def parse_dpf(xl):
     de verdade (nao derivado), mas nao faz parte da hierarquia DPF em
     poder do publico / DPFe descrita no anexo -- por isso ganha o proprio
     nivel, em vez de ser absorvida (errado) pelo nivel DPFe corrente.
+
+    Dentro de DPFe, 'Divida Mobiliaria' e 'Divida Contratual' sao
+    cabecalhos de subgrupo, nao titulos: a celula deles traz o subtotal
+    exato da soma dos titulos logo abaixo. Tratados como entidade (o
+    mesmo papel de 'Tesouro Nacional'/'Banco Central' sob DPMFi), ficam
+    com titulo=None; sem isso, o subtotal e gravado como se fosse titulo
+    folha e some junto com os titulos reais, contando a divida externa em
+    dobro para quem agrupar por titulo.notna().
     """
     bruto = ler_padrao_a(xl, "2.1", "bilhoes")
 
