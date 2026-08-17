@@ -15,18 +15,31 @@ def xl():
 def test_padrao_a_devolve_formato_longo(xl):
     df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
     assert list(df.columns) == [
-        "data", "rotulo", "nivel_indentacao", "valor_milhoes"
+        "data", "linha_origem", "rotulo", "nivel_indentacao", "valor_milhoes"
     ]
     assert len(df) > 0
 
 
 def test_padrao_a_descarta_colunas_de_total_anual(xl):
-    # A aba 1.1 intercala colunas '2007', '2008' entre os meses.
+    # A aba 1.1 intercala colunas '2007', '2008' entre os meses. Cada
+    # (linha da planilha, data) so pode aparecer uma vez; uma coluna de
+    # total anual lida como mes criaria uma segunda entrada para a mesma
+    # linha e a mesma data.
+    #
+    # A chave e linha_origem, nao o rotulo: a aba repete rotulos entre as
+    # secoes de emissao e de resgate, e essas repeticoes sao legitimas.
     df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
-    # Um total anual entraria como valor gigante numa data repetida;
-    # sem ele, cada par (rotulo, data) aparece uma unica vez.
-    duplicados = df.duplicated(subset=["rotulo", "data"]).sum()
-    assert duplicados == 0
+    assert not df.duplicated(subset=["linha_origem", "data"]).any()
+
+
+def test_padrao_a_distingue_rotulos_repetidos_pela_linha_de_origem(xl):
+    # A aba 1.1 repete 'Trocas Oferta Publica' e 'Tesouro Direto' sob
+    # emissoes e sob resgates. Sem linha_origem nao ha como separa-los.
+    df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
+    repetidos = df[df["rotulo"] == "Tesouro Direto"]
+    if len(repetidos):
+        numa_data = repetidos[repetidos["data"] == repetidos["data"].min()]
+        assert numa_data["linha_origem"].nunique() == len(numa_data)
 
 
 def test_padrao_a_le_a_primeira_data_da_serie(xl):

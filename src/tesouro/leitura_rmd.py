@@ -74,7 +74,16 @@ def _indentacao(texto):
 
 
 def ler_padrao_a(xl, nome_da_aba, unidade):
-    """Le uma aba com meses nas colunas e rotulos nas linhas."""
+    """Le uma aba com meses nas colunas e rotulos nas linhas.
+
+    Devolve tambem `linha_origem` -- o indice da linha na planilha lida.
+    O rotulo sozinho nao e uma chave confiavel: abas como a 1.1 repetem o
+    mesmo texto (ex.: "Trocas Oferta Publica", "Tesouro Direto") sob
+    secoes diferentes (emissao e resgate) e, em outras abas, ate a
+    indentacao pode ser identica em todas as linhas. linha_origem e a
+    unica chave estavel para quem for reconstruir a hierarquia ou separar
+    secoes repetidas.
+    """
     bruto = aba(xl, nome_da_aba)
     linha_cabecalho = _linha_do_cabecalho_de_meses(bruto)
 
@@ -96,10 +105,11 @@ def ler_padrao_a(xl, nome_da_aba, unidade):
         nivel = _indentacao(rotulo_bruto.replace("\xa0", " "))
         for coluna, data in datas.items():
             valor = para_milhoes(limpar_nulo(bruto.iloc[indice, coluna]), unidade)
-            registros.append((data, rotulo, nivel, valor))
+            registros.append((data, indice, rotulo, nivel, valor))
 
     return pd.DataFrame(
-        registros, columns=["data", "rotulo", "nivel_indentacao", "valor_milhoes"]
+        registros,
+        columns=["data", "linha_origem", "rotulo", "nivel_indentacao", "valor_milhoes"],
     )
 
 

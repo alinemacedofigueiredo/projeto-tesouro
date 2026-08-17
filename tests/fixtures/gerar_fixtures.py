@@ -35,18 +35,6 @@ ABAS_DA_AMOSTRA = [
 ]
 
 
-# A aba 1.1 repete os mesmos rotulos de categoria ("Trocas Oferta Publica",
-# "Tesouro Direto", "Divida Mobiliaria" ...) com a mesma indentacao debaixo
-# de "EMISSOES" e de novo debaixo de "RESGATES" -- duas secoes de dados
-# genuinamente distintas que o par (rotulo, data) sozinho nao diferencia.
-# Cortar a amostra antes da secao RESGATES evita essa colisao; a secao de
-# EMISSOES ja basta para exercitar cabecalho, hierarquia, a primeira data
-# da serie e o descarte dos totais anuais intercalados nas colunas (esse
-# descarte depende da linha de cabecalho, nao da quantidade de linhas de
-# dado, entao continua exercitado).
-_NROWS_PERSONALIZADO = {"1.1": 20}
-
-
 def gerar_rmd():
     origem = RAIZ / "data" / "raw" / "rmd" / "Anexo RMD_Junho_26.xlsx"
     if not origem.exists():
@@ -56,16 +44,21 @@ def gerar_rmd():
     with pd.ExcelWriter(destino, engine="openpyxl") as escritor:
         for aba in ABAS_DA_AMOSTRA:
             # 40 linhas bastam para exercitar cabecalho, hierarquia e as
-            # primeiras datas de cada aba (excecao: ver _NROWS_PERSONALIZADO
-            # acima). usecols=range(30) nao e usado aqui porque estoura
-            # ParserError nas abas cuja largura real de dados e menor que 30
-            # (ex.: 3.1 tem so 15 colunas com dado); em vez disso le-se a
-            # largura real e corta-se depois, o que da o mesmo resultado
-            # (no maximo 30 colunas) sem erro.
-            nrows = _NROWS_PERSONALIZADO.get(aba, 40)
-            bruto = pd.read_excel(
-                origem, sheet_name=aba, header=None, nrows=nrows,
-            )
+            # primeiras datas de cada aba -- e, na 1.1, para alcancar a
+            # secao RESGATES (comeca por volta da linha 20), que a Tarefa 6
+            # precisa para testar a outra metade da tabela. Nao reduza
+            # abaixo de 40: ler_padrao_a agora identifica cada linha por
+            # linha_origem, entao os rotulos repetidos entre EMISSOES e
+            # RESGATES (ex.: "Trocas Oferta Publica", "Tesouro Direto") nao
+            # colidem mais, e nao ha motivo para cortar a amostra por causa
+            # deles.
+            #
+            # usecols=range(30) nao e usado aqui porque estoura ParserError
+            # nas abas cuja largura real de dados e menor que 30 (ex.: 3.1
+            # tem so 15 colunas com dado); em vez disso le-se a largura real
+            # e corta-se depois, o que da o mesmo resultado (no maximo 30
+            # colunas) sem erro.
+            bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=40)
             bruto = bruto.iloc[:, :30]
             bruto.to_excel(escritor, sheet_name=aba, header=False, index=False)
     print(f"gerado: {destino}")
