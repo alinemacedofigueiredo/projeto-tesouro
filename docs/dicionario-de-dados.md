@@ -31,7 +31,7 @@ Emissões e resgates da DPF por canal de colocação, mês a mês. Origem: aba 1
 | `data` | data | Último dia do mês |
 | `esfera` | texto | `DPMFi`, `DPFe` ou `Banco Central` |
 | `operacao` | texto | `emissao` ou `resgate` |
-| `canal` | texto | Canal de colocação (Oferta Pública, Tesouro Direto, Trocas Oferta Pública, Cancelamentos, Compras, Vencimentos, NBC-E, Dívida Mobiliária, Dívida Contratual, Emissão Direta com/sem Financeiro, Transferência de Carteira, Pagamento de Dividendos…) |
+| `canal` | texto | Canal de colocação — treze valores: Cancelamentos, Compras, Dívida Contratual, Dívida Mobiliária, Emissão Direta com Financeiro, Emissão Direta sem Financeiro, NBC-E, Oferta Pública, Pagamento de Dividendos, Tesouro Direto, Transferência de Carteira, Trocas Oferta Pública, Vencimentos (alguns rótulos vêm com número de nota de rodapé colado na planilha original, ex.: `Pagamento de Dividendos4`) |
 | `valor_milhoes` | número | R$ milhões |
 
 **Atenção:** `esfera` faz parte da chave porque rótulos se repetem entre
@@ -52,11 +52,20 @@ Emissões e resgates da DPF por indexador, mês a mês. Origem: aba 1.2.
 | `data` | data | Último dia do mês |
 | `esfera` | texto | `DPMFi` ou `DPFe` |
 | `operacao` | texto | `emissao` ou `resgate` |
-| `indexador` | texto | Indexador na DPMFi (Prefixado, Taxa Flutuante, Índice de Preços, Câmbio, Demais); moeda na DPFe (Dólar, Euro, Real, Demais) |
+| `indexador` | texto | Indexador na DPMFi (Prefixado/Prefixados, Taxa Flutuante, Índice de Preços, Demais); moeda na DPFe (Dólar, Euro, Real, Câmbio, Demais) |
 | `valor_milhoes` | número | R$ milhões |
 
 **Atenção:** `esfera` entra na chave porque "Demais" existe nas duas esferas
 com valores diferentes — sem a esfera na chave, uma sobrescreveria a outra.
+
+**Atenção — grafia não normalizada:** sob `DPMFi`, a aba 1.2 escreve o
+indexador como `Prefixados` (plural) na seção de emissões e `Prefixado`
+(singular) na de resgates — mesmo indexador, duas grafias, não
+normalizadas de propósito (mesma política aplicada a `Selic`/`Taxa
+Flutuante` em `paf_metas.csv`). Quem filtrar só por `indexador ==
+"Prefixado"` recebe apenas os resgates e conclui, errado, que o Tesouro
+nunca emitiu prefixado — é preciso tratar as duas grafias como o mesmo
+indexador.
 
 ---
 
@@ -95,7 +104,7 @@ Estoque de cada papel da DPMFi, por vencimento, mês a mês. Origem: aba 2.2.
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `data` | data | Último dia do mês de referência |
-| `indexador` | texto | Bloco da planilha (Prefixados, Selic, Índice de Preços…) |
+| `indexador` | texto | Bloco da planilha: `Prefixados`, `Selic`, `Índices de Preços` (plural) |
 | `titulo` | texto | LTN, LFT, NTN-B, NTN-F, NTN-C, LFT-TD1 Reserva, NTN-B Principal, NTN-B1 EducA+, NTN-B1 RendA+… |
 | `vencimento` | data | Vencimento do papel |
 | `isin` | texto | Código ISIN |
@@ -226,6 +235,12 @@ Origem: aba 3.7.
 A linha com `nivel = "DPF"` e `titulo` vazio traz o prazo médio agregado que
 a análise compara contra a banda do PAF.
 
+**Atenção:** como em `estoque_dpf.csv`, a tabela guarda a hierarquia
+inteira, não só as folhas — 1.659 das 6.162 linhas têm `titulo` vazio e são
+o prazo médio agregado de um `nivel`/`entidade`, não um título individual.
+Para trabalhar só com títulos, filtre `titulo.notna()`; agrupar sem
+filtrar mistura a agregação com as folhas que a compõem.
+
 ---
 
 ### `prazo_medio_por_indexador.csv`
@@ -238,13 +253,21 @@ mês a mês. Origem: aba 3.8.
 | `data` | data | Último dia do mês |
 | `nivel` | texto | `DPF`, `DPMFi` ou `DPFe` |
 | `entidade` | texto | `Dívida Mobiliária` / `Dívida Contratual` sob DPFe; **sempre vazio nas linhas de `DPMFi`** |
-| `categoria` | texto | Indexador (Prefixados, Taxa Flutuante, Índice de Preços, Câmbio, Demais) ou instrumento |
+| `categoria` | texto | Indexador (Prefixados, Taxa Flutuante, Índice de Preços, Câmbio, Demais) ou instrumento; **vazio** nas linhas de nível/entidade que carregam o prazo médio agregado |
 | `prazo_anos` | número | Prazo médio em anos |
 
 **Atenção:** `entidade` é vazia em todas as linhas de nível `DPMFi`. Isso é
 estrutural, não dado faltando — a aba 3.8 abre direto por indexador dentro
 da DPMFi, sem o agrupamento por `Tesouro Nacional`/`Banco Central` que a
 aba 3.7 tem. Só a DPFe tem subgrupo (`entidade`) nesta tabela.
+
+**Atenção — subtotal, mesma armadilha de `estoque_dpf.csv`:** 1.267 das
+5.742 linhas têm `categoria` vazia com `prazo_anos` preenchido — são o
+prazo médio agregado de um `nivel`/`entidade`, não um indexador
+individual (mais 328 linhas com `categoria` e `prazo_anos` ambos vazios,
+sem risco de contagem dupla por não terem valor). Filtre
+`categoria.notna()` antes de agrupar por indexador, ou o agregado entra
+somado em cima das categorias que ele já resume.
 
 ---
 
@@ -256,8 +279,13 @@ mês. Origem: aba 3.9.
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `data` | data | Último dia do mês |
-| `indexador` | texto | Prefixado, Taxa Flutuante, Índice de Preços, Câmbio, Demais |
+| `indexador` | texto | Exatamente quatro valores, 319 linhas cada: `Prefixado`, `Taxa Flutuante`, `Índice de Preços`, `NBCE / NTN-D` |
 | `prazo_anos` | número | Prazo médio em anos |
+
+**Atenção:** `Câmbio` e `Demais` **não aparecem** nesta tabela (aparecem em
+outras, como `funding_por_indexador.csv` e `composicao_dpf.csv` — não
+assuma o mesmo conjunto de indexadores em todas as tabelas do projeto).
+`NBCE / NTN-D` é um indexador de verdade aqui, um quarto das 1.276 linhas.
 
 ---
 
@@ -281,6 +309,12 @@ mês mesclado em três sub-colunas: Taxa média, Variação do Indexador, CME).
 O parser lê especificamente a sub-coluna `CME`, que equivale ao valor único
 usado antes de 2021; comparar `medida = "emissoes_12m"` antes e depois dessa
 data compara a mesma grandeza.
+
+**Atenção — subtotal, mesma armadilha de `estoque_dpf.csv`:** 2.712 das
+12.737 linhas têm `titulo` vazio — são o custo médio agregado de um
+`nivel`/`entidade`, não de um título individual. Filtre `titulo.notna()`
+antes de agrupar por título, ou o agregado entra somado em cima dos
+títulos que ele já resume.
 
 ---
 
