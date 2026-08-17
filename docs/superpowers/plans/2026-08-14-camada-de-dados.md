@@ -911,7 +911,9 @@ git commit -m "Adiciona coletor do anexo do RMD e compartilha a escrita atomica"
   - `leitura_rmd.caminho_do_rmd() -> Path`
   - `leitura_rmd.abrir(caminho: Path | None = None) -> pandas.ExcelFile`
   - `leitura_rmd.aba(xl, nome: str) -> pandas.DataFrame` — **ponto de entrada único para ler qualquer aba**, inclusive nos parsers especiais; falha com mensagem clara se a aba não existir
-  - `leitura_rmd.ler_padrao_a(xl, nome_da_aba: str, unidade: str) -> pandas.DataFrame` — colunas `data`, `rotulo`, `nivel_indentacao`, `valor_milhoes`
+  - `leitura_rmd.ler_padrao_a(xl, nome_da_aba: str, unidade: str) -> pandas.DataFrame` — colunas `data`, `linha_origem`, `rotulo`, `nivel_indentacao`, `valor_milhoes`
+
+**`linha_origem` é o índice da linha na planilha, e existe por necessidade.** Várias abas repetem o mesmo rótulo em seções diferentes: a 1.1 tem `Trocas Oferta Pública` e `Tesouro Direto` sob emissões *e* sob resgates; a 1.2 tem `Demais` quatro vezes. Qualquer parser que indexe a hierarquia pelo texto do rótulo faz a seção posterior sobrescrever a anterior, e as linhas saem todas com a mesma operação — erro que não levanta exceção nenhuma e produz uma tabela inteiramente plausível e errada. `linha_origem` é a única chave estável.
   - `leitura_rmd.ler_padrao_b(xl, nome_da_aba: str, linha_cabecalho: int, unidade: str, colunas_por_categoria: int = 2) -> pandas.DataFrame` — colunas `data`, `categoria`, `valor_milhoes`
 
 **Aba ausente precisa falhar bem.** O Tesouro descontinua abas (a 3.5 e a 5.6 saíram em junho/2025) e continua listando-as no índice. Quando isso acontecer com uma aba que usamos, o erro tem que dizer qual aba sumiu e quais existem — não estourar um `KeyError` do pandas que ninguém decifra um ano depois. Por isso todos os parsers, inclusive os especiais das abas 2.2, 2.8, 3.4, 5.7 e 6.1, leem através de `leitura_rmd.aba()` em vez de chamar `xl.parse` direto.
@@ -940,12 +942,16 @@ def gerar_rmd():
     destino = AQUI / "rmd_amostra.xlsx"
     with pd.ExcelWriter(destino, engine="openpyxl") as escritor:
         for aba in ABAS_DA_AMOSTRA:
-            # 40 linhas e 30 colunas bastam para exercitar cabecalho,
-            # hierarquia e as primeiras datas de cada aba.
-            bruto = pd.read_excel(
-                origem, sheet_name=aba, header=None,
-                nrows=40, usecols=range(30),
-            )
+            # 40 linhas bastam para exercitar cabecalho, hierarquia e as
+            # primeiras datas de cada aba. Nao reduza esse numero para a
+            # aba 1.1: abaixo de 40 a secao RESGATES fica de fora, e os
+            # testes da tarefa de funding deixam de cobrir metade da
+            # tabela justamente onde estao os rotulos repetidos.
+            #
+            # As colunas nao sao limitadas por numero fixo: varias abas
+            # tem menos de 30 e o usecols estoura nelas.
+            bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=40)
+            bruto = bruto.iloc[:, :30]
             bruto.to_excel(escritor, sheet_name=aba, header=False, index=False)
     print(f"gerado: {destino}")
 
@@ -982,18 +988,31 @@ def xl():
 def test_padrao_a_devolve_formato_longo(xl):
     df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
     assert list(df.columns) == [
-        "data", "rotulo", "nivel_indentacao", "valor_milhoes"
+        "data", "linha_origem", "rotulo", "nivel_indentacao", "valor_milhoes"
     ]
     assert len(df) > 0
 
 
-def test_padrao_a_descarta_colunas_de_total_anual(xl):
-    # A aba 1.1 intercala colunas '2007', '2008' entre os meses.
+def test_padrao_a_distingue_rotulos_repetidos_pela_linha_de_origem(xl):
+    # A aba 1.1 repete 'Trocas Oferta Publica' e 'Tesouro Direto' sob
+    # emissoes e sob resgates. Sem linha_origem nao ha como separa-los.
     df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
-    # Um total anual entraria como valor gigante numa data repetida;
-    # sem ele, cada par (rotulo, data) aparece uma unica vez.
-    duplicados = df.duplicated(subset=["rotulo", "data"]).sum()
-    assert duplicados == 0
+    repetidos = df[df["rotulo"] == "Tesouro Direto"]
+    if len(repetidos):
+        numa_data = repetidos[repetidos["data"] == repetidos["data"].min()]
+        assert numa_data["linha_origem"].nunique() == len(numa_data)
+
+
+def test_padrao_a_descarta_colunas_de_total_anual(xl):
+    # A aba 1.1 intercala colunas '2007', '2008' entre os meses. Cada
+    # (linha da planilha, data) so pode aparecer uma vez; uma coluna de
+    # total anual lida como mes criaria uma segunda entrada para a mesma
+    # linha e a mesma data.
+    #
+    # A chave e linha_origem, nao o rotulo: a aba repete rotulos entre as
+    # secoes de emissao e de resgate, e essas repeticoes sao legitimas.
+    df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
+    assert not df.duplicated(subset=["linha_origem", "data"]).any()
 
 
 def test_padrao_a_le_a_primeira_data_da_serie(xl):
@@ -1154,10 +1173,12 @@ def ler_padrao_a(xl, nome_da_aba, unidade):
         nivel = _indentacao(rotulo_bruto.replace("\xa0", " "))
         for coluna, data in datas.items():
             valor = para_milhoes(limpar_nulo(bruto.iloc[indice, coluna]), unidade)
-            registros.append((data, rotulo, nivel, valor))
+            registros.append((data, indice, rotulo, nivel, valor))
 
     return pd.DataFrame(
-        registros, columns=["data", "rotulo", "nivel_indentacao", "valor_milhoes"]
+        registros,
+        columns=["data", "linha_origem", "rotulo", "nivel_indentacao",
+                 "valor_milhoes"],
     )
 
 
@@ -1247,10 +1268,23 @@ def test_por_canal_tem_as_colunas_canonicas(xl):
     ]
 
 
-def test_por_canal_separa_emissao_de_resgate(xl):
+def test_por_canal_traz_emissoes_E_resgates(xl):
+    # A aba nomeia as esferas de resgate como 'III - DPMFi' e 'IV - DPFe',
+    # diferente de 'I - DPMFi' e 'II - DPFe' das emissoes. Um mapeamento
+    # que so conheca as duas primeiras descarta todos os resgates em
+    # silencio, e a tabela sai pela metade sem erro nenhum.
     df = funding.parse_por_canal(xl)
-    assert set(df["operacao"].unique()) <= {"emissao", "resgate"}
-    assert "emissao" in set(df["operacao"].unique())
+    assert set(df["operacao"].unique()) == {"emissao", "resgate"}
+
+
+def test_por_canal_nao_colapsa_rotulo_repetido_entre_secoes(xl):
+    # 'Tesouro Direto' existe sob emissoes e sob resgates. Se a hierarquia
+    # for indexada pelo texto do rotulo, uma secao sobrescreve a outra.
+    df = funding.parse_por_canal(xl)
+    operacoes = set(
+        df[df["canal"] == "Tesouro Direto"]["operacao"].unique()
+    )
+    assert operacoes == {"emissao", "resgate"}
 
 
 def test_por_canal_preserva_os_canais_da_dpmfi(xl):
@@ -1258,6 +1292,7 @@ def test_por_canal_preserva_os_canais_da_dpmfi(xl):
     canais = set(df[df["esfera"] == "DPMFi"]["canal"].dropna().unique())
     assert "Oferta Pública" in canais
     assert "Tesouro Direto" in canais
+    assert "Vencimentos" in canais
 
 
 def test_por_canal_recupera_o_valor_de_emissao_de_novembro_de_2006(xl):
@@ -1271,15 +1306,50 @@ def test_por_canal_recupera_o_valor_de_emissao_de_novembro_de_2006(xl):
     assert linha["valor_milhoes"].iloc[0] == pytest.approx(41042.54, abs=0.01)
 
 
+def test_por_canal_exclui_os_totais_derivados(xl):
+    # 'EMISSAO LIQUIDA' e as linhas sob ela sao I-III e II-IV: derivadas.
+    df = funding.parse_por_canal(xl)
+    rotulos = set(df["canal"].dropna().unique())
+    assert not any("LÍQUIDA" in r.upper() for r in rotulos)
+    assert not any(r.startswith("DPMFi ") for r in rotulos)
+
+
+def test_por_canal_nao_tem_chave_duplicada(xl):
+    df = funding.parse_por_canal(xl)
+    assert not df.duplicated(
+        subset=["data", "esfera", "operacao", "canal"]
+    ).any()
+
+
 def test_por_indexador_tem_as_colunas_canonicas(xl):
     df = funding.parse_por_indexador(xl)
-    assert list(df.columns) == ["data", "operacao", "indexador", "valor_milhoes"]
+    assert list(df.columns) == [
+        "data", "esfera", "operacao", "indexador", "valor_milhoes"
+    ]
 
 
-def test_por_indexador_cobre_os_quatro_indexadores(xl):
+def test_por_indexador_cobre_os_indexadores(xl):
     df = funding.parse_por_indexador(xl)
     indexadores = set(df["indexador"].unique())
     assert {"Prefixados", "Índice de Preços", "Taxa Flutuante"} <= indexadores
+
+
+def test_por_indexador_separa_demais_da_dpmfi_do_demais_da_dpfe(xl):
+    # 'Demais' aparece quatro vezes na aba 1.2: em DPMFi e em DPFe, sob
+    # emissoes e sob resgates. Sem a esfera na chave, viram linhas
+    # indistinguiveis com valores diferentes.
+    df = funding.parse_por_indexador(xl)
+    demais = df[df["indexador"] == "Demais"]
+    assert set(demais["esfera"].unique()) == {"DPMFi", "DPFe"}
+    assert not df.duplicated(
+        subset=["data", "esfera", "operacao", "indexador"]
+    ).any()
+
+
+def test_por_indexador_ignora_as_notas_de_rodape(xl):
+    # A aba 1.2 termina com linhas 'Obs:' e 'Obs 2:' que nao sao dados.
+    df = funding.parse_por_indexador(xl)
+    assert not df["indexador"].str.startswith("Obs").any()
 ```
 
 - [ ] **Step 2: Rode o teste e confirme que falha**
@@ -1299,11 +1369,33 @@ Expected: FAIL com `ModuleNotFoundError: No module named 'tesouro.parse_rmd'`
 ```python
 """Abas 1.1 e 1.2 -- emissoes e resgates da DPF.
 
-Ambas sao padrao A em R$ milhoes. A hierarquia sai da indentacao do
-rotulo: a operacao (EMISSOES / RESGATES) vem em caixa alta sem recuo, a
-esfera (DPMFi / DPFe) logo abaixo, e o detalhe -- canal na 1.1, indexador
-na 1.2 -- recuado sob a esfera.
+Ambas sao padrao A em R$ milhoes, e ambas tem a mesma forma: uma linha de
+operacao em caixa alta (EMISSOES / RESGATES), uma linha de esfera abaixo
+dela (DPMFi / DPFe), e as linhas de detalhe em seguida -- canal na 1.1,
+indexador na 1.2.
+
+Tres armadilhas moldaram este parser:
+
+1. A aba 1.1 nomeia as esferas com numeral romano crescente ao longo da
+   planilha: 'I - DPMFi' e 'II - DPFe' sob emissoes, mas 'III - DPMFi' e
+   'IV - DPFe' sob resgates. Reconhecer so as duas primeiras descartaria
+   todos os resgates sem erro nenhum.
+
+2. Rotulos se repetem entre secoes: 'Trocas Oferta Publica' e 'Tesouro
+   Direto' existem dos dois lados na 1.1; 'Demais' aparece quatro vezes
+   na 1.2 (DPMFi e DPFe, emissao e resgate). Por isso a hierarquia e
+   indexada por linha_origem, nunca pelo texto do rotulo, e por isso a
+   esfera faz parte da chave das duas tabelas.
+
+3. A indentacao nao serve de guia aqui: na 1.2 todos os rotulos estao com
+   recuo zero, inclusive os de esfera. Quem decide o papel de cada linha
+   e o formato do rotulo, na ordem em que aparece.
+
+As linhas a partir de 'EMISSAO LIQUIDA' sao totais derivados (I - III e
+II - IV) e ficam de fora, como tudo que e derivado neste projeto.
 """
+import re
+
 import pandas as pd
 
 from .. import config
@@ -1311,53 +1403,80 @@ from ..leitura_rmd import ler_padrao_a
 
 _OPERACOES = {"EMISSÕES": "emissao", "RESGATES": "resgate"}
 
-_ESFERAS = {"I - DPMFi": "DPMFi", "II - DPFe": "DPFe"}
+# Aceita 'DPMFi' puro (aba 1.2) e com numeral romano (aba 1.1).
+_PADRAO_ESFERA = re.compile(r"^(?:(?:I{1,3}|IV)\s*-\s*)?(DPMFi|DPFe)$")
+
+# A carteira do Banco Central aparece na 1.1 no mesmo nivel de uma esfera.
+_ESFERA_BACEN = "Banco Central"
+
+_INICIO_DOS_DERIVADOS = "EMISSÃO LÍQUIDA"
 
 
 def _anotar_hierarquia(df):
-    """Propaga operacao e esfera para as linhas de detalhe abaixo delas."""
-    operacao_corrente = None
-    esfera_corrente = None
-    operacoes = []
-    esferas = []
-    ehdetalhe = []
+    """Marca cada linha com a sua operacao, esfera e se e linha de detalhe.
 
-    # Percorre uma unica data; a hierarquia e a mesma em todas.
-    ordem = df.drop_duplicates(subset=["rotulo"])[
-        ["rotulo", "nivel_indentacao"]
-    ].reset_index(drop=True)
+    Percorre os rotulos na ordem da planilha e vai carregando o estado.
+    A chave e linha_origem: indexar por rotulo faria a secao de resgate
+    sobrescrever a de emissao, e a tabela sairia inteira com a mesma
+    operacao -- plausivel e errada, sem levantar excecao.
+    """
+    ordem = (
+        df.drop_duplicates(subset=["linha_origem"])
+        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
+    )
 
     papel = {}
+    operacao = None
+    esfera = None
+
     for _, linha in ordem.iterrows():
-        rotulo = linha["rotulo"]
+        rotulo = str(linha["rotulo"]).strip()
+        origem = linha["linha_origem"]
+
+        if _INICIO_DOS_DERIVADOS in rotulo.upper():
+            break  # dai para baixo e total calculado, nao dado
+
+        if rotulo.startswith("Obs"):
+            continue  # nota de rodape
+
         if rotulo in _OPERACOES:
-            operacao_corrente = _OPERACOES[rotulo]
-            esfera_corrente = None
-            papel[rotulo] = (operacao_corrente, None, False)
-        elif rotulo in _ESFERAS:
-            esfera_corrente = _ESFERAS[rotulo]
-            papel[rotulo] = (operacao_corrente, esfera_corrente, False)
-        else:
-            papel[rotulo] = (operacao_corrente, esfera_corrente, True)
+            operacao = _OPERACOES[rotulo]
+            esfera = None
+            papel[origem] = (operacao, None, False)
+            continue
 
-    for rotulo in df["rotulo"]:
-        operacao, esfera, detalhe = papel[rotulo]
-        operacoes.append(operacao)
-        esferas.append(esfera)
-        ehdetalhe.append(detalhe)
+        achado = _PADRAO_ESFERA.match(rotulo)
+        if achado:
+            esfera = achado.group(1)
+            papel[origem] = (operacao, esfera, False)
+            continue
 
-    resultado = df.copy()
-    resultado["operacao"] = operacoes
-    resultado["esfera"] = esferas
-    resultado["eh_detalhe"] = ehdetalhe
+        if rotulo == _ESFERA_BACEN:
+            esfera = _ESFERA_BACEN
+            papel[origem] = (operacao, esfera, False)
+            continue
+
+        papel[origem] = (operacao, esfera, True)
+
+    resultado = df[df["linha_origem"].isin(papel)].copy()
+    resultado["operacao"] = [papel[o][0] for o in resultado["linha_origem"]]
+    resultado["esfera"] = [papel[o][1] for o in resultado["linha_origem"]]
+    resultado["eh_detalhe"] = [papel[o][2] for o in resultado["linha_origem"]]
     return resultado
+
+
+def _detalhe(bruto):
+    anotado = _anotar_hierarquia(bruto)
+    return anotado[
+        anotado["eh_detalhe"]
+        & anotado["esfera"].notna()
+        & anotado["operacao"].notna()
+    ].copy()
 
 
 def parse_por_canal(xl):
     """Aba 1.1 -- emissoes e resgates por canal de colocacao."""
-    bruto = ler_padrao_a(xl, "1.1", "milhoes")
-    anotado = _anotar_hierarquia(bruto)
-    detalhe = anotado[anotado["eh_detalhe"] & anotado["esfera"].notna()].copy()
+    detalhe = _detalhe(ler_padrao_a(xl, "1.1", "milhoes"))
     detalhe = detalhe.rename(columns={"rotulo": "canal"})
     return detalhe[
         ["data", "esfera", "operacao", "canal", "valor_milhoes"]
@@ -1365,14 +1484,19 @@ def parse_por_canal(xl):
 
 
 def parse_por_indexador(xl):
-    """Aba 1.2 -- emissoes e resgates por indexador."""
-    bruto = ler_padrao_a(xl, "1.2", "milhoes")
-    anotado = _anotar_hierarquia(bruto)
-    detalhe = anotado[anotado["eh_detalhe"]].copy()
+    """Aba 1.2 -- emissoes e resgates por indexador.
+
+    A esfera entra na chave: na DPFe o detalhe e moeda (Dolar, Euro,
+    Real), nao indexador, e 'Demais' existe nas duas esferas com valores
+    diferentes.
+    """
+    detalhe = _detalhe(ler_padrao_a(xl, "1.2", "milhoes"))
     detalhe = detalhe.rename(columns={"rotulo": "indexador"})
     return detalhe[
-        ["data", "operacao", "indexador", "valor_milhoes"]
-    ].sort_values(["data", "operacao", "indexador"]).reset_index(drop=True)
+        ["data", "esfera", "operacao", "indexador", "valor_milhoes"]
+    ].sort_values(
+        ["data", "operacao", "esfera", "indexador"]
+    ).reset_index(drop=True)
 
 
 def gravar(xl):

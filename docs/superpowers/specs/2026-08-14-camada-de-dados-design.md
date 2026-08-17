@@ -195,7 +195,7 @@ Dezessete CSVs em `data/processed/`.
 | CSV | Origem | Colunas |
 |---|---|---|
 | `funding_por_canal` | 1.1 | data, esfera, operacao, canal, valor_milhoes |
-| `funding_por_indexador` | 1.2 | data, operacao, indexador, valor_milhoes |
+| `funding_por_indexador` | 1.2 | data, esfera, operacao, indexador, valor_milhoes |
 | `estoque_dpf` | 2.1 | data, nivel, entidade, titulo, valor_milhoes |
 | `estoque_titulos_vencimento` | 2.2 | data, indexador, titulo, vencimento, isin, quantidade_mil, financeiro_milhoes |
 | `composicao_dpf` | 2.4 | data, indexador, valor_milhoes |
