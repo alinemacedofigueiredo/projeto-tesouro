@@ -146,8 +146,11 @@ vértice de *benchmark*, como `LFT 6 anos`).
 
 ### 5.3 Fontes descartadas
 
-- **PAF como fonte separada:** as bandas históricas estão dentro do RMD
-  (aba 5.7). Não é preciso ler os PDFs do PAF.
+- **PAF como fonte separada, até 2022:** as bandas históricas estão dentro do RMD
+  (aba 5.7), mas **somente de 2003 a 2022** — verificado no anexo de junho/2026. O
+  último bloco da aba cobre apenas 2021 e 2022, e o Tesouro parou de estendê-la.
+  Consequência: as bandas de 2023 em diante **não existem nesta fonte** e terão de
+  vir dos PDFs do PAF. Ver §11.
 - **Dataset `metas-paf` do CKAN:** apesar do nome, refere-se ao Programa de
   Reestruturação e Ajuste Fiscal de estados e do Distrito Federal. Não tem
   relação com as bandas da Dívida Pública Federal.
@@ -333,4 +336,5 @@ código, para que os testes não dependam de rede.
 | Calendário de leilões | Fora | Necessário para a entrega 5 |
 | Aba 5.4 (exposição com mercado aberto) | Descartada | — |
 | Datas de vigência das revisões do PAF | Trabalho separado, posterior | Antes da entrega 4 |
+| **Bandas do PAF de 2023 em diante** | **Fora desta camada: não existem na aba 5.7** | **Antes da entrega 4 — é bloqueante** |
 | Fonte de taxas para PU e DV01 | Sem dono; fora deste sub-projeto | Antes da entrega 2 |
