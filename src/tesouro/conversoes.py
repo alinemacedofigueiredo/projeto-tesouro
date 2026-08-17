@@ -74,10 +74,18 @@ def limpar_nulo(valor):
     if valor is None:
         return None
     if isinstance(valor, str):
-        if valor.strip().lower() in _MARCADORES_NULOS:
+        limpo = valor.strip()
+        if limpo.lower() in _MARCADORES_NULOS:
             return None
+        # O ponto so e separador de milhar quando ha uma virgula decimal
+        # na string ('1.234,56'). Sem essa condicao, '3.75' -- que e um
+        # decimal com ponto, e o que uma celula de valor com marcador de
+        # nota de rodape produz depois de re-tipada como texto -- viraria
+        # 375.0, um erro de cem vezes que nao levanta excecao nenhuma.
+        if "," in limpo:
+            limpo = limpo.replace(".", "").replace(",", ".")
         try:
-            return float(valor.replace(".", "").replace(",", "."))
+            return float(limpo)
         except ValueError:
             return None
     try:

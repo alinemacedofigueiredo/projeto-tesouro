@@ -53,13 +53,33 @@ def _baixar_bytes(url, timeout=300):
         return resposta.read()
 
 
+def _nome_previsto(ano, mes):
+    return f"Anexo RMD_{ano}_{mes:02d}.xlsx"
+
+
 def baixar(ano, mes, destino=None):
     """Baixa o anexo do mes e devolve o caminho do .xlsx salvo.
 
     Se o anexo vier compactado, extrai a primeira planilha do zip.
+
+    Nunca sobrescreve um arquivo que ja exista em data/raw/: essa pasta e
+    imutavel por invariante do projeto, e os arquivos antigos sao o unico
+    lugar onde ficam os retratos mensais da aba 3.4. Como gravar_atomico
+    termina num Path.replace (substitui sem avisar) e o nome do arquivo e
+    deterministico, rodar o mesmo mes duas vezes destruiria o primeiro
+    download -- e imprimiria 'salvo em ...' como se tudo tivesse dado
+    certo. A guarda e a mesma de fetch_leiloes.baixar.
     """
     destino = Path(destino) if destino else config.RMD_DIR
     destino.mkdir(parents=True, exist_ok=True)
+
+    # Curto-circuito antes de qualquer requisicao, quando o nome do arquivo
+    # ja e conhecido. No caminho do zip o nome vem de dentro do arquivo,
+    # entao la a guarda so pode agir depois do download (abaixo).
+    previsto = destino / _nome_previsto(ano, mes)
+    if previsto.exists():
+        print(f"ja existe, nada a fazer: {previsto}")
+        return previsto
 
     pagina = _baixar_bytes(url_da_publicacao(ano, mes), timeout=60)
     url = link_do_anexo(pagina.decode("utf-8", errors="ignore"))
@@ -76,9 +96,12 @@ def baixar(ano, mes, destino=None):
                 )
             nome = planilhas[0]
             caminho = destino / Path(nome).name
+            if caminho.exists():
+                print(f"ja existe, nada a fazer: {caminho}")
+                return caminho
             gravar_atomico(zf.read(nome), caminho)
     else:
-        caminho = destino / f"Anexo RMD_{ano}_{mes:02d}.xlsx"
+        caminho = previsto
         gravar_atomico(conteudo, caminho)
 
     print(f"salvo em {caminho} ({caminho.stat().st_size / 1e6:.1f} MB)")

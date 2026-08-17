@@ -15,9 +15,14 @@ def gravar_atomico(conteudo, caminho):
     nome com Path.replace (atomico no mesmo sistema de arquivos). Se o
     processo for interrompido no meio da escrita, sobra no maximo um '.part'
     solto; o arquivo final so existe se estiver completo, entao a checagem
-    de idempotencia em baixar() (`if caminho.exists(): ...`) nunca aceita
-    um arquivo truncado como "ja existe". Nao troque isso por um
-    write_bytes direto no destino.
+    de idempotencia dos coletores (`if caminho.exists(): ...`, presente em
+    fetch_leiloes.baixar e em fetch_rmd.baixar) nunca aceita um arquivo
+    truncado como "ja existe". Nao troque isso por um write_bytes direto
+    no destino.
+
+    Atencao: o Path.replace substitui o destino sem avisar. Quem chama e
+    responsavel por checar existencia antes -- data/raw/ e imutavel por
+    invariante do projeto.
     """
     tmp = caminho.with_name(caminho.name + ".part")
     try:

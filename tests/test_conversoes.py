@@ -81,3 +81,20 @@ def test_limpar_nulo_preserva_zero_e_negativo():
     # Zero e valor legitimo; custo negativo aparece na aba 4.1 (NTN-D em 2005).
     assert conversoes.limpar_nulo(0) == 0.0
     assert conversoes.limpar_nulo(-2.1014) == pytest.approx(-2.1014)
+
+
+def test_limpar_nulo_le_formato_brasileiro_com_milhar():
+    # Ponto de milhar so vale como milhar quando ha virgula decimal.
+    assert conversoes.limpar_nulo("1.234,56") == pytest.approx(1234.56)
+    assert conversoes.limpar_nulo("0,79") == pytest.approx(0.79)
+    assert conversoes.limpar_nulo("1.234.567,89") == pytest.approx(1234567.89)
+
+
+def test_limpar_nulo_nao_multiplica_decimal_com_ponto():
+    # Sem virgula na string, o ponto e separador decimal. Ler '3.75' como
+    # 375.0 e um erro de cem vezes que nao levanta excecao -- e o caso
+    # real e uma celula de valor com marcador de nota re-tipada como texto.
+    assert conversoes.limpar_nulo("3.75") == pytest.approx(3.75)
+    assert conversoes.limpar_nulo("0.79") == pytest.approx(0.79)
+    assert conversoes.limpar_nulo("12.5") == pytest.approx(12.5)
+    assert conversoes.limpar_nulo("1234.5") == pytest.approx(1234.5)

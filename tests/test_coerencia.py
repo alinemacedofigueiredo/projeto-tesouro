@@ -36,13 +36,73 @@ def xl_real():
     return leitura_rmd.abrir()
 
 
-def test_composicao_soma_o_total_da_dpf(xl):
-    """A soma dos indexadores da 2.4 tem que dar o total da propria aba."""
-    df = estoque.parse_composicao(xl)
-    por_data = df.groupby("data")["valor_milhoes"].sum()
-    assert (por_data > 0).all()
-    # Nenhuma data pode ter soma nula com componentes preenchidos.
-    assert por_data.notna().all()
+def _nivel_agregado(xl, nivel):
+    """A linha de total de um nivel da aba 2.1 (sem entidade nem titulo)."""
+    df = estoque.parse_dpf(xl)
+    linhas = df[
+        (df["nivel"] == nivel)
+        & df["entidade"].isna()
+        & df["titulo"].isna()
+    ]
+    return linhas.set_index("data")["valor_milhoes"]
+
+
+def test_composicao_soma_a_dpf_em_poder_do_publico(xl):
+    """Soma dos indexadores da 2.4 contra a linha de total da aba 2.1.
+
+    Cruzamento entre abas independentes, e mais forte do que conferir a
+    coluna 'Total' da propria 2.4: se o filtro que descarta o derivado em
+    parse_composicao parar de casar (o Tesouro renomear 'Total' para
+    'Total DPF', por exemplo), o total entra como se fosse indexador e a
+    soma dobra. Uma assercao de positividade continuaria verde nesse caso
+    -- soma dobrada tambem e positiva -- e composicao_dpf e exatamente a
+    serie que a analise compara contra a banda do PAF.
+    """
+    soma = estoque.parse_composicao(xl).groupby("data")["valor_milhoes"].sum()
+    total = _nivel_agregado(xl, "DPF em poder do publico")
+
+    par = pd.DataFrame({"soma": soma, "total": total}).dropna()
+    assert len(par) > 10, (
+        f"apenas {len(par)} datas em comum entre 2.4 e 2.1; uma das duas "
+        f"abas foi lida com as datas erradas"
+    )
+
+    relativo = (par["soma"] - par["total"]).abs() / par["total"].abs()
+    # Folga de 1e-4: as duas abas arredondam por conta propria. Verificado
+    # contra o arquivo real (307 datas, maior desvio 2,5e-5) e contra a
+    # amostra (34 datas, 3,1e-16).
+    piores = relativo[relativo > 1e-4]
+    assert piores.empty, (
+        f"{len(piores)} datas em que a soma dos indexadores da 2.4 nao "
+        f"fecha com a DPF em poder do publico da 2.1; pior desvio "
+        f"relativo {relativo.max():.2e} em {relativo.idxmax()}"
+    )
+
+
+def test_detentores_somam_a_dpmfi(xl_real):
+    """Soma dos detentores da 2.7 contra a linha de DPMFi da aba 2.1.
+
+    Roda contra o RMD real: na amostra recortada a 2.7 e a 2.1 nao tem
+    nenhuma data em comum, e o teste passaria em verde sem comparar nada
+    -- exatamente o defeito que este cruzamento existe para evitar.
+    """
+    soma = estoque.parse_detentores(xl_real).groupby("data")["valor_milhoes"].sum()
+    total = _nivel_agregado(xl_real, "DPMFi")
+
+    par = pd.DataFrame({"soma": soma, "total": total}).dropna()
+    assert len(par) > 10, (
+        f"apenas {len(par)} datas em comum entre 2.7 e 2.1 no arquivo "
+        f"real; uma das duas abas foi lida com as datas erradas"
+    )
+
+    relativo = (par["soma"] - par["total"]).abs() / par["total"].abs()
+    # Verificado contra o arquivo real: 234 datas, maior desvio 2,0e-6.
+    piores = relativo[relativo > 1e-4]
+    assert piores.empty, (
+        f"{len(piores)} datas em que a soma dos detentores da 2.7 nao "
+        f"fecha com a DPMFi da 2.1; pior desvio relativo "
+        f"{relativo.max():.2e} em {relativo.idxmax()}"
+    )
 
 
 def test_dpmfi_mais_dpfe_fecha_a_dpf_por_faixa(xl):

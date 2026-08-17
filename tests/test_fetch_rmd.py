@@ -30,3 +30,19 @@ def test_link_do_anexo_falha_com_mensagem_clara_quando_nao_ha_anexo():
 def test_url_da_publicacao_rejeita_mes_invalido():
     with pytest.raises(ValueError):
         fetch_rmd.url_da_publicacao(2026, 13)
+
+
+def test_baixar_nao_sobrescreve_anexo_ja_existente(tmp_path, monkeypatch):
+    """data/raw/ e imutavel: rodar o mesmo mes duas vezes nao pode destruir
+    o primeiro download. A guarda tem que agir antes da rede.
+    """
+    ja_existe = tmp_path / fetch_rmd._nome_previsto(2026, 6)
+    ja_existe.write_bytes(b"PK\x03\x04 o anexo original")
+
+    def _proibido(*args, **kwargs):
+        raise AssertionError("nao deveria ter acessado a rede")
+
+    monkeypatch.setattr(fetch_rmd, "_baixar_bytes", _proibido)
+
+    assert fetch_rmd.baixar(2026, 6, destino=tmp_path) == ja_existe
+    assert ja_existe.read_bytes() == b"PK\x03\x04 o anexo original"
