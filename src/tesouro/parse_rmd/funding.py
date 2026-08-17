@@ -27,8 +27,6 @@ II - IV) e ficam de fora, como tudo que e derivado neste projeto.
 """
 import re
 
-import pandas as pd
-
 from .. import config
 from ..leitura_rmd import ler_padrao_a
 

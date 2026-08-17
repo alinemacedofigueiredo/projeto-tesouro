@@ -73,6 +73,23 @@ def test_por_canal_nao_tem_chave_duplicada(xl):
     ).any()
 
 
+def test_por_canal_trata_banco_central_como_esfera_propria(xl):
+    # 'Banco Central' e um cabecalho de esfera sob RESGATES/III - DPMFi,
+    # nao um canal. Se o ramo que reconhece esse rotulo quebrar, a linha
+    # 'Banco Central' vira detalhe espurio herdando a esfera anterior
+    # (DPMFi) e o NBC-E se funde silenciosamente dentro da DPMFi -- os
+    # outros testes desta suite nao pegam essa quebra porque nenhum deles
+    # olha para a esfera 'Banco Central' especificamente.
+    df = funding.parse_por_canal(xl)
+    assert "Banco Central" not in set(df["canal"].dropna().unique())
+    assert "Banco Central" in set(df["esfera"].dropna().unique())
+
+    nbce = df[df["canal"] == "NBC-E"]
+    assert not nbce.empty
+    assert set(nbce["esfera"].unique()) == {"Banco Central"}
+    assert set(nbce["operacao"].unique()) == {"resgate"}
+
+
 def test_por_indexador_tem_as_colunas_canonicas(xl):
     df = funding.parse_por_indexador(xl)
     assert list(df.columns) == [
