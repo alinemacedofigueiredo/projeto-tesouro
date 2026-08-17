@@ -2,6 +2,7 @@
 import datetime
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from tesouro import leitura_rmd
 from tesouro.parse_rmd import paf_reserva
@@ -64,6 +65,11 @@ def test_paf_traz_realizado_do_primeiro_ano_de_cada_bloco(xl):
     # float -- entao o primeiro ano de cada bloco chega como '2003.0',
     # nao '2003'. Um reconhecimento que exigisse digitos puros deixaria o
     # realizado do primeiro ano de cada um dos quatro blocos vazio.
+    #
+    # A ausencia, depois do construtor de DataFrame, e NaN (float), nao
+    # o singleton None -- e 'NaN is not None' e sempre True. Um teste que
+    # checasse 'is not None' passaria mesmo com o defeito reintroduzido,
+    # porque nunca falharia; pd.notna reconhece NaN de verdade.
     df = paf_reserva.parse_paf(xl)
     for ano in (2003, 2011, 2016, 2021):
         linha = df[
@@ -72,9 +78,36 @@ def test_paf_traz_realizado_do_primeiro_ano_de_cada_bloco(xl):
             & (df["indicador"].str.contains("Estoque"))
         ]
         assert len(linha) > 0, f"ano {ano} ausente da amostra"
-        assert linha.iloc[0]["realizado"] is not None, (
+        assert pd.notna(linha.iloc[0]["realizado"]), (
             f"realizado do ano {ano} (primeiro do seu bloco) ficou vazio"
         )
+
+
+def test_paf_converte_realizado_percentual_de_2021_2022(xl):
+    # No bloco de 2021-2022, o realizado dos indicadores percentuais e
+    # gravado na planilha como fracao (0.21), formatado como percentual;
+    # nos blocos anteriores (e no minimo/maximo da mesma linha) o
+    # realizado ja vem em pontos percentuais (30.7). Sem converter pelo
+    # formato da celula, 21.02 apareceria como 0.21 -- cem vezes abaixo
+    # da banda que deveria estar comparando.
+    df = paf_reserva.parse_paf(xl)
+    linha_2021 = df[
+        (df["ano"] == 2021) & (df["versao"] == "original")
+        & (df["indicador"] == "% Vincendo em 12 meses")
+    ].iloc[0]
+    assert linha_2021["realizado"] == pytest.approx(21.02, abs=0.1)
+
+
+def test_paf_nao_multiplica_percentual_que_ja_estava_em_pontos(xl):
+    # 'Demais' de 2010 vale legitimamente 0.79 em pontos percentuais (nao
+    # e fracao) -- uma heuristica de magnitude confundiria isso com um
+    # valor em fracao e multiplicaria por engano.
+    df = paf_reserva.parse_paf(xl)
+    linha_2010 = df[
+        (df["ano"] == 2010) & (df["versao"] == "original")
+        & (df["indicador"] == "Demais")
+    ].iloc[0]
+    assert linha_2010["realizado"] == pytest.approx(0.79, abs=0.01)
 
 
 def test_reserva_tem_as_colunas_canonicas(xl):

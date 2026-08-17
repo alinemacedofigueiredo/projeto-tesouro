@@ -6,6 +6,7 @@ dependam de rede nem dos arquivos grandes em data/raw/.
 import sys
 from pathlib import Path
 
+import openpyxl
 import pandas as pd
 
 RAIZ = Path(__file__).resolve().parents[2]
@@ -86,6 +87,32 @@ LINHAS_POR_ABA = {
 COLUNAS_POR_ABA = {"2.1": 65, "4.2": 190, "4.3": 140}
 
 
+def _preservar_formato_percentual_57(origem, destino):
+    """Copia a formatacao de celula da 5.7 do arquivo real para a amostra.
+
+    pd.read_excel devolve so o valor de cada celula, nunca a formatacao;
+    e bruto.to_excel escreve um arquivo novo, sem nenhuma formatacao
+    herdada. No bloco de 2021-2022 da 5.7, o parser (paf_reserva.py)
+    distingue realizado em fracao de realizado em pontos percentuais
+    pelo `number_format` da celula (ver `_celulas_percentuais`) -- sem
+    preservar esse formato na amostra, nenhuma celula da amostra seria
+    reconhecida como percentual, e o teste que ancora a conversao
+    passaria sem nunca exercitar o caso real.
+    """
+    linhas = LINHAS_POR_ABA.get("5.7", 40)
+    colunas = COLUNAS_POR_ABA.get("5.7", 30)
+    livro_origem = openpyxl.load_workbook(origem, data_only=True)
+    planilha_origem = livro_origem["5.7"]
+    livro_destino = openpyxl.load_workbook(destino)
+    planilha_destino = livro_destino["5.7"]
+    for linha in range(1, linhas + 1):
+        for coluna in range(1, colunas + 1):
+            planilha_destino.cell(row=linha, column=coluna).number_format = (
+                planilha_origem.cell(row=linha, column=coluna).number_format
+            )
+    livro_destino.save(destino)
+
+
 def gerar_rmd():
     origem = RAIZ / "data" / "raw" / "rmd" / "Anexo RMD_Junho_26.xlsx"
     if not origem.exists():
@@ -113,6 +140,7 @@ def gerar_rmd():
             bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=linhas)
             bruto = bruto.iloc[:, :COLUNAS_POR_ABA.get(aba, 30)]
             bruto.to_excel(escritor, sheet_name=aba, header=False, index=False)
+    _preservar_formato_percentual_57(origem, destino)
     print(f"gerado: {destino}")
 
 

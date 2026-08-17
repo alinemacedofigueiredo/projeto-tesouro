@@ -15,10 +15,11 @@ banda vira de um arquivo de referencia produzido em trabalho separado.
 """
 import re
 
+import openpyxl
 import pandas as pd
 
 from .. import config
-from ..conversoes import data_da_celula, limpar_nulo, para_milhoes
+from ..conversoes import data_da_celula, fracao_para_percentual, limpar_nulo, para_milhoes
 from ..leitura_rmd import aba
 
 # O rotulo revisado nao e escrito do mesmo jeito em todos os blocos: a
@@ -30,10 +31,13 @@ _PADRAO_PAF = re.compile(r"^PAF\s+(\d{4})\s*\(?(revisado)?\)?$", re.IGNORECASE)
 
 # O ano realizado, na linha 'Indicadores', nem sempre chega como inteiro:
 # quando a coluna mistura texto ('Indicadores') e numero, o pandas guarda
-# os numeros dessa coluna como float, entao o primeiro ano de cada bloco
-# aparece como '2003.0', nao '2003'. Sem aceitar o '.0' final, esse ano
-# nunca e reconhecido como coluna de realizado, e o realizado do primeiro
-# ano de cada um dos quatro blocos fica faltando.
+# os numeros dessa coluna como float. Isso nao afeta so o primeiro ano de
+# cada bloco -- no primeiro bloco a mistura persiste por cinco anos
+# (2003 a 2007 chegam como '2003.0' .. '2007.0'; so 2008 em diante volta
+# a ser inteiro), e nos blocos 2 a 4 afeta so o primeiro ano de cada um
+# (2011, 2016, 2021). Sem aceitar o '.0' final, esses anos nunca sao
+# reconhecidos como coluna de realizado, e o realizado correspondente
+# fica faltando.
 _PADRAO_ANO = re.compile(r"^\d{4}(\.0+)?$")
 
 
@@ -47,6 +51,32 @@ def _blocos(bruto):
     if not inicios:
         raise LookupError("aba 5.7: nenhuma linha 'Indicadores' encontrada")
     return inicios
+
+
+def _celulas_percentuais(caminho, nome_da_aba):
+    """Posicoes (linha, coluna) cuja formatacao de celula e percentual.
+
+    No bloco de 2021-2022 o realizado dos indicadores percentuais
+    ('% Vincendo em 12 meses', 'Prefixado', 'Indice de Precos', 'Taxa
+    Flutuante', 'Cambio') esta formatado como percentual na planilha, e o
+    pandas devolve a fracao (0.21) em vez dos pontos percentuais (21.0)
+    que os blocos anteriores usam -- e que a banda (minimo/maximo) da
+    mesma linha usa. Sem corrigir, comparar realizado com banda da um
+    erro de cem vezes, e a serie do indicador ganha um degrau artificial
+    no meio.
+
+    A deteccao usa o formato da celula, nunca o valor: uma heuristica de
+    magnitude erraria o 'Demais' de 2010, que vale legitimamente 0.79 em
+    pontos percentuais (nao e fracao, e nao deve ser multiplicado).
+    """
+    livro = openpyxl.load_workbook(caminho, data_only=True)
+    planilha = livro[nome_da_aba]
+    return {
+        (celula.row - 1, celula.column - 1)
+        for linha in planilha.iter_rows()
+        for celula in linha
+        if celula.number_format and celula.number_format.endswith("%")
+    }
 
 
 def _colunas_do_bloco(bruto, linha_indicadores):
@@ -86,6 +116,7 @@ def parse_paf(xl):
     ver a nota do modulo.
     """
     bruto = aba(xl, "5.7")
+    percentuais = _celulas_percentuais(xl.caminho, "5.7")
 
     registros = []
     inicios = _blocos(bruto)
@@ -111,6 +142,12 @@ def parse_paf(xl):
                     limpar_nulo(bruto.iloc[indice, col_real])
                     if col_real is not None else None
                 )
+                if realizado is not None and (indice, col_real) in percentuais:
+                    # Bloco de 2021-2022: o realizado dos indicadores
+                    # percentuais vem como fracao (0.21), enquanto o
+                    # minimo/maximo da mesma linha e os realizados dos
+                    # blocos anteriores ja estao em pontos percentuais.
+                    realizado = fracao_para_percentual(realizado)
                 if minimo is None and maximo is None and realizado is None:
                     # Descarta linhas-cabecalho de secao (ex.:
                     # 'Participacao no Estoque da DPF (%)'), que tem so a

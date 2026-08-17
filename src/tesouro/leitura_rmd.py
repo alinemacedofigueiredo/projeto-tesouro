@@ -34,7 +34,14 @@ def caminho_do_rmd(diretorio=None):
 
 def abrir(caminho=None):
     caminho = Path(caminho) if caminho else caminho_do_rmd()
-    return pd.ExcelFile(caminho)
+    xl = pd.ExcelFile(caminho)
+    # pd.ExcelFile nao expoe o caminho de origem publicamente (so o
+    # atributo privado _io); alguns parsers precisam reabrir o arquivo
+    # com openpyxl para ler metadado que o pandas descarta (formatacao de
+    # celula, no caso da aba 5.7 -- ver paf_reserva.py). Gravar aqui evita
+    # que cada parser dependa do atributo privado do pandas.
+    xl.caminho = caminho
+    return xl
 
 
 def aba(xl, nome):
