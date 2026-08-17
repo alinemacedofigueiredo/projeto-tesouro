@@ -1530,18 +1530,75 @@ git commit -m "Adiciona parsers de funding (abas 1.1 e 1.2)"
 
 **Files:**
 - Create: `src/tesouro/parse_rmd/estoque.py`
+- Modify: `src/tesouro/conversoes.py` (nova função `data_da_celula`)
+- Modify: `src/tesouro/leitura_rmd.py` (`ler_padrao_b` passa a usá-la)
+- Modify: `tests/fixtures/gerar_fixtures.py` (amostra maior para 2.7 e 2.8)
 - Test: `tests/test_estoque.py`
 
+**Datas escritas como texto — trate antes de escrever o parser.** Duas abas trazem alguns meses como texto com marcador de nota de rodapé em vez de data: `mar/18*` e `abr/18*`, os meses que o Tesouro retificou. São 2 linhas na aba 2.7 e 10 na 2.8 (duas em cada um dos cinco blocos de título). O `normalizar_data` devolve `None` para elas, e a consequência é diferente em cada aba:
+
+- na **2.7**, o `ler_padrao_b` pula a linha e os dois meses somem da série, silenciosamente;
+- na **2.8**, uma linha dessas seria confundida com o começo de um bloco de título novo, zerando o dicionário de detentores — e as cerca de cem linhas seguintes daquele bloco desapareceriam, também sem erro.
+
+Por isso a tarefa começa criando `conversoes.data_da_celula`, que conhece todas as formas que uma data assume neste arquivo, e passando `ler_padrao_b` a usá-la.
+
 **Interfaces:**
-- Consumes: `leitura_rmd.ler_padrao_a`, `leitura_rmd.ler_padrao_b`
+- Consumes: `leitura_rmd.ler_padrao_a`, `leitura_rmd.ler_padrao_b`, `leitura_rmd.aba`
 - Produces:
+  - `conversoes.data_da_celula(valor) -> datetime.date | None`
   - `estoque.parse_dpf(xl) -> DataFrame` — `data, nivel, entidade, titulo, valor_milhoes`
   - `estoque.parse_composicao(xl) -> DataFrame` — `data, indexador, valor_milhoes`
   - `estoque.parse_detentores(xl) -> DataFrame` — `data, detentor, valor_milhoes`
   - `estoque.parse_detentores_por_titulo(xl) -> DataFrame` — `data, detentor, titulo, valor_milhoes`
   - CSVs `estoque_dpf.csv`, `composicao_dpf.csv`, `detentores.csv`, `detentores_por_titulo.csv`
 
-**Contexto:** a 2.1 é padrão A em R$ bilhões, com hierarquia `DPF EM PODER DO PÚBLICO` → `DPMFi` → `Tesouro Nacional` / `Banco Central` → títulos, e `DPFe` à parte. A 2.4, 2.7 e 2.8 são padrão B em R$ bilhões com pares (valor, %); a 2.8 é dividida em blocos por título, cada bloco com o rótulo do título numa linha isolada acima do seu cabeçalho de detentores.
+**Contexto:** a 2.1 é padrão A em R$ bilhões, com hierarquia `DPF EM PODER DO PÚBLICO` → `DPMFi` → `Tesouro Nacional` / `Banco Central` → títulos, e `DPFe` à parte. A 2.4, 2.7 e 2.8 são padrão B em R$ bilhões com pares (valor, %); a 2.8 é dividida em blocos por título (`LFT`, `LTN`, `NTN-B`, `NTN-F`, `OUTROS`), a cerca de 189 linhas de distância um do outro, cada bloco com o rótulo do título numa linha isolada acima do seu cabeçalho de detentores.
+
+- [ ] **Step 0: Acrescente `data_da_celula` a `conversoes.py` e passe `ler_padrao_b` a usá-la**
+
+Em `src/tesouro/conversoes.py`:
+
+```python
+def data_da_celula(valor):
+    """Le a data de uma celula, nas varias formas que o anexo usa.
+
+    O pandas entrega quase todas as datas como datetime, mas algumas
+    celulas trazem o mes como texto ('Jan/10'), e outras trazem texto com
+    marcador de nota de rodape ('mar/18*') -- os meses que o Tesouro
+    retificou. As tres formas significam a mesma coisa, e quem le a
+    planilha nao deveria precisar saber disso.
+    """
+    data = normalizar_data(valor)
+    if data is not None:
+        return data
+    if not isinstance(valor, str):
+        return None
+    return mes_para_data(valor.strip().rstrip("*").strip())
+```
+
+Em `src/tesouro/leitura_rmd.py`, dentro de `ler_padrao_b`, troque `normalizar_data(...)` por `data_da_celula(...)` e ajuste o import. Acrescente a `tests/test_leitura_rmd.py`:
+
+```python
+def test_padrao_b_le_data_escrita_como_texto_com_nota(xl):
+    # A aba 2.7 traz 'mar/18*' e 'abr/18*' como texto: sao os meses que o
+    # Tesouro retificou. Sem trata-los, os dois meses somem da serie.
+    import datetime
+    df = leitura_rmd.ler_padrao_b(xl, "2.7", linha_cabecalho=4, unidade="bilhoes")
+    datas = set(df["data"])
+    assert datetime.date(2018, 3, 31) in datas
+    assert datetime.date(2018, 4, 30) in datas
+```
+
+E em `tests/fixtures/gerar_fixtures.py`, as abas 2.7 e 2.8 precisam de amostra maior, senão nem as datas em texto nem o segundo bloco de título entram nos testes:
+
+```python
+LINHAS_POR_ABA = {"2.7": 150, "2.8": 400}
+...
+            linhas = LINHAS_POR_ABA.get(aba, 40)
+            bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=linhas)
+```
+
+Rode `python -m pytest tests/ -v` depois deste passo: o teste novo tem que passar e nenhum anterior pode quebrar.
 
 - [ ] **Step 1: Escreva o teste que falha**
 
@@ -1614,6 +1671,32 @@ def test_detentores_por_titulo_preserva_o_bloco_do_titulo(xl):
     df = estoque.parse_detentores_por_titulo(xl)
     assert list(df.columns) == ["data", "detentor", "titulo", "valor_milhoes"]
     assert "LFT" in set(df["titulo"].unique())
+
+
+def test_detentores_por_titulo_atravessa_mais_de_um_bloco(xl):
+    # Os blocos ficam a ~189 linhas um do outro. Se a deteccao de bloco
+    # falhar, so o primeiro titulo aparece -- e o teste acima passaria
+    # mesmo assim.
+    df = estoque.parse_detentores_por_titulo(xl)
+    assert {"LFT", "LTN"} <= set(df["titulo"].unique())
+
+
+def test_detentores_por_titulo_nao_perde_os_meses_retificados(xl):
+    # 'mar/18*' e 'abr/18*' vem como texto no meio do bloco. Tratados como
+    # rotulo de titulo, zerariam os detentores e as ~100 linhas seguintes
+    # do bloco sumiriam sem erro nenhum.
+    df = estoque.parse_detentores_por_titulo(xl)
+    do_lft = df[df["titulo"] == "LFT"]
+    assert datetime.date(2018, 3, 31) in set(do_lft["data"])
+    assert datetime.date(2018, 4, 30) in set(do_lft["data"])
+    # e o bloco continua depois deles
+    assert (do_lft["data"] > datetime.date(2018, 4, 30)).any()
+
+
+def test_detentores_por_titulo_ignora_o_rodape_de_asterisco(xl):
+    # A ultima linha da aba comeca com '*' e explica a retificacao.
+    df = estoque.parse_detentores_por_titulo(xl)
+    assert not any(str(t).startswith("*") for t in df["titulo"].unique())
 ```
 
 - [ ] **Step 2: Rode o teste e confirme que falha**
@@ -1633,7 +1716,7 @@ e lido.
 import pandas as pd
 
 from .. import config
-from ..conversoes import limpar_nulo, normalizar_data, para_milhoes
+from ..conversoes import data_da_celula, limpar_nulo, para_milhoes
 from ..leitura_rmd import aba, ler_padrao_a, ler_padrao_b
 
 _EM_PODER_DO_PUBLICO = "DPF EM PODER DO PÚBLICO"
@@ -1696,9 +1779,16 @@ def parse_detentores(xl):
 def parse_detentores_por_titulo(xl):
     """Aba 2.8 -- participacao dos detentores, em blocos por titulo.
 
-    A aba repete o mesmo bloco para cada titulo: uma linha isolada com o
-    nome do titulo, um cabecalho de detentores duas linhas abaixo, e as
-    datas em seguida. O parser varre a planilha reconhecendo esses marcos.
+    A aba repete o mesmo bloco para cada titulo (LFT, LTN, NTN-B, NTN-F,
+    OUTROS), a cerca de 189 linhas de distancia um do outro: uma linha
+    isolada com o nome do titulo, um cabecalho de detentores duas linhas
+    abaixo, e as datas em seguida.
+
+    A ordem dos testes abaixo importa. Duas linhas de cada bloco trazem a
+    data como TEXTO com asterisco ('mar/18*', 'abr/18*') -- os meses que o
+    Tesouro retificou. Se a checagem de data nao vier primeiro, elas sao
+    lidas como rotulo de titulo, o dicionario de detentores e zerado, e as
+    cerca de cem linhas seguintes do bloco desaparecem sem erro nenhum.
     """
     bruto = aba(xl, "2.8")
 
@@ -1708,9 +1798,10 @@ def parse_detentores_por_titulo(xl):
 
     for indice in range(len(bruto)):
         primeira = bruto.iloc[indice, 0]
-        data = normalizar_data(primeira)
 
-        if data is not None and detentores:
+        # Primeiro: e uma data? (inclusive as escritas como texto)
+        data = data_da_celula(primeira)
+        if data is not None:
             for coluna, detentor in detentores.items():
                 valor = para_milhoes(
                     limpar_nulo(bruto.iloc[indice, coluna]), "bilhoes"
@@ -1718,24 +1809,26 @@ def parse_detentores_por_titulo(xl):
                 registros.append((data, detentor, titulo_corrente, valor))
             continue
 
-        if not pd.isna(primeira) and str(primeira).strip():
-            texto = str(primeira).strip()
-            if not texto.upper().startswith("ANEXO"):
-                titulo_corrente = texto
-                detentores = {}
+        # Coluna 0 vazia: candidata a linha de cabecalho de detentores.
+        if pd.isna(primeira) or not str(primeira).strip():
+            if titulo_corrente and not detentores:
+                candidatos = {}
+                coluna = 1
+                while coluna < len(bruto.columns):
+                    nome = bruto.iloc[indice, coluna]
+                    if not pd.isna(nome) and str(nome).strip():
+                        candidatos[coluna] = str(nome).strip()
+                    coluna += 2
+                if candidatos:
+                    detentores = candidatos
             continue
 
-        # Linha de cabecalho de detentores: coluna 0 vazia, coluna 1 com nome.
-        if titulo_corrente and not detentores:
-            candidatos = {}
-            coluna = 1
-            while coluna < len(bruto.columns):
-                nome = bruto.iloc[indice, coluna]
-                if not pd.isna(nome) and str(nome).strip():
-                    candidatos[coluna] = str(nome).strip()
-                coluna += 2
-            if candidatos:
-                detentores = candidatos
+        texto = str(primeira).strip()
+        if texto.upper().startswith("ANEXO") or texto.startswith("*"):
+            continue  # titulo da aba, ou rodape explicando a retificacao
+
+        titulo_corrente = texto
+        detentores = {}
 
     return pd.DataFrame(
         registros, columns=["data", "detentor", "titulo", "valor_milhoes"]
