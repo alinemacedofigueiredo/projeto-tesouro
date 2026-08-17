@@ -1866,7 +1866,10 @@ git commit -m "Adiciona parsers de estoque, composicao e detentores"
 
 **Files:**
 - Create: `src/tesouro/parse_rmd/estoque_vencimento.py`
+- Modify: `tests/fixtures/gerar_fixtures.py` (a aba 2.2 precisa de 290 linhas)
 - Test: `tests/test_estoque_vencimento.py`
+
+**A amostra da 2.2 precisa de 290 linhas.** Com as 40 do padrão, a fixture pega só parte do bloco `Prefixados` — nenhum subtotal, nenhuma nota, nenhum segundo bloco. Os testes passariam sem tocar em nada do que dá errado nesta aba. Acrescente `"2.2": 290` ao `LINHAS_POR_ABA`.
 
 **Interfaces:**
 - Consumes: `conversoes.mes_para_data`, `conversoes.limpar_nulo`, `conversoes.para_milhoes`
@@ -1874,9 +1877,18 @@ git commit -m "Adiciona parsers de estoque, composicao e detentores"
   - `estoque_vencimento.parse(xl) -> DataFrame` — `data, indexador, titulo, vencimento, isin, quantidade_mil, financeiro_milhoes`
   - CSV `estoque_titulos_vencimento.csv`
 
-**Contexto:** é a aba mais importante e a mais complicada. Estrutura: blocos por indexador (linha isolada com `Prefixados`, depois os demais), cabeçalho fixo `Título | Data de Vencimento | Código ISIN | Estoque`, uma linha de meses onde **cada mês ocupa duas colunas** (`Quantidade (mil)` e `Financeiro (R$ bi)`), e uma linha abaixo indicando qual das duas é qual. Cada linha de dados é um papel, identificado por título, vencimento e ISIN.
+**Contexto:** é a aba mais importante e a mais complicada — 283 linhas por 399 colunas no arquivo real. Estrutura: blocos por indexador (`Prefixados` na linha 4, `Selic` na 117, `Índices de Preços` na 188), cabeçalho fixo `Título | Data de Vencimento | Código ISIN | Estoque`, uma linha de meses onde **cada mês ocupa duas colunas** (`Quantidade (mil)` e `Financeiro (R$ bi)`), e uma linha abaixo indicando qual das duas é qual. Cada linha de dados é um papel, identificado por título, vencimento e ISIN.
 
 A quantidade é o campo crítico do projeto: a entrega 2 calcula preço e DV01 a partir dela, com taxa de fonte externa.
+
+**Linhas de ruído no meio da planilha — trate antes do resto.** A aba intercala subtotais e notas de rodapé entre os dados, e **todos têm a coluna de vencimento vazia, exatamente como um cabeçalho de bloco**:
+
+- subtotais: `Total LTN` (linha 90), `Total NTN-F` (112), `Total Prefixados` (114), `Total Selic1` (184), `Total NTN-B` (271), `Total NTN-C` (278), `Total Índices de Preços` (280)
+- notas: `Obs.: Valores apurados...` (116, 186, 282) e `1 Não estão incluídos os títulos LFT-A e LFT-B.` (187)
+
+Se qualquer uma virar o indexador corrente, contamina todas as linhas seguintes: as 19 linhas de `NTN-F` sairiam com indexador `Total LTN` em vez de `Prefixados`. E os subtotais são derivados — não podem ser gravados, pela regra do projeto.
+
+Os títulos presentes são mais variados do que o nome da aba sugere: `LTN`, `LFT`, `NTN-B`, `NTN-F`, `NTN-B Principal`, `NTN-B1 EducA+`, `NTN-B1 RendA+`, `NTN-C`, `LFT-TD1 Reserva`. Nenhum deles precisa de tratamento especial, mas não presuma que a lista é curta.
 
 - [ ] **Step 1: Escreva o teste que falha**
 
@@ -1928,6 +1940,28 @@ def test_marca_o_bloco_de_indexador(df):
 def test_nao_confunde_o_cabecalho_com_dado(df):
     assert not df["titulo"].astype(str).str.contains("Título").any()
     assert df["vencimento"].notna().all()
+
+
+def test_cobre_os_tres_blocos_de_indexador(df):
+    assert {"Prefixados", "Selic", "Índices de Preços"} <= set(
+        df["indexador"].dropna().unique()
+    )
+
+
+def test_ntn_f_fica_em_prefixados_e_nao_no_subtotal_anterior(df):
+    # 'Total LTN' aparece entre as linhas de LTN e as de NTN-F, com a
+    # coluna de vencimento vazia igual a um cabecalho de bloco. Se virar
+    # indexador corrente, as 19 linhas de NTN-F saem com 'Total LTN'.
+    indexadores = set(df[df["titulo"] == "NTN-F"]["indexador"].unique())
+    assert indexadores == {"Prefixados"}
+
+
+def test_nao_grava_subtotais_nem_notas(df):
+    rotulos = set(df["titulo"].dropna().astype(str).unique())
+    assert not any(r.lower().startswith("total") for r in rotulos)
+    assert not any(r.lower().startswith("obs") for r in rotulos)
+    indexadores = set(df["indexador"].dropna().astype(str).unique())
+    assert not any(i.lower().startswith(("total", "obs")) for i in indexadores)
 ```
 
 - [ ] **Step 2: Rode o teste e confirme que falha**
@@ -1961,6 +1995,28 @@ _COL_ISIN = 2
 _PRIMEIRA_COL_DE_DADOS = 3
 
 _CABECALHOS = {"título", "titulo", "data de vencimento", "código isin"}
+
+# Nota numerada de rodape: '1 Nao estao incluidos os titulos LFT-A e LFT-B.'
+_PADRAO_NOTA_NUMERADA = re.compile(r"^\d+\s")
+
+
+def _eh_ruido(texto):
+    """Diz se a linha e subtotal, nota de rodape ou titulo da aba.
+
+    Precisa ser reconhecida ANTES de a celula ser tratada como cabecalho
+    de bloco, porque 'Total LTN' e 'Obs.: ...' tem a coluna de vencimento
+    vazia igual a um cabecalho de verdade. Se uma delas virar o indexador
+    corrente, contamina todas as linhas seguintes -- as 19 linhas de NTN-F
+    sairiam com indexador 'Total LTN' em vez de 'Prefixados', sem erro
+    nenhum.
+
+    Os subtotais tambem sao valores derivados, e por isso nao entram na
+    tabela de jeito nenhum.
+    """
+    limpo = texto.strip().lower()
+    if limpo.startswith(("anexo", "obs", "total")):
+        return True
+    return bool(_PADRAO_NOTA_NUMERADA.match(limpo))
 
 
 def _linha_dos_meses(bruto):
@@ -2007,7 +2063,9 @@ def parse(xl):
             continue
         texto = str(celula).strip()
 
-        if texto.lower() in _CABECALHOS or texto.upper().startswith("ANEXO"):
+        # Ruido primeiro: subtotais e notas tem a coluna de vencimento
+        # vazia e seriam confundidos com cabecalho de bloco.
+        if texto.lower() in _CABECALHOS or _eh_ruido(texto):
             continue
 
         vencimento = _para_data_de_vencimento(bruto.iloc[indice, _COL_VENCIMENTO])
