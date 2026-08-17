@@ -2906,6 +2906,17 @@ git commit -m "Consolida as tres abas de custo medio numa tabela unica"
   - `paf_reserva.parse_reserva(xl) -> DataFrame` — `data, reserva_milhoes, valor_prudencial_milhoes, indice_liquidez_meses`
   - CSVs `paf_metas.csv`, `reserva_liquidez.csv`
 
+**Estrutura real das duas abas, verificada antes de escrever este brief.**
+
+A **5.7** tem 69 linhas por 30 colunas e **quatro blocos**, com a linha `Indicadores` em 4, 22, 39 e 55. A contagem de colunas preenchidas cai de bloco para bloco (18, 12, 12, 6 na linha `Indicadores`), porque cada um cobre um intervalo de anos diferente. Dentro de cada bloco, a ordem é: `Indicadores` com os anos e rótulos `PAF <ano>` alternados, `Mínimo`/`Máximo` na linha seguinte, e então os indicadores — `Estoque da DPF em Mercado (R$ Bilhões)`, `Prazo Médio da DPF (anos)`, `% Vincendo em 12 meses`, a linha-cabeçalho `Participação no Estoque da DPF (%)`, e os indexadores.
+
+Dois detalhes que a leitura precisa respeitar:
+
+- **`Participação no Estoque da DPF (%)` é cabeçalho de seção, não indicador** — tem só a primeira célula preenchida. Cai naturalmente no descarte de linha sem nenhum valor, mas não confie nisso por acidente: se algum dia ganhar valores, vira um indicador falso.
+- **Os nomes de indicador mudam entre blocos**: `Selic` no primeiro (2003–2010), `Taxa Flutuante` nos demais; `Demais` só existe no primeiro. **Não normalize** — a diferença é real na fonte, e apagá-la esconderia que a meta mudou de conceito. Quem consome decide como tratar.
+
+A **6.1** é a aba mais simples do arquivo: 144 linhas por 4 colunas, cabeçalho na linha 4, unidades na 5, dados da 6 em diante, sem nota de rodapé. As duas primeiras colunas de valor estão em R$ bilhões; a terceira é um índice em meses e **não pode ser convertida**.
+
 **Contexto:** a 5.7 é a aba mais irregular do arquivo — blocos empilhados verticalmente, cada um cobrindo um intervalo de anos com layout próprio. Em cada bloco, a primeira linha traz `Indicadores`, depois pares ano/`PAF <ano>` (e às vezes `PAF <ano> revisado`), e a linha seguinte traz `Mínimo`/`Máximo` sob cada bloco de PAF. Os nomes dos indicadores mudam no tempo: `Selic` (até 2010) vira `Taxa Flutuante`; `Demais` some depois de 2010. **A aba não traz a data de publicação das revisões** — a vigência virá de um arquivo de referência produzido em trabalho separado.
 
 - [ ] **Step 1: Escreva o teste que falha**
@@ -3003,7 +3014,7 @@ import re
 import pandas as pd
 
 from .. import config
-from ..conversoes import limpar_nulo, normalizar_data, para_milhoes
+from ..conversoes import data_da_celula, limpar_nulo, para_milhoes
 from ..leitura_rmd import aba
 
 _PADRAO_PAF = re.compile(r"^PAF\s+(\d{4})(\s+revisado)?$", re.IGNORECASE)
@@ -3096,7 +3107,10 @@ def parse_reserva(xl):
 
     registros = []
     for indice in range(len(bruto)):
-        data = normalizar_data(bruto.iloc[indice, 0])
+        # data_da_celula, e nao normalizar_data: se um mes futuro vier
+        # escrito como texto (ja acontece nas abas 2.7 e 2.8), ele entra
+        # em vez de desaparecer da serie em silencio.
+        data = data_da_celula(bruto.iloc[indice, 0])
         if data is None:
             continue
         reserva = para_milhoes(limpar_nulo(bruto.iloc[indice, 1]), "bilhoes")
