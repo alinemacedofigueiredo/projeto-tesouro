@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 
 from . import config
+from .gravacao import gravar_atomico
 
 API_CKAN = (
     "https://www.tesourotransparente.gov.br/ckan/api/3/action/"
@@ -33,28 +34,6 @@ def url_do_historico(resposta_ckan):
     )
 
 
-def _gravar_atomico(conteudo, caminho):
-    """Grava bytes em caminho sem nunca deixar um arquivo parcial no nome
-    definitivo.
-
-    O download e feito em duas etapas de proposito: primeiro escreve tudo
-    num arquivo temporario '.part' ao lado do destino, so depois troca de
-    nome com Path.replace (atomico no mesmo sistema de arquivos). Se o
-    processo for interrompido no meio da escrita, sobra no maximo um '.part'
-    solto; o arquivo final so existe se estiver completo, entao a checagem
-    de idempotencia em baixar() (`if caminho.exists(): ...`) nunca aceita
-    um arquivo truncado como "ja existe". Nao troque isso por um
-    write_bytes direto no destino.
-    """
-    tmp = caminho.with_name(caminho.name + ".part")
-    try:
-        tmp.write_bytes(conteudo)
-        tmp.replace(caminho)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
 def baixar(destino=None):
     """Baixa o historico e devolve o caminho do arquivo salvo."""
     destino = Path(destino) if destino else config.LEILOES_DIR
@@ -72,7 +51,7 @@ def baixar(destino=None):
     print(f"baixando {url}")
     with urllib.request.urlopen(url, timeout=300) as resposta:
         conteudo = resposta.read()
-    _gravar_atomico(conteudo, caminho)
+    gravar_atomico(conteudo, caminho)
 
     print(f"salvo em {caminho} ({caminho.stat().st_size / 1e6:.1f} MB)")
     return caminho
