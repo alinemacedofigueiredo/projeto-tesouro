@@ -58,13 +58,20 @@ LINHAS_POR_ABA = {"2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840}
 # descarta titulo sem valor em toda a serie) as removeria, mascarando o
 # teste de colisao de rotulo em 'Demais' (ver test_estoque.py).
 #
-# A 4.2 tambem precisa de mais colunas: seu primeiro mes e Dez/05, mas a
-# 4.3 (emissoes) so comeca em Dez/10 e, com o corte padrao de 30 colunas,
-# vai ate Abr/13 (coluna 89 de Dez/05). Com 30 colunas a 4.2 amostrada
-# para em meados de 2008, antes da 4.3 sequer comecar, e o teste que
-# compara as duas medidas pela mesma data (custo do estoque vs. custo das
-# emissoes) nao teria nenhuma data em comum para verificar.
-COLUNAS_POR_ABA = {"2.1": 65, "4.2": 95}
+# A 4.3 precisa alcancar jan/2021 -- e a partir dai, o unico ponto onde a
+# aba passa de uma coluna por mes para uma trinca de colunas mescladas
+# ('Taxa media' / 'Variacao do Indexador' / 'CME'). As trincas comecam na
+# coluna 122; 140 colunas cobrem jan/2021 a jun/2021 inteiras, o bastante
+# para o teste que ancora num valor concreto da coluna CME (ver
+# test_custo.py) -- sem essas colunas, o ramo que le a trinca nunca roda
+# nos testes e pode ler a coluna errada sem que nada acuse.
+#
+# A 4.2 tambem precisa de mais colunas: seu primeiro mes e Dez/05, e
+# precisa alcancar pelo menos o mesmo mes mais recente que a 4.3
+# amostrada (jun/2021, coluna 187 de Dez/05), senao o teste que compara
+# as duas medidas pela mesma data (custo do estoque vs. custo das
+# emissoes) encontraria datas na 4.3 que nao existem na 4.2 amostrada.
+COLUNAS_POR_ABA = {"2.1": 65, "4.2": 190, "4.3": 140}
 
 
 def gerar_rmd():

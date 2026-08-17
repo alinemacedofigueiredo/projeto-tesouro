@@ -10,17 +10,24 @@ NTN-D em 2005.
 
 A 4.3 muda de leiaute a partir de jan/2021 (a propria aba registra isso
 numa nota 'Obs'): ate dez/2020 cada mes ocupa uma coluna, igual as demais
-abas; dai em diante cada mes vira uma trinca de colunas ('Taxa media',
-'Variacao do Indexador', 'CME'), com o rotulo do mes uma linha acima da
-trinca em vez de na mesma linha. A aba tambem carrega, bem mais a direita
-(a partir de jan/2021 outra vez), uma tabela auxiliar de apoio a um
-grafico, com rotulos de mes soltos a cada 3 colunas -- se o detector de
-cabecalho generico (que so olha a primeira linha com 3+ meses) rodasse
-nessa aba, pegaria essa tabela auxiliar em vez da tabela real, porque ela
-fica uma linha acima do cabecalho verdadeiro. Por isso a 4.3 tem leitura
-propria: _colunas_de_data_4_3 acha a linha 'CME' (se existir) e le a
-trinca; sem 'CME' -- caso da amostra, que nao alcanca jan/2021 -- cai no
-mesmo detector generico das outras abas.
+abas; dai em diante cada mes vira um cabecalho mesclado de dois niveis --
+uma celula mesclada com o rotulo do mes cobrindo tres colunas, e a linha
+de baixo com os sub-rotulos dessas tres colunas ('Taxa media', 'Variacao
+do Indexador', 'CME'). So a CME equivale ao valor unico de antes.
+
+Isso quebra o detector de cabecalho generico (que para na primeira linha
+com 3+ meses reconheciveis): ele para na linha do rotulo do mes mesclado,
+antes de chegar a linha das tres sub-colunas, e o valor sob esse rotulo
+fica vazio (a celula mesclada so tem conteudo na primeira das tres
+colunas). O resultado depende do titulo: para DPMFi e NTN-B1 da NaN; para
+NTN-B e LFT da a 'Taxa media' isolada, um numero plausivel e errado (ex.:
+NTN-B em jan/2021 vira 2.124644 em vez de 10.519469) -- a classe de falha
+mais perigosa deste projeto, porque nao acusa nada. LTN e NTN-F saem
+certos por coincidencia, ja que sao prefixados e a variacao do indexador
+e sempre zero neles. Por isso a 4.3 tem leitura propria:
+_colunas_de_data_4_3 acha a linha das sub-colunas (a que tem uma celula
+'CME') e le a trinca certa; sem 'CME' -- caso da amostra recortada antes
+de jan/2021 -- cai no mesmo detector generico das outras abas.
 """
 import re
 

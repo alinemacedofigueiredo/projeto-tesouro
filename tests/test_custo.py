@@ -1,4 +1,5 @@
 # tests/test_custo.py
+import datetime
 from pathlib import Path
 
 import pytest
@@ -65,3 +66,25 @@ def test_preserva_custo_negativo(df):
 def test_abre_por_titulo(df):
     titulos = set(df["titulo"].dropna().unique())
     assert {"LFT", "LTN", "NTN-B"} <= titulos
+
+
+def test_aba_4_3_pos_2021_le_a_coluna_cme_da_trinca(df):
+    # A partir de jan/2021 a 4.3 muda de leiaute: cada mes vira um
+    # cabecalho mesclado de duas linhas -- o rotulo do mes cobrindo tres
+    # colunas, e as tres sub-colunas por baixo ('Taxa media', 'Variacao
+    # do Indexador', 'CME'). So a CME equivale ao valor unico de antes.
+    #
+    # A amostra so cruza essa fronteira (COLUNAS_POR_ABA['4.3'] = 140 em
+    # gerar_fixtures.py) para que este teste va alem de jan/2021 -- sem
+    # isso o ramo da trinca em _colunas_de_data_4_3 nunca roda nos
+    # testes. Os valores abaixo vem do arquivo real (Anexo RMD_Junho_26):
+    # a coluna errada da trinca ('Taxa media') da 2.124644 para a NTN-B e
+    # 0.139746 para a LFT -- um numero plausivel e errado, nao um NaN --
+    # entao a ancoragem tem que ser num valor exato, nao so 'nao e NaN'.
+    jan21 = df[
+        (df["medida"] == "emissoes_12m") & (df["data"] == datetime.date(2021, 1, 31))
+    ]
+    ntnb = jan21.loc[jan21["titulo"] == "NTN-B", "custo_aa_pct"].iloc[0]
+    lft = jan21.loc[jan21["titulo"] == "LFT", "custo_aa_pct"].iloc[0]
+    assert ntnb == pytest.approx(10.519469)
+    assert lft == pytest.approx(2.185361)
