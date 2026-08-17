@@ -48,7 +48,19 @@ ABAS_DA_AMOSTRA = [
 # aba (834 linhas). Com o corte padrao de 40, a amostra so pegaria o
 # comeco do bloco DPF, e os testes que separam os tres niveis nao teriam
 # como falhar mesmo se o parser misturasse tudo.
-LINHAS_POR_ABA = {"2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840}
+#
+# A 5.7 empilha quatro blocos verticais de PAF, cada um com layout
+# proprio; o quarto comeca na linha 55, e a aba inteira tem so 69 linhas.
+# Com o corte padrao de 40, a amostra parava no meio do terceiro bloco e
+# nunca alcancava o quarto -- que e o unico a escrever a revisao como
+# 'PAF <ano> (Revisado)' (parenteses, maiuscula) em vez de 'PAF <ano>
+# revisado'. Um parser que so reconhecesse a segunda forma passaria limpo
+# nos testes e perderia a revisao mais recente da planilha real em
+# silencio. Usa-se a aba inteira (69 linhas) para nao depender de onde o
+# quarto bloco termina.
+LINHAS_POR_ABA = {
+    "2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840, "5.7": 69,
+}
 
 # A 2.1 tambem precisa de mais colunas (meses) que as demais abas: o
 # rotulo 'Demais' se repete sob Tesouro Nacional (linha 19) e sob o memo
