@@ -21,9 +21,15 @@ def test_por_titulo_tem_as_colunas_canonicas(xl):
 
 
 def test_por_titulo_traz_prazos_plausiveis(xl):
+    # O limite superior tem que caber na familia RendA+/EducA+ (NTN-B1),
+    # legitimamente longa: no arquivo real ela chega a 28,71 anos, em 42
+    # linhas. Um teto de 15 anos passa apenas porque a amostra da 3.7 esta
+    # cortada em 30 colunas, e quem ampliar a amostra iria cacar um bug
+    # que nao existe.
     df = prazo.parse_por_titulo(xl)
     valores = df["prazo_anos"].dropna()
-    assert valores.between(0, 15).all()
+    assert (valores >= 0).all()
+    assert valores.between(0, 40).all()
 
 
 def test_por_indexador_separa_dpmfi_de_dpfe(xl):

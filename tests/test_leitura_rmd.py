@@ -35,11 +35,24 @@ def test_padrao_a_descarta_colunas_de_total_anual(xl):
 def test_padrao_a_distingue_rotulos_repetidos_pela_linha_de_origem(xl):
     # A aba 1.1 repete 'Trocas Oferta Publica' e 'Tesouro Direto' sob
     # emissoes e sob resgates. Sem linha_origem nao ha como separa-los.
+    # A assercao de que os repetidos existem e parte do teste: este guarda
+    # protege a decisao central do branch (chave por linha_origem, que
+    # corrigiu cinco dos oito defeitos silenciosos), e a amostra e um
+    # arquivo que a documentacao incentiva ampliar. Sob um `if`, uma
+    # regeneracao da amostra desarmaria o guarda sem ninguem ver vermelho.
     df = leitura_rmd.ler_padrao_a(xl, "1.1", "milhoes")
     repetidos = df[df["rotulo"] == "Tesouro Direto"]
-    if len(repetidos):
-        numa_data = repetidos[repetidos["data"] == repetidos["data"].min()]
-        assert numa_data["linha_origem"].nunique() == len(numa_data)
+    assert len(repetidos) > 0, (
+        "a amostra da aba 1.1 deveria conter 'Tesouro Direto' nas secoes "
+        "de emissao e de resgate; sem essas linhas este teste nao verifica "
+        "nada -- regenere a fixture cobrindo as duas secoes"
+    )
+    numa_data = repetidos[repetidos["data"] == repetidos["data"].min()]
+    assert numa_data["linha_origem"].nunique() == len(numa_data)
+    assert len(numa_data) > 1, (
+        "'Tesouro Direto' aparece uma vez so na amostra; o rotulo repetido "
+        "sob emissao e sob resgate e o que este teste existe para separar"
+    )
 
 
 def test_padrao_a_le_a_primeira_data_da_serie(xl):
