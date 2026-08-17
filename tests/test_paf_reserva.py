@@ -18,8 +18,27 @@ def xl():
 def test_paf_tem_as_colunas_canonicas(xl):
     df = paf_reserva.parse_paf(xl)
     assert list(df.columns) == [
-        "ano", "versao", "indicador", "minimo", "maximo", "realizado"
+        "ano", "versao", "indicador", "unidade",
+        "minimo", "maximo", "realizado",
     ]
+
+
+def test_paf_rotula_as_tres_unidades_da_aba(xl):
+    # minimo/maximo/realizado valem R$ bilhoes para o estoque, anos para o
+    # prazo medio e pontos percentuais para todo o resto -- nas mesmas
+    # colunas. Sem o rotulo, comparar a banda de estoque (casa de 5.600)
+    # contra estoque_dpf.csv (5.613.655) erra por mil.
+    df = paf_reserva.parse_paf(xl)
+    por_indicador = df.groupby("indicador")["unidade"].unique()
+
+    for indicador, unidades in por_indicador.items():
+        assert len(unidades) == 1, f"{indicador} com mais de uma unidade"
+
+    unidade = df.set_index("indicador")["unidade"]
+    assert unidade["Estoque da DPF em Mercado (R$ Bilhões)"].iloc[0] == "R$ bilhoes"
+    assert unidade["Prazo Médio da DPF (anos)"].iloc[0] == "anos"
+    assert unidade["Prefixado"].iloc[0] == "percentual"
+    assert unidade["% Vincendo em 12 meses"].iloc[0] == "percentual"
 
 
 def test_paf_distingue_original_de_revisado(xl):

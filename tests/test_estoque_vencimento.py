@@ -60,6 +60,27 @@ def test_ntn_f_fica_em_prefixados_e_nao_no_subtotal_anterior(df):
     assert indexadores == {"Prefixados"}
 
 
+def test_nao_grava_linhas_de_nao_observacao(df):
+    # A leitura produz o produto cartesiano de todo papel por todo mes.
+    # Linha com quantidade E financeiro ausentes nao e dado ausente, e
+    # nao-observacao: o papel nao estava em carteira naquele mes.
+    ambos_ausentes = (
+        df["quantidade_mil"].isna() & df["financeiro_milhoes"].isna()
+    )
+    assert not ambos_ausentes.any()
+
+
+def test_preserva_posicao_zerada(df):
+    # Zero e observacao legitima -- posicao zerada, nao ausencia -- e a
+    # regra do projeto e nunca confundir os dois. So as linhas com os dois
+    # campos ausentes saem.
+    zerados = (df["quantidade_mil"] == 0) & (df["financeiro_milhoes"] == 0)
+    assert zerados.any(), (
+        "a amostra deveria conter papel vencido com posicao 0.0; se nao "
+        "contem, este teste nao verifica que os zeros sao preservados"
+    )
+
+
 def test_nao_grava_subtotais_nem_notas(df):
     rotulos = set(df["titulo"].dropna().astype(str).unique())
     assert not any(r.lower().startswith("total") for r in rotulos)

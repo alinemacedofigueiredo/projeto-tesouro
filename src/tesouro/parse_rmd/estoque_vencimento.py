@@ -117,11 +117,30 @@ def parse(xl):
                  quantidade, financeiro)
             )
 
-    return pd.DataFrame(
+    df = pd.DataFrame(
         registros,
         columns=["data", "indexador", "titulo", "vencimento", "isin",
                  "quantidade_mil", "financeiro_milhoes"],
-    ).sort_values(["data", "titulo", "vencimento"]).reset_index(drop=True)
+    )
+
+    # O laco acima produz o produto cartesiano de todo papel por todo mes,
+    # e a aba so tem dado para os meses em que aquele papel estava em
+    # carteira. Uma linha com quantidade E financeiro ausentes nao e dado
+    # ausente: e nao-observacao, o papel nao existia naquele mes. Nao
+    # grava-la nao perde informacao nenhuma e corta mais da metade das
+    # linhas (25.236 de 47.124 no arquivo real).
+    #
+    # Os zeros ficam: posicao zerada e observacao legitima, e a regra do
+    # projeto e que zero e valor, nao ausencia. Linha com um dos dois
+    # preenchido tambem fica (sao duas no arquivo real).
+    nao_observacao = (
+        df["quantidade_mil"].isna() & df["financeiro_milhoes"].isna()
+    )
+    df = df[~nao_observacao]
+
+    return df.sort_values(
+        ["data", "titulo", "vencimento"]
+    ).reset_index(drop=True)
 
 
 def gravar(xl):

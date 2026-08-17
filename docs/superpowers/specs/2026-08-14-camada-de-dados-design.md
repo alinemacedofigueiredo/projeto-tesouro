@@ -171,6 +171,20 @@ em `R$ Milhões`, 2.4 e 6.1 em `R$ Bilhões`. Somar duas sem perceber produz err
 de mil vezes que não gera exceção nenhuma. A conversão acontece na entrada.
 Percentuais são gravados como percentual (`12.5` = 12,5%), não como fração.
 
+*Única exceção:* `paf_metas` (aba 5.7) publica todos os indicadores nas mesmas
+colunas `minimo`/`maximo`/`realizado`, e ali coexistem R$ bilhões (banda de
+estoque), anos (prazo médio) e pontos percentuais (todos os demais). Converter
+faria o nome do indicador — `Estoque da DPF em Mercado (R$ Bilhões)` — mentir,
+então a tabela leva uma coluna **`unidade`** que rotula cada linha. Ver
+`docs/dicionario-de-dados.md`.
+
+**Quantidade não tem unidade única, e a diferença é de mil vezes.** A aba 2.2
+publica `Quantidade (mil)`, então `estoque_titulos_vencimento.quantidade_mil`
+está em milhares de títulos; o histórico de leilões traz quantidade em unidades
+de título. Nenhuma das duas é convertida — cada uma preserva a unidade da fonte,
+declarada no nome da coluna e no dicionário — e juntar as duas tabelas exige o
+fator explícito.
+
 **Nada derivado é gravado.** Médias móveis, acumulados, participações, spreads e
 composições percentuais são calculados em funções testáveis, nunca persistidos.
 O CSV guarda somente o que veio do Tesouro.
@@ -178,6 +192,13 @@ O CSV guarda somente o que veio do Tesouro.
 **Ausente é nulo, nunca zero.** O arquivo usa convenções diferentes em abas
 diferentes: `N/D` na 3.1, `-` na 3.9, células vazias em várias. Todas viram
 campo vazio no CSV. Zero é um valor legítimo e distinto.
+
+**Não-observação não é gravada.** Distinta de dado ausente: quando a leitura de
+uma aba produz o produto cartesiano de duas dimensões e a combinação simplesmente
+não existe na fonte, a linha não entra no CSV. Vale hoje para
+`estoque_titulos_vencimento` (aba 2.2), onde papel × mês sem quantidade **e** sem
+financeiro é papel que não estava em carteira naquele mês — mais da metade das
+combinações. Os zeros ficam: posição zerada é observação.
 
 **Datas normalizadas para `AAAA-MM-DD`,** sempre no último dia do mês de
 referência. A origem varia: número de série do Excel em umas abas (2.4, 3.1),
@@ -211,7 +232,7 @@ Dezessete CSVs em `data/processed/`.
 | `prazo_medio_por_indexador` | 3.8 | data, nivel, entidade, categoria, prazo_anos |
 | `prazo_medio_emissoes` | 3.9 | data, indexador, prazo_anos |
 | `custo_medio` | 4.1 + 4.2 + 4.3 | data, medida, nivel, entidade, titulo, custo_aa_pct |
-| `paf_metas` | 5.7 | ano, versao, indicador, minimo, maximo, realizado |
+| `paf_metas` | 5.7 | ano, versao, indicador, **unidade**, minimo, maximo, realizado |
 | `reserva_liquidez` | 6.1 | data, reserva_milhoes, valor_prudencial_milhoes, indice_liquidez_meses |
 | `leiloes` | CKAN ds013 | data_leilao, titulo, tipo_leilao, volta, data_liquidacao, data_vencimento, oferta_qtd, taxa_media_pct, taxa_corte_pct, venda_qtd, financeiro_milhoes, venda_bacen_qtd, financeiro_bacen_milhoes, referencia |
 

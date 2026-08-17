@@ -112,10 +112,31 @@ Estoque de cada papel da DPMFi, por vencimento, mês a mês. Origem: aba 2.2.
 | `financeiro_milhoes` | número | R$ milhões |
 
 **Atenção:** `quantidade_mil` é o campo que sustenta o cálculo de DV01 — é a
-posição em título. Não está confirmado se `financeiro_milhoes` é marcação a
-mercado ou na curva (a suspeita é curva); por isso ele serve de conferência,
-não de fonte de preço. Os títulos aqui aparecem **desagregados** em relação
-a `estoque_dpf.csv` — ver a nota daquela tabela.
+posição em título, em **milhares** de títulos, porque é assim que a aba 2.2
+publica (`Quantidade (mil)`). A quantidade de `leiloes.csv` está em unidades
+de título: juntar as duas exige um fator de mil (ver a nota daquela tabela).
+Não está confirmado se `financeiro_milhoes` é marcação a mercado ou na curva
+(a suspeita é curva); por isso ele serve de conferência, não de fonte de
+preço. Os títulos aqui aparecem **desagregados** em relação a
+`estoque_dpf.csv` — ver a nota daquela tabela.
+
+**Atenção — só linhas observadas são gravadas.** A aba lista todo papel
+contra todo mês, e a maioria dessas combinações não existe: o papel foi
+emitido depois, ou já venceu. Linha com `quantidade_mil` **e**
+`financeiro_milhoes` ambos ausentes é **não-observação**, não dado faltando, e
+não é gravada — no RMD de junho/2026 isso descarta 25.236 das 47.124
+combinações e deixa 21.888 linhas. Como consequência, a tabela **não** é um
+painel balanceado: não conte com uma linha por (papel, mês).
+
+**Atenção — para papel já vencido, zero e vazio se misturam de forma
+arbitrária, e zero ali não é posição zerada.** Depois do vencimento a aba
+traz, no mesmo bloco, umas linhas com `0.0` nas duas colunas e outras com
+célula vazia, sem padrão que se possa aproveitar — é assim na fonte. As linhas
+de `0.0` **são preservadas** (a regra do projeto é que zero é valor legítimo,
+nunca ausência: 10.682 linhas do arquivo estão nessa condição), mas quem
+filtrar por `quantidade_mil > 0` para achar a carteira viva de um mês não deve
+interpretar esses zeros como posição efetivamente zerada de um papel vivo —
+compare `vencimento` contra `data` para separar os dois casos.
 
 ---
 
@@ -217,6 +238,14 @@ são apagados, rodar o pipeline em meses sucessivos acumula um retrato por
 mês (identificados por `data_referencia` distintos) mesmo a tabela sendo, a
 cada execução, reconstruída do zero a partir do RMD mais recente.
 
+**Atenção — o horizonte é truncado em 60 meses.** A aba 3.4 publica apenas os
+cinco anos seguintes à `data_referencia`: no RMD de junho/2026 são os 60 meses
+de Jul/2026 a Jun/2031, somando R$ 6,9 trilhões. Isso **não** é o cronograma
+completo da dívida — `estoque_titulos_vencimento.csv` (aba 2.2) tem papel
+vencendo até 2084. Quem calcular *decay*, necessidade de rolagem ou duração a
+partir desta tabela perde tudo o que vence depois do quinto ano sem receber
+aviso nenhum; para o horizonte inteiro é preciso usar a 2.2.
+
 ---
 
 ### `prazo_medio_por_titulo.csv`
@@ -229,8 +258,8 @@ Origem: aba 3.7.
 | `data` | data | Último dia do mês |
 | `nivel` | texto | `DPF`, `DPMFi` ou `DPFe` |
 | `entidade` | texto | `Tesouro Nacional` / `Banco Central` (DPMFi) ou `Dívida Mobiliária` / `Dívida Contratual` (DPFe); vazio nas linhas de nível |
-| `titulo` | texto | Nome do título; vazio nas linhas de nível/entidade (que carregam o prazo médio agregado) |
-| `prazo_anos` | número | Prazo médio em anos |
+| `titulo` | texto | Dezoito valores — os dezessete de `custo_medio.csv`, incluindo `NTN - D` **com espaços**, mais `NBC-E`; vazio nas linhas de nível/entidade (que carregam o prazo médio agregado) |
+| `prazo_anos` | número | Prazo médio em anos — a família RendA+/EducA+ (`NTN-B1`) chega a **28,7 anos**, legitimamente |
 
 A linha com `nivel = "DPF"` e `titulo` vazio traz o prazo médio agregado que
 a análise compara contra a banda do PAF.
@@ -301,8 +330,34 @@ compartilham as mesmas dimensões e diferem só na medida.
 | `medida` | texto | `mensal` (aba 4.1), `acum_12m` (aba 4.2) ou `emissoes_12m` (aba 4.3) |
 | `nivel` | texto | `DPF`, `DPMFi` ou `DPFe` |
 | `entidade` | texto | `Dívida Mobiliária` / `Dívida Contratual` sob DPFe; vazio sob DPMFi |
-| `titulo` | texto | Nome do título; vazio nas linhas de nível/entidade |
+| `titulo` | texto | Dezessete valores: `LFT`, `LTN`, `NTN-B`, `NTN-B1`, `NTN-C`, `NTN-F`, `NTN - D` (**com espaços**), `TDA`, `Dívida Securitizada`, `NBC-E`, `Reestruturada 1`, `Demais`, `Global USD`, `Global BRL`, `Euro`, `Organismos Multilaterais`, `Credores Privados/ Ag. Gov.`, `Clube de Paris`; vazio nas linhas de nível/entidade |
 | `custo_aa_pct` | número | % ao ano — **pode ser negativo** (ex.: NTN-D em 2005), o que é legítimo e não é filtrado |
+
+**Atenção — grafia não normalizada, e `NTN - D` é o caso que morde.** A mesma
+dimensão é escrita de formas diferentes em abas diferentes, e o projeto
+preserva a grafia da fonte de propósito (mesma política de
+`Selic`/`Taxa Flutuante` em `paf_metas.csv` e de `Prefixado`/`Prefixados` em
+`funding_por_indexador.csv`). As variantes que existem hoje:
+
+| dimensão | grafias | onde |
+|---|---|---|
+| NTN-D | `NTN - D` (com espaços) | `custo_medio`, `prazo_medio_por_titulo` (abas 4.1, 3.7) |
+| | `NTN-D` | `leiloes`, `estoque_dpf` |
+| | `NBCE / NTN-D` | `prazo_medio_emissoes` (aba 3.9) |
+| Índice(s) de preços | `Índice Preços` | `composicao_dpf` (aba 2.4) |
+| | `Índice de Preços` | `funding_por_indexador`, `prazo_medio_por_indexador`, `prazo_medio_emissoes`, `paf_metas` (1.2, 3.8, 3.9, 5.7) |
+| | `Índices de preços` | `vencer_12m_indexador` (aba 3.3) |
+| | `Índices de Preços` | `estoque_titulos_vencimento` (aba 2.2) |
+| Credores privados | `Credores Privados/ Ag. Gov.` (com espaço) | `custo_medio`, `prazo_medio_por_titulo`, `prazo_medio_por_indexador` |
+| | `Credores Privados/Ag. Gov.` (sem espaço) | `estoque_dpf` |
+| Reestruturada | `Reestruturada 1` (dígito de nota) | `custo_medio`, `prazo_medio_por_titulo`, `prazo_medio_por_indexador` |
+| | `Reestruturada ¹` (expoente) | `estoque_dpf` |
+| Euro | `Euro` | `custo_medio`, `prazo_medio_por_titulo`, `estoque_dpf` |
+| | `Euros` | `prazo_medio_por_indexador` |
+
+Um `join` de `custo_medio.titulo` com `leiloes.titulo` perde a NTN-D em
+silêncio, porque nenhum dos dois lados avisa que a chave não casou. Normalize
+no ponto de uso — no `merge`, não no CSV.
 
 **Atenção:** a aba 4.3 muda de leiaute a partir de jan/2021 (cabeçalho de
 mês mesclado em três sub-colunas: Taxa média, Variação do Indexador, CME).
@@ -328,9 +383,29 @@ indicador, com o realizado do próprio ano quando disponível. Origem: aba 5.7.
 | `ano` | inteiro | Ano de referência da meta (2003–2022) |
 | `versao` | texto | `original` ou `revisado` — nem todo ano tem revisão |
 | `indicador` | texto | Nome do indicador, **não normalizado** (ver abaixo) |
-| `minimo` | número | Limite inferior da banda |
-| `maximo` | número | Limite superior da banda |
-| `realizado` | número | Valor realizado no ano, quando publicado na mesma aba |
+| `unidade` | texto | Unidade de `minimo`/`maximo`/`realizado` nesta linha: `R$ bilhoes`, `anos` ou `percentual` (ver abaixo) |
+| `minimo` | número | Limite inferior da banda — **na unidade indicada por `unidade`** |
+| `maximo` | número | Limite superior da banda — **na unidade indicada por `unidade`** |
+| `realizado` | número | Valor realizado no ano, quando publicado na mesma aba — **na unidade indicada por `unidade`** |
+
+**Atenção — esta é a única tabela do projeto que mistura unidades nas mesmas
+colunas, e é por isso que a coluna `unidade` existe.** A aba 5.7 publica
+todos os indicadores lado a lado, e `minimo`/`maximo`/`realizado` significam
+coisas diferentes conforme a linha:
+
+| `unidade` | indicadores | ordem de grandeza |
+|---|---|---|
+| `R$ bilhoes` | `Estoque da DPF em Mercado (R$ Bilhões)` | 940 a 6.400 |
+| `anos` | `Prazo Médio da DPF (anos)` | 2,9 a 4,7 |
+| `percentual` | `% Vincendo em 12 meses`, `Prefixado`, `Índice de Preços`, `Selic`, `Taxa Flutuante`, `Câmbio`, `Demais` | 0 a 47 |
+
+A banda de estoque é a **única** grandeza monetária do projeto que **não**
+está em R$ milhões: fica em R$ bilhões, como o próprio nome do indicador diz,
+porque converter faria o rótulo mentir. Comparar essa banda (casa de 5.600)
+contra `estoque_dpf.csv` (5.613.655) sem multiplicar por mil erra por três
+ordens de grandeza — e essa é exatamente a comparação que a análise da banda
+do PAF faz. A `unidade` sai do nome do indicador (`_unidade_do_indicador` em
+`parse_rmd/paf_reserva.py`), não de uma heurística sobre o valor.
 
 **Atenção — cobertura limitada a 2003–2022.** O Tesouro parou de estender
 esta aba; bandas de 2023 em diante não existem nesta fonte e precisam vir
@@ -366,9 +441,26 @@ Reserva de liquidez do Tesouro, mês a mês. Origem: aba 6.1.
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `data` | data | Último dia do mês |
-| `reserva_milhoes` | número | R$ milhões |
-| `valor_prudencial_milhoes` | número | R$ milhões |
+| `reserva_milhoes` | número | R$ milhões — saldo da reserva de liquidez no mês |
+| `valor_prudencial_milhoes` | número | R$ milhões — o **"Valor Prudencial (3 meses)"** da aba: o colchão equivalente a três meses de vencimentos, não um estoque acumulado (ver abaixo) |
 | `indice_liquidez_meses` | número | Índice em **meses** de despesa coberta — não é valor monetário e não passa pela conversão de unidade |
+
+**Atenção — o qualificador "(3 meses)" explica os saltos.** O cabeçalho da aba
+6.1 chama a segunda coluna de `Valor Prudencial (3 meses)`: ela é recalculada
+a cada mês sobre a janela dos três meses seguintes, então acompanha a
+concentração de vencimentos à frente e se move em degraus grandes. No RMD de
+junho/2026 a série vai de 167 para 303, 587 e 783 R$ bilhões em um único
+trimestre (mar–jun/2026). Isso não é erro de leitura nem mudança de unidade; é
+a janela de três meses passando por um pico de vencimentos.
+
+**Atenção — `indice_liquidez_meses` é o único derivado que o projeto
+persiste, e isso é deliberado.** A convenção geral do projeto é não gravar
+nada derivado, mas este índice **não é reconstruível** a partir das outras
+duas colunas: `reserva_milhoes / valor_prudencial_milhoes` dá 0,35 onde o
+índice publicado é 1,71 — o denominador que o Tesouro usa é a despesa
+projetada do período, que a aba não publica. Descartá-lo perderia informação
+que não volta. Não "corrija" isto recalculando a razão das outras duas
+colunas.
 
 ---
 
@@ -381,19 +473,36 @@ título/data/volta. Origem: dataset CKAN `ds013`
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `data_leilao` | data | Data do leilão |
-| `titulo` | texto | LTN, LFT, NTN-B, NTN-F, NTN-C, NTN-B Principal… |
+| `titulo` | texto | Exatamente seis valores: `LFT`, `LTN`, `NTN-B`, `NTN-C`, `NTN-D`, `NTN-F` |
 | `tipo_leilao` | texto | Venda, Compra, Troca… |
 | `volta` | texto | `1.ª volta` ou `2.ª volta` |
 | `data_liquidacao` | data | Data de liquidação financeira |
 | `data_vencimento` | data | Vencimento do papel leiloado |
-| `oferta_qtd` | número | Quantidade ofertada |
+| `oferta_qtd` | número | Quantidade ofertada, em **unidades de título** (não milhares — ver abaixo) |
 | `taxa_media_pct` | número | Taxa média, em % a.a. (convertida de fração — ver abaixo) |
 | `taxa_corte_pct` | número | Taxa de corte, em % a.a. |
-| `venda_qtd` | número | Quantidade vendida ao mercado |
+| `venda_qtd` | número | Quantidade vendida ao mercado, em **unidades de título** |
 | `financeiro_milhoes` | número | R$ milhões vendidos ao mercado |
-| `venda_bacen_qtd` | número | Quantidade vendida ao Banco Central (vazio, não zero, nos primeiros anos) |
+| `venda_bacen_qtd` | número | Quantidade vendida ao Banco Central, em **unidades de título** (vazio, não zero, nos primeiros anos) |
 | `financeiro_bacen_milhoes` | número | R$ milhões vendidos ao Banco Central |
 | `referencia` | texto | Vértice de *benchmark* (ex. `LFT 6 anos`) |
+
+**Atenção — unidade de quantidade incompatível com `estoque_titulos_vencimento.csv`,
+por um fator de mil.** Aqui `oferta_qtd`, `venda_qtd` e `venda_bacen_qtd` estão
+em **unidades de título**; lá `quantidade_mil` está em **milhares de títulos**,
+porque é assim que a aba 2.2 publica (`Quantidade (mil)`). Conferência: um
+leilão de 1.178.700 LFT com `financeiro_milhoes = 22.989` dá R$ 19,5 mil por
+título, que é o preço unitário de uma LFT — se a coluna estivesse em milhares,
+o preço sairia mil vezes menor. Juntar as duas tabelas (comparar emissão em
+leilão com o estoque do papel) exige dividir a quantidade dos leilões por
+1.000, ou multiplicar a do estoque.
+
+**Atenção — os títulos aqui são exatamente seis**, conferidos por
+`value_counts()` sobre o CSV gerado: `LTN` (6.968), `NTN-B` (5.577), `NTN-F`
+(3.964), `LFT` (2.874), `NTN-C` (301) e `NTN-D` (55). `NTN-B Principal`
+**nunca aparece** nesta tabela (aparece em `estoque_titulos_vencimento.csv`),
+e `NTN-D` só existe aqui e em `estoque_dpf.csv` com essa grafia — ver a nota
+de grafia em `custo_medio.csv`.
 
 **Atenção:** o arquivo de origem grava taxa como **fração** (`0.07828` =
 7,828% a.a.), convenção oposta à do RMD; o parser converte para pontos

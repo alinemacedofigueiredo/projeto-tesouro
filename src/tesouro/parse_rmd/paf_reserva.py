@@ -40,6 +40,33 @@ _PADRAO_PAF = re.compile(r"^PAF\s+(\d{4})\s*\(?(revisado)?\)?$", re.IGNORECASE)
 # fica faltando.
 _PADRAO_ANO = re.compile(r"^\d{4}(\.0+)?$")
 
+# A aba 5.7 mistura tres unidades nas mesmas colunas de banda: o estoque em
+# R$ bilhoes, o prazo medio em anos e todos os demais indicadores em pontos
+# percentuais. O nome do indicador carrega a unidade entre parenteses --
+# 'Estoque da DPF em Mercado (R$ Bilhoes)', 'Prazo Medio da DPF (anos)' --
+# e e de la que a coluna `unidade` sai.
+#
+# A coluna existe porque a alternativa e um analista comparar a banda de
+# estoque (na casa de 5.600) contra estoque_dpf.csv (5.613.655) e errar por
+# mil sem perceber -- e essa comparacao e a proxima etapa do projeto. Os
+# valores nao sao convertidos para R$ milhoes de proposito: o nome do
+# indicador diz 'R$ Bilhoes', e converter faria o rotulo mentir.
+_UNIDADES_PAF = (
+    ("bilh", "R$ bilhoes"),
+    ("(anos)", "anos"),
+)
+
+_UNIDADE_PADRAO_PAF = "percentual"
+
+
+def _unidade_do_indicador(indicador):
+    """Deduz a unidade da banda a partir do nome do indicador."""
+    texto = indicador.lower()
+    for fragmento, unidade in _UNIDADES_PAF:
+        if fragmento in texto:
+            return unidade
+    return _UNIDADE_PADRAO_PAF
+
 
 def _blocos(bruto):
     """Devolve os indices das linhas que iniciam cada bloco da aba 5.7."""
@@ -154,13 +181,16 @@ def parse_paf(xl):
                     # primeira celula preenchida e nenhum valor em nenhum
                     # bloco -- nao um indicador de verdade.
                     continue
-                registros.append(
-                    (ano, versao, indicador, minimo, maximo, realizado)
-                )
+                registros.append((
+                    ano, versao, indicador,
+                    _unidade_do_indicador(indicador),
+                    minimo, maximo, realizado,
+                ))
 
     return pd.DataFrame(
         registros,
-        columns=["ano", "versao", "indicador", "minimo", "maximo", "realizado"],
+        columns=["ano", "versao", "indicador", "unidade",
+                 "minimo", "maximo", "realizado"],
     ).sort_values(["ano", "versao", "indicador"]).reset_index(drop=True)
 
 
