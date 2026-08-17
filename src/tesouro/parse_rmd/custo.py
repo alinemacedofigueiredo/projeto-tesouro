@@ -35,7 +35,13 @@ import pandas as pd
 
 from .. import config
 from ..conversoes import limpar_nulo, mes_para_data, para_milhoes
-from ..leitura_rmd import aba, ler_padrao_a
+from ..leitura_rmd import (
+    aba,
+    aplicar_papel,
+    descartar_folhas_sem_dado,
+    ler_padrao_a,
+    ordem_dos_rotulos,
+)
 
 _ABAS = {"4.1": "mensal", "4.2": "acum_12m", "4.3": "emissoes_12m"}
 
@@ -57,10 +63,7 @@ def _hierarquia(bruto):
     indexar por texto faria a segunda sobrescrever a primeira, jogando a
     linha da DPMFi para dentro da DPFe sem erro nenhum.
     """
-    ordem = (
-        bruto.drop_duplicates(subset=["linha_origem"])
-        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
-    )
+    ordem = ordem_dos_rotulos(bruto)
 
     papel = {}
     nivel = None
@@ -168,11 +171,12 @@ def _por_aba(xl, nome_da_aba, medida):
     bruto = _ler_aba(xl, nome_da_aba)
     papel = _hierarquia(bruto)
 
-    df = bruto[bruto["linha_origem"].isin(papel)].copy()
+    df = aplicar_papel(bruto, papel, ["nivel", "entidade", "titulo"])
+    # Rede estrutural contra nota de rodape, alem do _PADRAO_NOTA textual:
+    # uma folha sem valor em data nenhuma nao e folha. Ver
+    # descartar_folhas_sem_dado.
+    df = descartar_folhas_sem_dado(df, df["titulo"].notna())
     df["medida"] = medida
-    df["nivel"] = [papel[o][0] for o in df["linha_origem"]]
-    df["entidade"] = [papel[o][1] for o in df["linha_origem"]]
-    df["titulo"] = [papel[o][2] for o in df["linha_origem"]]
     return df.rename(columns={"valor_milhoes": "custo_aa_pct"})
 
 

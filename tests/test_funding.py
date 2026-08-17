@@ -116,6 +116,8 @@ def test_por_indexador_separa_demais_da_dpmfi_do_demais_da_dpfe(xl):
 
 
 def test_por_indexador_ignora_as_notas_de_rodape(xl):
-    # A aba 1.2 termina com linhas 'Obs:' e 'Obs 2:' que nao sao dados.
+    # A aba 1.2 termina com linhas 'Obs:' e 'Obs 2:' que nao sao dados. A
+    # comparacao e sem caixa de proposito: a 1.1 escreve 'OBS:' em
+    # maiuscula, e um teste sensivel a caixa nao pegaria a variante.
     df = funding.parse_por_indexador(xl)
-    assert not df["indexador"].str.startswith("Obs").any()
+    assert not df["indexador"].str.upper().str.startswith("OBS").any()

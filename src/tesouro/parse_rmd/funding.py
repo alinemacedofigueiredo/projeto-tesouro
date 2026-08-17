@@ -28,7 +28,12 @@ II - IV) e ficam de fora, como tudo que e derivado neste projeto.
 import re
 
 from .. import config
-from ..leitura_rmd import ler_padrao_a
+from ..leitura_rmd import (
+    aplicar_papel,
+    descartar_folhas_sem_dado,
+    ler_padrao_a,
+    ordem_dos_rotulos,
+)
 
 _OPERACOES = {"EMISSÕES": "emissao", "RESGATES": "resgate"}
 
@@ -49,10 +54,7 @@ def _anotar_hierarquia(df):
     sobrescrever a de emissao, e a tabela sairia inteira com a mesma
     operacao -- plausivel e errada, sem levantar excecao.
     """
-    ordem = (
-        df.drop_duplicates(subset=["linha_origem"])
-        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
-    )
+    ordem = ordem_dos_rotulos(df)
 
     papel = {}
     operacao = None
@@ -65,8 +67,8 @@ def _anotar_hierarquia(df):
         if _INICIO_DOS_DERIVADOS in rotulo.upper():
             break  # dai para baixo e total calculado, nao dado
 
-        if rotulo.startswith("Obs"):
-            continue  # nota de rodape
+        if rotulo.upper().startswith("OBS"):
+            continue  # nota de rodape ('Obs:' na 1.2, 'OBS:' na 1.1)
 
         if rotulo in _OPERACOES:
             operacao = _OPERACOES[rotulo]
@@ -87,11 +89,14 @@ def _anotar_hierarquia(df):
 
         papel[origem] = (operacao, esfera, True)
 
-    resultado = df[df["linha_origem"].isin(papel)].copy()
-    resultado["operacao"] = [papel[o][0] for o in resultado["linha_origem"]]
-    resultado["esfera"] = [papel[o][1] for o in resultado["linha_origem"]]
-    resultado["eh_detalhe"] = [papel[o][2] for o in resultado["linha_origem"]]
-    return resultado
+    resultado = aplicar_papel(df, papel, ["operacao", "esfera", "eh_detalhe"])
+    # Rede estrutural contra nota de rodape. Os filtros textuais acima sao
+    # a primeira linha, mas dependem de como o Tesouro redige: na 1.1 as
+    # notas caem depois do `break` de 'EMISSAO LIQUIDA' e na 1.2 nao ha
+    # `break` nenhum, entao ali o prefixo 'OBS' era a defesa unica. Uma
+    # folha sem valor em data nenhuma nao e folha -- ver
+    # descartar_folhas_sem_dado.
+    return descartar_folhas_sem_dado(resultado, resultado["eh_detalhe"])
 
 
 def _detalhe(bruto):

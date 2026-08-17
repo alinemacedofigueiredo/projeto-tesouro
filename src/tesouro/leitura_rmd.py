@@ -80,6 +80,74 @@ def _indentacao(texto):
     return len(texto) - len(texto.lstrip())
 
 
+def ordem_dos_rotulos(bruto):
+    """Os rotulos de uma aba padrao A, um por linha, na ordem da planilha.
+
+    Devolve um DataFrame com `linha_origem` e `rotulo`. E a entrada das
+    maquinas de estado que resolvem hierarquia nos parsers: elas percorrem
+    os rotulos na ordem em que aparecem e vao carregando o nivel corrente.
+
+    A chave e linha_origem, nunca o texto do rotulo. Rotulos se repetem
+    entre secoes ('Demais' aparece quatro vezes na 1.2, tres na 2.1) e
+    indexar por texto faria a ultima ocorrencia sobrescrever as anteriores,
+    espalhando o papel errado por todas as linhas com aquele texto --
+    plausivel e errado, sem levantar excecao.
+    """
+    return (
+        bruto.drop_duplicates(subset=["linha_origem"])
+        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
+    )
+
+
+def aplicar_papel(bruto, papel, colunas):
+    """Anexa ao DataFrame as colunas de papel resolvidas por linha_origem.
+
+    `papel` mapeia linha_origem -> tupla com um valor por nome de
+    `colunas`, na mesma ordem. As linhas cuja origem nao esta em `papel`
+    saem do resultado -- e assim que cada parser descarta o que a sua
+    maquina de estados rejeitou (nota de rodape, total derivado).
+    """
+    resultado = bruto[bruto["linha_origem"].isin(papel)].copy()
+    for posicao, nome in enumerate(colunas):
+        resultado[nome] = [papel[o][posicao] for o in resultado["linha_origem"]]
+    return resultado
+
+
+def descartar_folhas_sem_dado(df, eh_folha, coluna_valor="valor_milhoes"):
+    """Remove as linhas de folha que nao tem valor em nenhuma data.
+
+    Esta e a defesa estrutural contra nota de rodape, e vale para as
+    quatro abas padrao A que resolvem hierarquia (1.1/1.2, 2.1, 3.7/3.8,
+    4.1/4.2/4.3). O fim dessas abas traz notas em linhas soltas: chamadas
+    de nota numeradas ('1 Titulos de renegociacao...'), 'OBS:' na 1.1,
+    'Obs:'/'Obs 2:' na 1.2, 'Obs.1:' na 2.1. Cada aba redige do seu jeito
+    e a caixa varia, entao filtrar por prefixo de texto e um palpite: na
+    1.2 nao existe o `break` de 'EMISSAO LIQUIDA' para conter a nota, e o
+    dia em que o Tesouro escrever 'OBS:' ali duas frases longas viram
+    valores de indexador.
+
+    O criterio aqui nao depende da redacao: uma folha e uma folha porque
+    tem valor em alguma data. Nota de rodape nao tem valor em coluna de
+    mes nenhuma. Os filtros textuais de cada parser continuam sendo a
+    primeira linha de defesa; este e a rede.
+
+    So as linhas marcadas como folha por `eh_folha` (mascara booleana
+    alinhada a `df`) entram na checagem. Um cabecalho legitimo ('Tesouro
+    Nacional', 'DPMFi') tambem nao tem valor proprio e precisa ficar.
+    """
+    folhas = df[eh_folha]
+    if folhas.empty:
+        return df
+    tem_dado = (
+        folhas.groupby("linha_origem")[coluna_valor]
+        .apply(lambda s: s.notna().any())
+    )
+    origens_vazias = set(tem_dado[~tem_dado].index)
+    if not origens_vazias:
+        return df
+    return df[~df["linha_origem"].isin(origens_vazias)]
+
+
 def ler_padrao_a(xl, nome_da_aba, unidade):
     """Le uma aba com meses nas colunas e rotulos nas linhas.
 

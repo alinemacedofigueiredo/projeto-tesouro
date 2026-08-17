@@ -8,7 +8,14 @@ import pandas as pd
 
 from .. import config
 from ..conversoes import data_da_celula, limpar_nulo, para_milhoes
-from ..leitura_rmd import aba, ler_padrao_a, ler_padrao_b
+from ..leitura_rmd import (
+    aba,
+    aplicar_papel,
+    descartar_folhas_sem_dado,
+    ler_padrao_a,
+    ler_padrao_b,
+    ordem_dos_rotulos,
+)
 
 _EM_PODER_DO_PUBLICO = "DPF EM PODER DO PÚBLICO"
 _DPMFI_NO_BACEN = "DPMFi EM PODER DO BANCO CENTRAL"
@@ -65,10 +72,7 @@ def parse_dpf(xl):
 
     # A hierarquia e a mesma em toda data: resolve-se uma vez, na ordem
     # da planilha.
-    ordem = (
-        bruto.drop_duplicates(subset=["linha_origem"])
-        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
-    )
+    ordem = ordem_dos_rotulos(bruto)
 
     papel = {}
     nivel_corrente = None
@@ -98,20 +102,12 @@ def parse_dpf(xl):
         else:
             papel[origem] = (nivel_corrente, entidade_corrente, limpo)
 
-    df = bruto.copy()
-    df["nivel"] = [papel[o][0] for o in df["linha_origem"]]
-    df["entidade"] = [papel[o][1] for o in df["linha_origem"]]
-    df["titulo"] = [papel[o][2] for o in df["linha_origem"]]
+    df = aplicar_papel(bruto, papel, ["nivel", "entidade", "titulo"])
 
     # Descarta as notas de rodape: linhas de titulo (nao cabecalho) sem
-    # nenhum valor em nenhuma data.
-    tem_dado = (
-        df[df["titulo"].notna()]
-        .groupby("linha_origem")["valor_milhoes"]
-        .apply(lambda s: s.notna().any())
-    )
-    origens_sem_dado = set(tem_dado[~tem_dado].index)
-    df = df[~df["linha_origem"].isin(origens_sem_dado)]
+    # nenhum valor em nenhuma data. Mesma defesa nas abas 1.1/1.2, 3.7/3.8
+    # e 4.1/4.2/4.3 -- ver descartar_folhas_sem_dado.
+    df = descartar_folhas_sem_dado(df, df["titulo"].notna())
 
     return df[
         ["data", "nivel", "entidade", "titulo", "valor_milhoes"]

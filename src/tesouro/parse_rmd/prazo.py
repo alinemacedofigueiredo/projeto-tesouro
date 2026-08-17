@@ -12,7 +12,13 @@ tem fator 1 e nao altera nada.
 import re
 
 from .. import config
-from ..leitura_rmd import ler_padrao_a, ler_padrao_b
+from ..leitura_rmd import (
+    aplicar_papel,
+    descartar_folhas_sem_dado,
+    ler_padrao_a,
+    ler_padrao_b,
+    ordem_dos_rotulos,
+)
 
 _ESFERAS = {"DPMFi", "DPFe"}
 
@@ -42,10 +48,7 @@ def _hierarquia(bruto):
     carregam o prazo medio agregado, e o prazo medio da DPF e exatamente
     o numero que a analise compara com a banda do PAF.
     """
-    ordem = (
-        bruto.drop_duplicates(subset=["linha_origem"])
-        .sort_values("linha_origem")[["linha_origem", "rotulo"]]
-    )
+    ordem = ordem_dos_rotulos(bruto)
 
     papel = {}
     nivel = None
@@ -75,10 +78,11 @@ def _hierarquia(bruto):
 
 def _anotar(bruto, nome_da_folha):
     papel = _hierarquia(bruto)
-    df = bruto[bruto["linha_origem"].isin(papel)].copy()
-    df["nivel"] = [papel[o][0] for o in df["linha_origem"]]
-    df["entidade"] = [papel[o][1] for o in df["linha_origem"]]
-    df[nome_da_folha] = [papel[o][2] for o in df["linha_origem"]]
+    df = aplicar_papel(bruto, papel, ["nivel", "entidade", nome_da_folha])
+    # Rede estrutural contra nota de rodape: _PADRAO_NOTA cobre a forma
+    # numerada, mas nao 'Obs'/'OBS'. Uma folha sem valor em data nenhuma
+    # nao e folha -- ver descartar_folhas_sem_dado.
+    df = descartar_folhas_sem_dado(df, df[nome_da_folha].notna())
     return df.rename(columns={"valor_milhoes": "prazo_anos"})
 
 
