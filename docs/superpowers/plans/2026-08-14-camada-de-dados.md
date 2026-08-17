@@ -3167,7 +3167,19 @@ git commit -m "Adiciona parsers das metas do PAF e da reserva de liquidez"
   - `parse_rmd.gravar_tudo(caminho=None) -> None`
   - `pipeline.main() -> None` — roda coleta (se houver rede) e todos os parsers
 
-**Contexto:** estes são os testes que mais importam. Um parser errado não costuma quebrar — ele produz números plausíveis e falsos. Coerência entre abas independentes é o que denuncia isso.
+**Contexto:** estes são os testes que mais importam. Um parser errado não costuma quebrar — ele produz números plausíveis e falsos. E não é hipótese: ao longo da execução deste plano apareceram oito defeitos desse tipo, todos em código que rodava sem erro.
+
+**Esquemas que mudaram durante a execução** — o código desta tarefa tem de refletir os nomes de coluna reais, não os que o plano previa no início:
+
+| CSV | Colunas |
+|---|---|
+| `estoque_dpf` | data, nivel, entidade, titulo, valor_milhoes |
+| `vencimentos_faixa` | data, **nivel**, faixa, valor_milhoes |
+| `funding_por_indexador` | data, **esfera**, operacao, indexador, valor_milhoes |
+| `prazo_medio_por_indexador` | data, nivel, **entidade**, categoria, prazo_anos |
+| `custo_medio` | data, medida, nivel, **entidade**, titulo, custo_aa_pct |
+
+**Invocação pela linha de comando exige `PYTHONPATH=src`.** O projeto não instala pacote — decisão deliberada, para não depender de `pip install` num ambiente que pode bloqueá-lo. No PowerShell: `$env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta`. Em bash: `PYTHONPATH=src python -m tesouro.pipeline --sem-coleta`. Isso precisa aparecer nas mensagens de ajuda e será documentado na tarefa seguinte. Coerência entre abas independentes é o que denuncia isso.
 
 - [ ] **Step 1: Escreva os testes de coerência**
 
@@ -3220,12 +3232,37 @@ def test_composicao_soma_o_total_da_dpf(xl):
     assert por_data.notna().all()
 
 
-def test_faixas_de_vencimento_somam_o_total(xl):
-    """As faixas da 3.1 nao podem ter buraco onde ha dado."""
+def test_dpmfi_mais_dpfe_fecha_a_dpf_por_faixa(xl):
+    """DPF = DPMFi + DPFe, faixa por faixa, mes a mes.
+
+    A aba 3.1 publica os tres niveis em blocos separados e independentes,
+    entao a identidade so fecha se os tres tiverem sido lidos do bloco
+    certo. E o cruzamento mais forte que esta aba permite: se os blocos
+    tivessem se misturado, ou se um deles tivesse sido lido com as
+    colunas deslocadas, a soma nao bateria.
+    """
     df = vencimentos.parse_por_faixa(xl)
-    com_dado = df[df["valor_milhoes"].notna()]
-    por_data = com_dado.groupby("data")["valor_milhoes"].sum()
-    assert (por_data > 0).all()
+
+    largo = df.pivot_table(
+        index=["data", "faixa"], columns="nivel", values="valor_milhoes",
+        aggfunc="sum", dropna=False,
+    )
+    for coluna in ("DPF", "DPMFi", "DPFe"):
+        assert coluna in largo.columns, f"nivel {coluna} ausente"
+
+    # So onde os tres existem: a DPF comeca em Nov/2006 e a DPMFi em 1999.
+    completo = largo.dropna(subset=["DPF", "DPMFi", "DPFe"])
+    assert len(completo) > 0
+
+    soma = completo["DPMFi"] + completo["DPFe"]
+    diferenca = (completo["DPF"] - soma).abs()
+    # Folga de 1 por mil: a planilha arredonda os tres blocos por conta.
+    tolerancia = completo["DPF"].abs() * 0.001 + 1.0
+    piores = diferenca[diferenca > tolerancia]
+    assert piores.empty, (
+        f"{len(piores)} combinacoes (data, faixa) em que DPMFi + DPFe nao "
+        f"fecha a DPF; pior caso: {diferenca.max():.1f}"
+    )
 
 
 def test_estoque_por_vencimento_bate_com_estoque_por_titulo(xl_real):
