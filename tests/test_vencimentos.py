@@ -55,10 +55,27 @@ def test_faixa_trata_nd_como_ausente(xl):
     assert df["valor_milhoes"].isna().any()
 
 
+def test_faixa_nao_grava_o_total_derivado(xl):
+    # A aba 3.1 traz 'Total' como se fosse mais uma faixa de prazo, na
+    # ultima posicao de cada bloco. Se o filtro sumisse, quem somasse as
+    # faixas para conferir o total contaria tudo em dobro.
+    df = vencimentos.parse_por_faixa(xl)
+    faixas = {f.lower() for f in df["faixa"].unique()}
+    assert "total" not in faixas
+    assert "part %" not in faixas
+
+
 def test_a_vencer_12m_tem_indexadores(xl):
     df = vencimentos.parse_a_vencer_12m(xl)
     assert list(df.columns) == ["data", "indexador", "valor_milhoes"]
     assert "Prefixado" in set(df["indexador"].unique())
+
+
+def test_a_vencer_12m_nao_grava_o_total_derivado(xl):
+    df = vencimentos.parse_a_vencer_12m(xl)
+    indexadores = {i.lower() for i in df["indexador"].unique()}
+    assert "total" not in indexadores
+    assert "part %" not in indexadores
 
 
 def test_cronograma_usa_data_de_referencia_e_nao_data(xl):
