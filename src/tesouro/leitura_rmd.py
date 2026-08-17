@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import config
-from .conversoes import limpar_nulo, mes_para_data, normalizar_data, para_milhoes
+from .conversoes import data_da_celula, limpar_nulo, mes_para_data, para_milhoes
 
 
 def caminho_do_rmd(diretorio=None):
@@ -133,7 +133,7 @@ def ler_padrao_b(xl, nome_da_aba, linha_cabecalho, unidade, colunas_por_categori
 
     registros = []
     for indice in range(linha_cabecalho + 1, len(bruto)):
-        data = normalizar_data(bruto.iloc[indice, 0])
+        data = data_da_celula(bruto.iloc[indice, 0])
         if data is None:
             continue
         for coluna, categoria in categorias.items():

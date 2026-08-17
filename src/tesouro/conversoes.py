@@ -107,3 +107,20 @@ def fracao_para_percentual(valor):
     if valor is None:
         return None
     return valor * 100.0
+
+
+def data_da_celula(valor):
+    """Le a data de uma celula, nas varias formas que o anexo usa.
+
+    O pandas entrega quase todas as datas como datetime, mas algumas
+    celulas trazem o mes como texto ('Jan/10'), e outras trazem texto com
+    marcador de nota de rodape ('mar/18*') -- os meses que o Tesouro
+    retificou. As tres formas significam a mesma coisa, e quem le a
+    planilha nao deveria precisar saber disso.
+    """
+    data = normalizar_data(valor)
+    if data is not None:
+        return data
+    if not isinstance(valor, str):
+        return None
+    return mes_para_data(valor.strip().rstrip("*").strip())

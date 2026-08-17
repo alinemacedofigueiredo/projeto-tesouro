@@ -34,6 +34,11 @@ ABAS_DA_AMOSTRA = [
     "4.1", "4.2", "4.3", "5.7", "6.1",
 ]
 
+# 2.7 e 2.8 precisam de amostra maior que as demais: 40 linhas nao alcancam
+# as datas escritas como texto ('mar/18*', 'abr/18*') nem, na 2.8, o
+# segundo bloco de titulo (LTN comeca por volta da linha 193).
+LINHAS_POR_ABA = {"2.7": 150, "2.8": 400}
+
 
 def gerar_rmd():
     origem = RAIZ / "data" / "raw" / "rmd" / "Anexo RMD_Junho_26.xlsx"
@@ -58,7 +63,8 @@ def gerar_rmd():
             # tem so 15 colunas com dado); em vez disso le-se a largura real
             # e corta-se depois, o que da o mesmo resultado (no maximo 30
             # colunas) sem erro.
-            bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=40)
+            linhas = LINHAS_POR_ABA.get(aba, 40)
+            bruto = pd.read_excel(origem, sheet_name=aba, header=None, nrows=linhas)
             bruto = bruto.iloc[:, :30]
             bruto.to_excel(escritor, sheet_name=aba, header=False, index=False)
     print(f"gerado: {destino}")

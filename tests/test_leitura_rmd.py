@@ -84,6 +84,15 @@ def test_padrao_b_trata_marcadores_de_ausente(xl):
     assert not (df["valor_milhoes"] == 0).all()
 
 
+def test_padrao_b_le_data_escrita_como_texto_com_nota(xl):
+    # A aba 2.7 traz 'mar/18*' e 'abr/18*' como texto: sao os meses que o
+    # Tesouro retificou. Sem trata-los, os dois meses somem da serie.
+    df = leitura_rmd.ler_padrao_b(xl, "2.7", linha_cabecalho=4, unidade="bilhoes")
+    datas = set(df["data"])
+    assert datetime.date(2018, 3, 31) in datas
+    assert datetime.date(2018, 4, 30) in datas
+
+
 def test_aba_ausente_falha_dizendo_qual_sumiu(xl):
     # O Tesouro descontinua abas (3.5 e 5.6 sairam em junho/2025) e as
     # mantem no indice. O erro precisa ser legivel um ano depois.
