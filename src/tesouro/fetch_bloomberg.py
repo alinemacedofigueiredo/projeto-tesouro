@@ -24,14 +24,37 @@ data/raw/ e imutavel por invariante do projeto -- ja perdemos dado assim
 uma vez (fetch_rmd.baixar sobrescreveu em silencio, so descoberto na
 revisao final do branch anterior, depois de catorze revisoes de tarefa).
 Por isso a coleta aqui e incremental de verdade, nao so "nomeada por
-periodo": cada chamada de baixar() olha o que ja existe no destino,
-descobre ate que mes ja foi coletado (pelo NOME dos arquivos existentes,
-formato ISO) e pede so o que vem depois. O arquivo novo e nomeado pelo
+periodo": cada chamada de baixar() monta, so pelo NOME dos arquivos ja
+presentes no destino (formato ISO), o conjunto de meses que cada tipo de
+arquivo (taxa, vna, preco) ja reivindica cobrir, e pede so os meses do
+painel atual que faltam em QUALQUER um dos tres -- inclusive um buraco no
+MEIO da serie (ex.: janeiro e marco presentes, fevereiro faltando), nao
+so o que vem depois do mes mais recente. O arquivo novo e nomeado pelo
 periodo que ele de fato cobre -- nunca a janela inteira do estoque -- e
 se por algum motivo o nome computado ja existir, a funcao levanta erro em
 vez de sobrescrever. gravar_atomico cuida da escrita (sem deixar arquivo
 parcial), mas quem decide se pode escrever e este modulo, que confere
 existencia antes de abrir sessao com o terminal.
+
+Duas consequencias do desenho acima que vale registrar, nao esconder:
+- Como HistoricalDataRequest pede um INTERVALO continuo (nao uma lista de
+  meses), um papel cujo periodo pedido cobre um buraco no meio acaba
+  recebendo de volta alguns meses que um dos tres arquivos ja tinha --
+  redundante, nunca errado: parse_bloomberg concatena e fica com a ultima
+  ocorrencia por (data, isin)/(data, indice), entao um valor repetido so
+  e escrito de novo, nao duplicado no painel final. So o VNA (pedido mes
+  a mes, nao por intervalo) evita essa redundancia.
+- Ha uma janela de corrida pequena, e deliberadamente NAO fechada: entre
+  o calculo do que falta (leitura dos nomes existentes) e a gravacao
+  final (gravar_atomico dos tres arquivos, que so acontece depois que as
+  tres puxadas terminam), outra chamada de baixar() rodando em paralelo
+  calcularia o mesmo periodo e tentaria gravar o mesmo nome. No fluxo
+  real -- uma pessoa, rodando na mao -- isso nao acontece; as duas
+  chamadas calculariam o mesmo corte e pediriam o mesmo periodo de
+  qualquer forma, entao o pior caso e trabalho duplicado, nunca dado
+  perdido ou sobrescrito (a segunda gravacao esbarra no FileExistsError
+  da primeira). Registrado aqui para quem for automatizar isto num
+  agendador.
 """
 import csv
 import io
@@ -62,6 +85,9 @@ _PADRAO_ARQ_TAXA = re.compile(
 )
 _PADRAO_ARQ_VNA = re.compile(
     r"^bbg_vna_(?P<de>\d{4}-\d{2})_(?P<ate>\d{4}-\d{2})\.csv$"
+)
+_PADRAO_ARQ_PRECO = re.compile(
+    r"^bbg_precos_ANDE_(?P<de>\d{4}-\d{2})_(?P<ate>\d{4}-\d{2})\.csv$"
 )
 
 
@@ -95,43 +121,42 @@ def datas_do_painel():
     return sorted({cal.ultimo_dia_util_do_mes(d) for d in e["data"].dt.date})
 
 
-def _primeiro_dia_apos(d):
-    """O primeiro dia do mes seguinte ao mes de d."""
-    if d.month == 12:
-        return date(d.year + 1, 1, 1)
-    return date(d.year, d.month + 1, 1)
+def _meses_cobertos(destino, padrao_glob, padrao_nome):
+    """O conjunto de (ano, mes) que arquivos existentes em destino ja
+    reivindicam cobrir, olhando SO o nome -- nunca o conteudo.
 
+    Cada arquivo casa o padrao ISO 'AAAA-MM_AAAA-MM' e reivindica cobrir
+    TODOS os meses entre 'de' e 'ate', inclusive -- e assim que baixar()
+    nomeia o que grava: o intervalo fechado que ele de fato pediu.
 
-def _cobertura_atual(destino):
-    """O ultimo mes (AAAA-MM, como date do dia 1) ja coberto por arquivos
-    existentes em destino, olhando SO o nome -- nunca o conteudo.
-
-    Confere os dois padroes (taxa e vna) e fica com o mais RESTRITIVO
-    (o minimo dos dois), nao o mais recente: se por algum motivo um dos
-    dois ficou para tras numa puxada anterior (por exemplo, ela foi
-    interrompida entre gravar a taxa e gravar o vna), o corte incremental
-    tem que continuar pedindo o que falta para o mais atrasado dos dois,
-    em vez de assumir que os dois avancaram juntos.
+    E um CONJUNTO, nao so o maior 'ate' de cada tipo: a primeira versao
+    deste modulo so olhava o mes mais recente coberto, e isso tinha dois
+    problemas medidos na revisao -- (1) um buraco no MEIO da serie (ex.:
+    pasta com 2023-01 e 2023-03, faltando 2023-02) nunca era detectado,
+    porque o 'mais recente' (marco) escondia o buraco; e (2) quando um
+    dos tres tipos de arquivo (taxa/vna/preco) ficava mais adiantado que
+    os outros -- por exemplo uma coleta anterior interrompida entre
+    gravar a taxa e gravar o vna -- o nome recalculado para a proxima
+    coleta podia colidir exatamente com o arquivo mais adiantado que ja
+    existia, travando em FileExistsError ate alguem apagar a mao. Um
+    conjunto de meses, comparado tipo a tipo (ver baixar()), nao tem
+    nenhum dos dois problemas: qualquer mes que falte em QUALQUER um dos
+    tres tipos entra na proxima coleta, com um nome que nunca repete o de
+    um arquivo existente.
     """
-    melhores = []
-    for padrao_glob, padrao_nome in (
-        ("bbg_taxas_ANDE_*.csv", _PADRAO_ARQ_TAXA),
-        ("bbg_vna_*.csv", _PADRAO_ARQ_VNA),
-    ):
-        melhor = None
-        for arquivo in destino.glob(padrao_glob):
-            casado = padrao_nome.match(arquivo.name)
-            if not casado:
-                continue
-            ate = casado.group("ate")
-            d = date(int(ate[:4]), int(ate[5:7]), 1)
-            if melhor is None or d > melhor:
-                melhor = d
-        if melhor is not None:
-            melhores.append(melhor)
-    if not melhores:
-        return None
-    return min(melhores)
+    cobertos = set()
+    for arquivo in destino.glob(padrao_glob):
+        casado = padrao_nome.match(arquivo.name)
+        if not casado:
+            continue
+        ano, mes = int(casado.group("de")[:4]), int(casado.group("de")[5:7])
+        ano_fim, mes_fim = int(casado.group("ate")[:4]), int(casado.group("ate")[5:7])
+        while (ano, mes) <= (ano_fim, mes_fim):
+            cobertos.add((ano, mes))
+            mes += 1
+            if mes > 12:
+                mes, ano = 1, ano + 1
+    return cobertos
 
 
 def _sessao():
@@ -221,12 +246,21 @@ def _referencia(blpapi, sessao, servico, isins, campo, settle):
 def _janela_incremental(p, limite):
     """Primeiro dia a pedir para o papel p, dado o corte incremental.
 
-    limite, se dado, e o primeiro dia a pedir para um papel que ja
-    estava ativo antes dele. Um papel que so passou a existir depois de
-    limite usa a propria data de nascimento (p.primeira), nunca limite,
-    porque pedir antes disso nao teria papel vivo para responder.
-    Devolve None se o papel nao tem nada de novo a pedir (ja tinha
-    saido de circulacao antes do corte).
+    limite e a data (util, de datas_do_painel()) do MES MAIS ANTIGO que
+    falta em algum dos tres tipos de arquivo -- None se nao houver
+    nenhuma coleta anterior (primeira coleta, pede a janela inteira).
+
+    Um papel que ja estava ativo antes de limite so precisa do que vem
+    dali para frente. Um papel que so passou a existir depois de limite
+    usa a propria data de nascimento (p.primeira), nunca limite, porque
+    pedir antes disso nao teria papel vivo para responder. Devolve None
+    se o papel nao tem nada de novo a pedir (ja tinha saido de
+    circulacao antes do corte).
+
+    Como HistoricalDataRequest pede um INTERVALO continuo, um papel cujo
+    periodo cobre um buraco no meio da serie (ver docstring do modulo)
+    acaba recebendo de volta alguns meses que ja estavam cobertos --
+    redundante, nao errado.
     """
     inicio = max(p.primeira, limite) if limite else p.primeira
     return inicio if inicio <= p.ultima else None
@@ -248,7 +282,16 @@ def _conteudo_taxas(papeis, limite, blpapi, sessao, servico):
 
 
 def _conteudo_precos(papeis, limite, blpapi, sessao, servico):
-    """Monta em memoria o CSV de preco (PX_DIRTY_MID) -- so referencia."""
+    """Monta em memoria o CSV de preco (PX_DIRTY_MID) -- so referencia.
+
+    Quem chama (baixar()) ja filtra a LFT fora de `papeis` antes de
+    passar aqui: a serie de preco da LFT na Bloomberg e inutilizavel
+    (expressa com o INDICE CORRENTE, nao o da epoca -- ver
+    docs/convencoes-dv.md). Pedir e gravar esse preco nao quebraria nada
+    tecnicamente, mas quem usasse este arquivo no teste de coerencia do
+    motor de precificacao ia comparar a LFT contra um numero sem sentido
+    e concluir, errado, que o motor esta errado.
+    """
     buffer = io.StringIO()
     escritor = csv.writer(buffer)
     escritor.writerow(["isin", "titulo", "data", "px_dirty_mid"])
@@ -263,6 +306,17 @@ def _conteudo_precos(papeis, limite, blpapi, sessao, servico):
 
 
 def _conteudo_vna(datas, blpapi, sessao, servico):
+    """Monta em memoria o CSV de VNA (IDX_RATIO/NTN-B, ACCUMULATED_SELIC/LFT).
+
+    'fator' e o campo cru da Bloomberg (ex.: 1.874868830); 'vna' e o
+    fator x 1000, em reais (ver docs/convencoes-dv.md). 'divergencia' tem
+    de estar na MESMA unidade que 'vna' -- reais, nao fator -- porque e
+    contra 'vna' que parse_bloomberg.py compara a tolerancia
+    (_TOLERANCIA_DIVERGENCIA = 0.5, documentada la como "em reais"). Sem
+    o x1000 aqui, uma divergencia real de R$ 400 sobre um VNA de ~R$
+    1.875 (21%, bem acima do que a tolerancia deveria pegar) seria
+    gravada como 0.4 e passaria pela guarda calada.
+    """
     e = _estoque()
     buffer = io.StringIO()
     escritor = csv.writer(buffer)
@@ -278,9 +332,10 @@ def _conteudo_vna(datas, blpapi, sessao, servico):
             valores = _referencia(blpapi, sessao, servico, vivos, campo, dt)
             if not valores:
                 continue
+            divergencia_reais = (max(valores) - min(valores)) * 1000
             escritor.writerow([dt, indice, campo, f"{valores[0]:.9f}",
                                 f"{valores[0] * 1000:.6f}", len(valores),
-                                f"{max(valores) - min(valores):.9f}"])
+                                f"{divergencia_reais:.9f}"])
     return buffer.getvalue().encode("utf-8")
 
 
@@ -289,11 +344,14 @@ def baixar(destino=None):
 
     Devolve (caminho_taxas, caminho_vna, caminho_precos).
 
-    A coleta e incremental: olha o que ja existe em destino (pelo NOME
-    dos arquivos, formato ISO -- o mesmo contrato que parse_bloomberg
-    exige do leitor) para descobrir o ultimo mes ja coberto, e pede so a
-    partir do mes seguinte. O nome do arquivo novo reflete o periodo que
-    ele de fato cobre, nunca a janela inteira do estoque -- e por isso os
+    A coleta e incremental: monta, so pelo NOME dos arquivos ja
+    presentes em destino (formato ISO -- o mesmo contrato que
+    parse_bloomberg exige do leitor), o conjunto de meses que CADA tipo
+    de arquivo (taxa, vna, preco) ja reivindica cobrir, e pede so os
+    meses do painel atual que faltam em qualquer um dos tres -- ver
+    _meses_cobertos() para o porque disso ser um conjunto, nao so "o mes
+    mais recente". O nome do arquivo novo reflete o periodo que ele de
+    fato cobre, nunca a janela inteira do estoque -- e por isso os
     arquivos se acumulam em vez de se sobrescrever.
 
     data/raw/ e imutavel por invariante do projeto (ver
@@ -302,31 +360,40 @@ def baixar(destino=None):
     incremental acima ja deveria ter evitado -- a funcao levanta erro em
     vez de sobrescrever, como defesa em profundidade.
 
-    Se nao houver nada novo (o estoque nao tem mes fechado mais recente
-    do que o que ja foi coletado), levanta erro em vez de gravar arquivo
-    vazio ou repetir o de sempre -- e o sinal de que a camada de dados
-    (RMD) precisa ser atualizada primeiro, nao a Bloomberg.
+    Se nao houver nada novo (o estoque nao tem mes do painel que falte
+    em taxa, vna E preco ao mesmo tempo), levanta erro em vez de gravar
+    arquivo vazio ou repetir o de sempre -- e o sinal de que a camada de
+    dados (RMD) precisa ser atualizada primeiro, nao a Bloomberg. Nenhum
+    diretorio e criado nesse caso nem no caso de erro de leitura do
+    estoque: destino.mkdir() so roda depois de confirmar que ha alguma
+    coisa para gravar ali.
     """
     destino = Path(destino) if destino else config.BLOOMBERG_DIR
-    destino.mkdir(parents=True, exist_ok=True)
 
-    cutoff = _cobertura_atual(destino)
+    cobertos_taxa = _meses_cobertos(destino, "bbg_taxas_ANDE_*.csv", _PADRAO_ARQ_TAXA)
+    cobertos_vna = _meses_cobertos(destino, "bbg_vna_*.csv", _PADRAO_ARQ_VNA)
+    cobertos_preco = _meses_cobertos(destino, "bbg_precos_ANDE_*.csv", _PADRAO_ARQ_PRECO)
+
     datas = datas_do_painel()
-    limite = _primeiro_dia_apos(cutoff) if cutoff is not None else None
-    novas_datas = [d for d in datas if limite is None or d >= limite]
+    novas_datas = [
+        d for d in datas
+        if (d.year, d.month) not in cobertos_taxa
+        or (d.year, d.month) not in cobertos_vna
+        or (d.year, d.month) not in cobertos_preco
+    ]
 
     if not novas_datas:
-        if cutoff is None:
+        if not (cobertos_taxa or cobertos_vna or cobertos_preco):
             raise RuntimeError(
                 f"nada a coletar: o estoque em {config.PROCESSED_DIR} nao "
                 f"tem nenhum fim de mes com posicao positiva nos titulos do "
                 f"escopo {TITULOS}."
             )
         raise RuntimeError(
-            f"nada novo a coletar em {destino}: os arquivos ja existentes "
-            f"cobrem ate {cutoff:%Y-%m}, e o estoque atual nao tem mes "
-            f"fechado mais recente do que isso. Se esperava um mes novo, "
-            f"rode a camada de dados (RMD) antes da Bloomberg."
+            f"nada novo a coletar em {destino}: os {len(datas)} mes(es) do "
+            f"painel atual do estoque ja estao cobertos (taxa, vna e preco) "
+            f"pelos arquivos existentes. Se esperava um mes novo, rode a "
+            f"camada de dados (RMD) antes da Bloomberg."
         )
 
     marca = f"{novas_datas[0]:%Y-%m}_{novas_datas[-1]:%Y-%m}"
@@ -342,22 +409,34 @@ def baixar(destino=None):
                 f"mao antes de rodar de novo."
             )
 
+    limite = novas_datas[0]
     papeis = papeis_do_estoque()
-    papeis_novos = (papeis[papeis["ultima"] >= limite].reset_index(drop=True)
-                     if limite is not None else papeis)
+    papeis_novos = papeis[papeis["ultima"] >= limite].reset_index(drop=True)
+    # A serie de preco da LFT na Bloomberg e inutilizavel (ver
+    # docs/convencoes-dv.md e o docstring de _conteudo_precos) -- nunca
+    # pedida.
+    papeis_novos_preco = papeis_novos[papeis_novos["titulo"] != "LFT"]
+
+    # So cria o diretorio de destino depois de confirmar que ha algo
+    # para gravar ali -- um destino digitado errado (ou um estoque sem
+    # mes novo) nao deixa uma pasta vazia para tras.
+    destino.mkdir(parents=True, exist_ok=True)
 
     blpapi, sessao = _sessao()
     servico = sessao.getService("//blp/refdata")
     try:
         conteudo_taxa = _conteudo_taxas(papeis_novos, limite, blpapi, sessao, servico)
         conteudo_vna = _conteudo_vna(novas_datas, blpapi, sessao, servico)
-        conteudo_preco = _conteudo_precos(papeis_novos, limite, blpapi, sessao, servico)
+        conteudo_preco = _conteudo_precos(papeis_novos_preco, limite, blpapi, sessao, servico)
     finally:
         sessao.stop()
 
     # So grava depois que as tres puxadas terminaram: uma falha na
     # segunda ou terceira nao pode deixar a primeira gravada sozinha em
     # data/raw/ com um periodo que os outros dois arquivos nao cobrem.
+    # A janela de corrida residual (entre este ponto e a ultima
+    # gravacao) esta registrada no docstring do modulo -- deliberadamente
+    # nao fechada, ver ali o motivo.
     gravar_atomico(conteudo_taxa, alvo_taxa)
     print(f"gravado: {alvo_taxa}")
     gravar_atomico(conteudo_vna, alvo_vna)

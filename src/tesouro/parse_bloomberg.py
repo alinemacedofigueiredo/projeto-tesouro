@@ -16,11 +16,13 @@ Bloomberg devolve via HistoricalDataRequest), mas nao sempre -- o bruto
 atual tem 272 linhas em 6 datas que sao ultimo dia CORRIDO, nao util
 (29/03/2013, 28/02/2017, 30/03/2018, 31/05/2018, 28/02/2022 e 29/03/2024
 -- todas vesperas de feriado movel, Sexta-feira Santa ou Carnaval, que a
-Bloomberg parece contar diferente da Anbima). A de VNA vem no ultimo dia
-corrido, porque foi assim que o override de SETTLE_DT foi pedido.
-Verificado durante o design que o VNA e identico nos dois dias, porque
-nao acumula em dia nao util -- e essa premissa e conferida em tempo de
-leitura, nao so assumida (ver parse_vna). As duas fontes sao normalizadas
+Bloomberg parece contar diferente da Anbima). A de VNA e pedida com o
+override de SETTLE_DT no ultimo dia UTIL do mes (fetch_bloomberg.baixar
+usa as mesmas datas de datas_do_painel(), que ja sao uteis), entao chega
+normalizada na origem -- mas um bruto legado gerado com o dia CORRIDO
+continua sendo aceito aqui sem erro, porque o VNA e identico nos dois
+dias: ele nao acumula em dia nao util, e essa premissa e conferida em
+tempo de leitura, nao so assumida (ver parse_vna). As duas fontes sao normalizadas
 para o ultimo dia util, que e a chave de juncao do projeto -- ver
 docs/convencoes-dv.md: casar por data crua descarta cerca de um terco do
 painel em silencio, porque a Bloomberg pode devolver 29/05 onde o RMD
