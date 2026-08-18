@@ -383,6 +383,43 @@ mostrar ganho num mês em que a Conta B mostra queda de risco (ou
 vice-versa), e isso é esperado — elas respondem perguntas diferentes, com
 bases de posição diferentes.
 
+### Limitação conhecida da Conta B: o VNA fica congelado, e isso é material
+
+O decay usa o VNA da data-base também na data-alvo. Para a NTN-B isso
+**superestima o decay**, e não por pouco.
+
+O DV da NTN-B escala linearmente com o VNA (`PU = cotação × VNA / 100`),
+então uma acreção de x% no VNA move o `dv_alvo` em x%. Medido a partir de
+30/06/2026, no horizonte de 21 dias úteis, com decay de 15,911 milhões por
+bp com o VNA congelado:
+
+| IPCA no mês | decay de 21du | vs. VNA congelado |
+|---|---|---|
+| congelado (o que fazemos hoje) | 15,911 | — |
+| 0,20% | 13,733 | −13,7% |
+| 0,35% | 12,101 | −23,9% |
+| 0,50% | 10,468 | −34,2% |
+| 0,70% | 8,291 | −47,9% |
+
+A leitura econômica: o risco da NTN-B não encolhe tão rápido quanto o efeito
+de `du` sozinho sugere, porque o nocional a que ela está indexada cresce no
+caminho. Num horizonte de seis meses, como o pontual até 31/12/2026, o efeito
+passa de 30%.
+
+**Por que está assim:** a spec define a Conta B como o efeito puro da
+passagem do tempo, sem premissa nenhuma — e projetar o VNA exige ou uma
+fonte nova (o VNA projetado da ANBIMA) ou uma premissa de inflação. A escolha
+foi ficar sem premissa e **rotular**: o título da figura do pontual diz "taxa
+e VNA congelados na data-base", e é isso que os números significam.
+
+**A decisão de mudar já foi tomada** (18/08/2026, com a dona do projeto): o
+VNA projetado entra num sub-projeto próprio, onde se escolhe entre puxar o
+VNA projetado da ANBIMA e calcular a parte determinística (publicado o IPCA
+do mês, o caminho do VNA até o dia 15 está determinado; premissa só além
+disso). A LFT não é afetada no decay, porque não tem DV neste projeto.
+`_decay_de` é uma função só, usada pelo `decay()` e pelo `pontual()`, então a
+mudança entra num lugar; o custo está no insumo, não no código.
+
 ---
 
 ## Resultado mensal: separando a acumulação de índice da taxa real

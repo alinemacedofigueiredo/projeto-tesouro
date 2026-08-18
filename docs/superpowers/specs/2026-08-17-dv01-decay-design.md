@@ -243,6 +243,7 @@ errado.
 
 | Assunto | Situação |
 |---|---|
+| **VNA projetado no decay** | **Vira sub-projeto próprio (decidido em 18/08/2026).** A Conta B congela o VNA da data-base, o que superestima o decay da NTN-B em 24% a 48% para IPCA de 0,35% a 0,70% no mês — medido, ver `docs/convencoes-dv.md`, seção "Limitação conhecida da Conta B". A entrega 2 fica com o VNA congelado e rotulado |
 | Rolldown (decay com curva) | Fora de escopo: exige curva, não a taxa do papel |
 | Bandas do PAF de 2023 em diante | Não existem na aba 5.7; bloqueiam a entrega 4, não esta |
 | Otimização da contagem de dias úteis | Obrigatória: hoje são 762 ms numa NTN-B 2060 |
