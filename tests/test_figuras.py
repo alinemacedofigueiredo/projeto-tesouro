@@ -55,10 +55,24 @@ def test_figura_do_sistema_plota_ltn_ntnf_ntnb_e_total_com_valor_certo():
         assert por_rotulo["total"].get_ydata()[-1] == pytest.approx(-1472.872661, abs=1e-6)
 
         # Unidade e conta precisam aparecer no proprio grafico, nao so no
-        # relatorio -- e o que a usuaria ve antes de qualquer CSV.
-        assert "R$ milhoes por bp" in eixo.get_ylabel()
+        # relatorio -- e o que a usuaria ve antes de qualquer CSV. "\u00f5"
+        # e "\u00e3" sao escapes Unicode (nao caracteres acentuados literais
+        # no arquivo-fonte, que precisa continuar ASCII puro) para "milh\u00f5es"
+        # e "n\u00e3o" -- ver docs/como-baixar.md e a Tarefa 9 sobre ASCII.
+        assert "milh\u00f5es por bp" in eixo.get_ylabel()
+        assert "resultado em dinheiro" in eixo.get_title()
+
+        # Achado da revisao da Tarefa 9 (item 3): a asser\u00e7\u00e3o anterior aqui
+        # era "'resultado em dinheiro' in textos or 'nao e resultado em
+        # dinheiro' in eixo.get_title()" -- a segunda clausula do "or" e
+        # sempre verdadeira (o titulo sempre tem essa frase), entao o teste
+        # nunca forcava a nota de rodape a existir. Direto contra fig.texts,
+        # com o percentual de verdade da data (nao uma string generica),
+        # para a asser\u00e7\u00e3o falhar se a chamada de _nota_cobertura sumir do
+        # fig.text() -- verificado a mao removendo a linha correspondente
+        # em _figura_do_sistema e confirmando que este teste quebra.
         textos = " ".join(t.get_text() for t in fig.texts)
-        assert "resultado em dinheiro" in textos or "nao e resultado em dinheiro" in eixo.get_title()
+        assert "DV01 cobre 46,5% do estoque em 30/06/2026" in textos
     finally:
         import matplotlib.pyplot as plt
         plt.close(fig)
@@ -75,7 +89,14 @@ def test_grafico_do_sistema_grava_arquivo(tmp_path):
 # ---------------------------------------------------------------------------
 # grafico_pontual: mesma logica -- confere os valores das quatro barras
 # contra o resumo de dv.pontual(), com tolerancia apertada (banda larga
-# ja deixou passar bug de 3,3x nesta branch).
+# ja deixou passar bug de 3,3x nesta branch). Desde a revisao da Tarefa 9
+# (item 2), as barras sao uma cascata (bridge chart): "vence" e "decay"
+# flutuam, cada uma comecando onde a anterior termina, para a soma
+# dv_base + dv_que_vence + decay_sobreviventes = dv_alvo ficar visivel --
+# quatro barras partindo todas do zero deixavam os dois termos do meio
+# (~50x menores) quase invisiveis. b.get_height() continua sendo o delta
+# de cada termo (nao o topo acumulado); quem muda e b.get_y(), o "pe" de
+# cada barra, testado separadamente abaixo.
 # ---------------------------------------------------------------------------
 
 def test_figura_pontual_plota_as_quatro_barras_com_o_valor_do_resumo():
@@ -92,8 +113,42 @@ def test_figura_pontual_plota_as_quatro_barras_com_o_valor_do_resumo():
         alturas = [b.get_height() for b in barras]
         assert alturas == pytest.approx(valores, abs=1e-5)
 
-        assert "R$ milhoes por bp" in eixo.get_ylabel()
+        assert "milh\u00f5es por bp" in eixo.get_ylabel()
         assert "Conta B" in eixo.get_title()
+
+        textos = " ".join(t.get_text() for t in fig.texts)
+        assert "DV01 cobre 46,5% do estoque em 30/06/2026" in textos
+    finally:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+
+def test_figura_pontual_e_uma_cascata_nao_quatro_barras_do_zero():
+    """A barra 'vence' tem que comecar onde 'DV na base' termina, e 'decay'
+    onde 'vence' termina -- e isso, nao so os deltas em si, que prova que
+    dv_base + dv_que_vence + decay_sobreviventes = dv_alvo fica visivel no
+    desenho (achado I2 da revisao). Os "pes" esperados sao calculados a
+    partir dos proprios valores do resumo (ja conferidos contra os ancoras
+    do brief no teste acima), nao da constante que o codigo sob teste usa
+    internamente."""
+    resumo = dv.pontual(date(2026, 12, 31))
+    fig, eixo, rotulos, valores = figuras._figura_pontual(resumo)
+    try:
+        pes_esperados = [
+            0,
+            valores[0],
+            valores[0] + valores[1],
+            0,
+        ]
+        pes_reais = [b.get_y() for b in eixo.patches]
+        assert pes_reais == pytest.approx(pes_esperados, abs=1e-5)
+
+        # As duas barras de total ("DV na base", "DV no alvo") sao as
+        # unicas que partem do zero -- as do meio flutuam.
+        assert eixo.patches[0].get_y() == pytest.approx(0.0, abs=1e-9)
+        assert eixo.patches[3].get_y() == pytest.approx(0.0, abs=1e-9)
+        assert eixo.patches[1].get_y() != pytest.approx(0.0, abs=1e-6)
+        assert eixo.patches[2].get_y() != pytest.approx(0.0, abs=1e-6)
     finally:
         import matplotlib.pyplot as plt
         plt.close(fig)
