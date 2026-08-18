@@ -128,15 +128,16 @@ de título: juntar as duas exige um fator de mil (ver a nota daquela tabela).
 sub-projeto de DV01 (ver `docs/convencoes-dv.md` e
 `tests/test_coerencia_dv.py`): a taxa que reproduz
 `financeiro_milhoes / quantidade_mil` fica presa numa faixa estreita por anos
-a fio (ex.: a NTN-B 2050 entre 5,34% e 5,54% por doze anos, com o mercado
-variando de 3,59% a 7,56% no mesmo período), enquanto a LFT — que quase não
-tem cupom futuro para uma curva "chutar" — bate com o ágio de mercado dentro
-de poucas dezenas de pontos-base. Por isso `financeiro_milhoes` serve de
-conferência (é o que a tabela de DV01, `dv_por_papel.csv`, usa para o
-cruzamento de coerência), não de fonte de preço: quem precisar de PU ou de
-marcação a mercado usa `dv_por_papel.csv`, não esta coluna. Os títulos aqui
-aparecem **desagregados** em relação a `estoque_dpf.csv` — ver a nota daquela
-tabela.
+a fio (ex.: a NTN-B 2050 entre 5,40% e 5,56% nos doze anos de 2014 a 2026,
+com o mercado variando de 3,57% a 7,56% no mesmo período), enquanto a LFT —
+que quase não tem cupom futuro para uma curva "chutar" — bate com o ágio de
+mercado com mediana de erro de 3,1 bp (97,1% dos pares dentro de 25 bp). Por
+isso `financeiro_milhoes` serve de conferência (é o que
+`tests/test_coerencia_dv.py` usa para o cruzamento de coerência contra o PU
+calculado — não a própria tabela `dv_por_papel.csv`, que nem tem esta coluna
+e nunca a lê), não de fonte de preço: quem precisar de PU ou de marcação a
+mercado usa `dv_por_papel.csv`, não esta coluna. Os títulos aqui aparecem
+**desagregados** em relação a `estoque_dpf.csv` — ver a nota daquela tabela.
 
 **Atenção — só linhas observadas são gravadas.** A aba lista todo papel
 contra todo mês, e a maioria dessas combinações não existe: o papel foi
@@ -554,7 +555,7 @@ Origem: Bloomberg, campo `YLD_YTM_MID`. 8.836 linhas.
 | `isin` | texto | Código ISIN |
 | `titulo` | texto | `LTN` (2.169), `NTN-F` (1.200), `NTN-B` (2.945), `LFT` (2.522) |
 | `vencimento` | data | Vencimento do papel |
-| `taxa_pct` | número | % ao ano (`13.5` = 13,5% a.a.); pode ser negativa (a LFT já teve deságio negativo, ex. `-0,39%`) |
+| `taxa_pct` | número | % ao ano (`13.5` = 13,5% a.a.); pode ser negativa (a LFT já teve deságio negativo -- mínimo de -0,0903%, em 935 das 2.522 linhas de LFT; o mínimo de todo o arquivo, -4,2102%, é da NTN-B, não da LFT) |
 
 **Atenção — `data` é o último dia ÚTIL, `estoque_titulos_vencimento.csv`
 traz o último dia CORRIDO.** Juntar as duas tabelas por data literal (sem
@@ -571,11 +572,11 @@ entre LFT e os demais títulos compara grandezas diferentes.
 
 **Atenção — a Bloomberg às vezes cota num dia que a Anbima não considera
 útil.** Em 272 das 8.898 linhas do bruto (antes da normalização acima), a
-data de origem cai em véspera de Sexta-feira Santa (2013, 2018, 2024),
-Carnaval (2017, 2022) ou Corpus Christi (2018) — feriados móveis que a
-Bloomberg parece fechar diferente da Anbima. É por isso que a normalização
-para o último dia útil é feita nos dois lados (Bloomberg e RMD), não só do
-lado do RMD.
+data de origem cai num feriado móvel pela Anbima: Paixão de Cristo (2013,
+2018, 2024), Carnaval (2017, 2022) ou Corpus Christi (2018) — a Bloomberg
+parece fechar esses feriados diferente da Anbima. É por isso que a
+normalização para o último dia útil é feita nos dois lados (Bloomberg e
+RMD), não só do lado do RMD.
 
 ### `vna.csv`
 
@@ -624,11 +625,14 @@ quiser conferir um papel abre este CSV e refaz a conta à mão (ver exemplo em
 `pu`/`dv_unitario`/`financeiro_calculado_milhoes` (vazios, não zero);
 `quantidade_mil` continua preenchida (a posição existiu, só falta a taxa
 para precificá-la). A composição é heterogênea, não "quase toda LFT de
-2010-2011" como se poderia supor de memória: `LTN` (335 linhas, espalhadas
-de 2013 a 2026), `LFT` (155, **integralmente** em 2010-2011), `NTN-B` (73,
-a maioria em 2010) e `NTN-F` (9). Confira sempre com `value_counts()` contra
-o CSV real antes de descrever a composição de um subconjunto — é esse tipo
-de suposição não conferida que já causou erro factual neste dicionário.
+2010-2011" como se poderia supor de memória: `LTN` (335 linhas, de 2010 a
+2026 — incluindo 38 em 2010-2011, mas sem nenhuma em 2012 nem 2014, e a
+maioria depois de 2015), `LFT` (155, **integralmente** em 2010-2011),
+`NTN-B` (73, a maioria em 2010) e `NTN-F` (9). Confira sempre com
+`value_counts()` contra o CSV real antes de descrever a composição de um
+subconjunto — é esse tipo de suposição não conferida que já causou erro
+factual neste dicionário (duas vezes: uma vez achando que era "quase toda
+LFT", outra vez descrevendo a janela da LTN errada ao corrigir a primeira).
 
 **Atenção — a cobertura do DV01 não é uma constante, e precisa acompanhar
 qualquer total.** 46,5% do estoque (pela base do RMD) em 30/06/2026; 60,4%
@@ -652,8 +656,8 @@ nos horizontes fixos de 1, 5 e 21 dias úteis, por papel. Gerado por
 | `titulo` | texto | `LTN` (7.497), `NTN-F` (3.609), `NTN-B` (9.009) — sem LFT, que não tem DV no projeto |
 | `venceu_no_caminho` | booleano | `True` (286 linhas) se o papel vence entre `data_base` e `data_alvo`; `False` (19.829) caso contrário |
 | `dv_base` | número | R$ milhões por bp na `data_base` (mesmo valor de `dv_posicao_milhoes` em `dv_por_papel.csv`) |
-| `dv_alvo` | número | R$ milhões por bp reprecificado em `data_alvo`, com a MESMA taxa e VNA da base; `0.0` se `venceu_no_caminho` — o risco existiu e foi a zero, não é ausência |
-| `decay` | número | `dv_alvo − dv_base`; positivo para um sobrevivente (o DV fica menos negativo — "encolheu" em módulo); positivo também para quem venceu no caminho (mesma fórmula, com `dv_alvo = 0`) |
+| `dv_alvo` | número | R$ milhões por bp reprecificado em `data_alvo`, com a MESMA taxa e VNA da base; `0.0` se `venceu_no_caminho` E havia `dv_base` conhecido; fica vazio nas 18 (de 286) linhas vencidas em que o risco de partida já não era conhecido -- o risco existiu e foi a zero, não é ausência, mas só quando dava para medi-lo antes |
+| `decay` | número | `dv_alvo − dv_base`; **em regra** positivo para um sobrevivente (o DV fica menos negativo — "encolheu" em módulo) e sempre positivo para quem venceu no caminho (mesma fórmula, com `dv_alvo = 0`) — ver a exceção abaixo |
 
 **Atenção — nunca some `decay` sem olhar `venceu_no_caminho`.** Um papel
 que venceu contribui um `decay` positivo do tamanho do `dv_base` inteiro —
@@ -661,6 +665,16 @@ isso é calendário (o papel sumiu), não a passagem do tempo encolhendo um
 risco vivo. Somar as duas populações juntas produz um número que parece
 decay de mercado e é, na verdade, metade vencimento. Filtre por
 `venceu_no_caminho` antes de agregar, ou mantenha as duas somas separadas.
+
+**Atenção — `decay` sai levemente negativo em 933 das 18.596 linhas de
+sobrevivente com decay medido (5,0%, todas NTN-B)** — não é a exceção rara
+que "em regra" sugere sozinho: chega a 24,6% do horizonte de 1 dia útil
+(722 de 2.930), 6,8% do de 5 dias (199 de 2.930) e 0,4% do de 21 dias (12
+de 2.912). A magnitude é minúscula (mediana −0,000019, mínimo −0,2326) e a
+causa é a mesma quantização de "A truncagem faz parte do DV"
+(`docs/convencoes-dv.md`): dois PUs truncados independentemente às vezes
+não guardam a ordem que o PU cheio guardaria. Não é defeito da tabela, mas
+quem filtrar `decay < 0` caçando erro vai achar essas linhas.
 
 **Atenção:** 1.251 linhas ficam com `dv_base`/`dv_alvo`/`decay` vazios —
 papéis sem taxa ou sem `dv_unitario` já na base, para os quais não havia

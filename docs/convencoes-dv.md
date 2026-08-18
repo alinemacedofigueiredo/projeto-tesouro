@@ -190,13 +190,15 @@ não está na lista.
 
 **A data que a Bloomberg devolve nem sempre é dia útil pela Anbima.** No bruto
 da coleta (`bbg_taxas_*.csv`), 272 das 8.898 linhas trazem uma data de origem
-que a Anbima não considera dia útil, concentradas em 6 datas: véspera de
-Sexta-feira Santa (29/03/2013, 30/03/2018, 29/03/2024), de Carnaval
-(28/02/2017, 28/02/2022) e de Corpus Christi (31/05/2018). O calendário que a
-Bloomberg usa para fechar o mês não é o mesmo da Anbima nesses feriados
-móveis. É por isso que a normalização para o último dia útil é feita **dos
-dois lados** — Bloomberg e RMD — e não só do lado do RMD, que é onde a
-armadilha de "último dia corrido" já era conhecida.
+que a Anbima não considera dia útil, concentradas em 6 datas, todos os
+próprios feriados móveis (não vésperas): **Paixão de Cristo**
+(29/03/2013, 30/03/2018, 29/03/2024), **Carnaval** (28/02/2017, 28/02/2022) e
+**Corpus Christi** (31/05/2018) — conferido nome a nome contra
+`data/raw/anbima/feriados_nacionais.xls`. O calendário que a Bloomberg usa
+para fechar o mês não é o mesmo da Anbima nesses feriados móveis. É por isso
+que a normalização para o último dia útil é feita **dos dois lados** —
+Bloomberg e RMD — e não só do lado do RMD, que é onde a armadilha de "último
+dia corrido" já era conhecida.
 
 O custo de pular essa normalização é medido: juntando `taxa_por_papel.csv`
 com o estoque (`estoque_titulos_vencimento.csv`) pela data **literal**, sem
@@ -271,20 +273,33 @@ fonte `ANDE`). Se as duas baterem, o financeiro do Tesouro é marcação a
 mercado; se divergirem de forma sistemática, é marcação na curva.
 
 - **NTN-B 15/05/2050 (`BRSTNCNTB3D4`):** a taxa implícita no financeiro do
-  Tesouro fica **cravada entre 5,34% e 5,54% por doze anos**, enquanto a taxa
-  de mercado no mesmo período foi de **3,59% (2020) a 7,56% (2025)**. Uma
-  curva parada não se move com o mercado real.
-- **NTN-F 01/01/2031 (`BRSTNCNTF204`):** a taxa implícita **sobe
-  monotonicamente de 6,99% para 12,28%**, enquanto o mercado fez
-  **6,86% → 14,85% → 13,23%** no mesmo período — sobe, cai e sobe de novo. A
-  curva do RMD segue uma trajetória suave que o mercado real não seguiu.
+  Tesouro fica **cravada entre 5,40% e 5,56%** nos doze anos de 2014-01 a
+  2026-06 (150 observações), enquanto a taxa de mercado no mesmo período foi
+  de **3,57% (jan/2020) a 7,56% (fev/2025)**. Uma curva parada não se move
+  com o mercado real.
+- **NTN-F 01/01/2031 (`BRSTNCNTF204`):** a taxa implícita sobe de forma
+  geral, mas **não estritamente monotônica** — há quedas pontuais de poucos
+  centésimos de ponto (jan→fev/2020, jan→fev/2022, out→dez/2023) —, de
+  **6,99% em jan/2020 para 12,28% em jan/2026**. No mesmo par de datas o
+  mercado fez **6,86% → 13,23%**, com um pico de **15,68% em dez/2024**
+  pelo meio (não em jan/2025, onde a taxa já tinha recuado para 14,85%). A
+  série continua até jun/2026, onde a implícita chega a 12,49% contra 14,30%
+  de mercado. A curva do RMD segue uma trajetória muito mais suave do que
+  o mercado real, que sobe, cai e sobe de novo.
 - **O controle que fecha o argumento é a LFT.** A LFT quase não carrega cupom
-  futuro para uma curva "chutar" — sobra pouco para divergir. E de fato: a
-  taxa (ágio) implícita no financeiro do Tesouro bate com o ágio de mercado
-  dentro de poucas dezenas de pontos-base, a mesma ordem de grandeza do ruído
-  de marcação normal — bem diferente da divergência sistemática de NTN-F e
-  NTN-B. Isso descarta erro de fórmula ou de unidade do nosso lado: o defeito
-  não aparece no título de controle, só nos títulos com cupom longo para uma
+  futuro para uma curva "chutar" — sobra pouco para divergir. E de fato,
+  nos 2.506 pares papel-mês com taxa e VNA conhecidos: a mediana do erro
+  absoluto entre o ágio implícito e o ágio de mercado é **3,1 bp**, e
+  **97,1% dos pares ficam dentro de 25 bp** — a mesma ordem de grandeza do
+  ruído de marcação normal, bem diferente da divergência sistemática de
+  NTN-F e NTN-B. Há 24 pares acima de 100 bp, todos com o papel a 1-11 dias
+  úteis do vencimento — ali o PU fica quase insensível ao ágio (`du` muito
+  pequeno na fórmula da LFT), e qualquer ruído de truncagem se amplifica na
+  inversão; não é sinal de erro de fórmula, é a mesma quantização da seção
+  "A truncagem faz parte do DV" agindo ao contrário (implícita, não PU). Fora
+  dessa janela de quase-vencimento, o controle sustenta o argumento: isso
+  descarta erro de fórmula ou de unidade do nosso lado, porque o defeito não
+  aparece no título de controle, só nos títulos com cupom longo para uma
   curva reprecificar.
 
 **Consequência prática:** a cobertura do DV01 medida pela base do RMD é
@@ -307,15 +322,27 @@ deste documento), mas o sinal do resultado surpreende quem não parar para
 pensar:
 
 **O DV de um título é negativo. Com menos prazo até o vencimento, o DV fica
-MENOS negativo — então `decay = dv_alvo − dv_base` é POSITIVO para um
-sobrevivente.** O número mede o quanto o risco "encolheu" em módulo com a
-passagem do tempo, não uma perda. Para um papel que vence no caminho,
+MENOS negativo — então `decay = dv_alvo − dv_base` é, EM REGRA, POSITIVO
+para um sobrevivente.** O número mede o quanto o risco "encolheu" em módulo
+com a passagem do tempo, não uma perda. Para um papel que vence no caminho,
 `dv_alvo` é `0.0` e a mesma fórmula também dá um `decay` positivo — mas essa
 positividade é vencimento (calendário), não redução gradual de risco de um
 papel vivo. É exatamente para não confundir os dois que existe a coluna
 `venceu_no_caminho`: nunca some as duas populações sem olhá-la (ver
 `docs/dicionario-de-dados.md`, seção `decay_por_papel.csv`, para o número
 medido do efeito de misturar).
+
+**"Em regra" porque há exceção, pequena e explicada pela truncagem.** Em
+933 das 18.596 linhas de sobrevivente com decay medido (5,0%, todas
+NTN-B), `decay` sai levemente negativo — magnitude minúscula (mediana
+−0,000019, mínimo −0,2326), mas presente em 24,6% do horizonte de 1 dia
+útil, 6,8% do de 5 dias e 0,4% do de 21 dias. A causa é a mesma quantização
+que a seção "A truncagem faz parte do DV" já descreve: dois PUs truncados
+independentemente às vezes não guardam a ordem exata que o PU cheio
+guardaria, e o efeito pesa mais quanto menor o horizonte. Não é defeito da
+tabela — mas quem filtrar `decay < 0` para caçar erro vai achar essas 933
+linhas, e precisa saber de antemão que isso é esperado, não sinal de algo
+quebrado.
 
 Fonte: `src/tesouro/dv.py:129-142` (comentário acima de `HORIZONTES`).
 
@@ -411,18 +438,23 @@ quantidade_mil = 127.836,253
 
 1. **Dias úteis entre as duas datas** (calendário Anbima, `cal.du`):
    `du = 188`.
-2. **PU** (fórmula da LTN, base 252, truncado em 6 casas):
+2. **PU** (fórmula da LTN, base 252, truncado em 6 casas). **Atenção ao
+   expoente:** `188 / 252` é uma dízima (`0,746031746...`); se você digitar
+   o quociente arredondado em vez de manter todas as casas da calculadora
+   (ou repetir a divisão sem arredondar no meio), o resultado sai errado na
+   6ª casa — arredondar para `0,746032` dá `908,347854`, não `908,347884`.
+   Mantenha o expoente como fração (`188/252`), sem arredondar:
 
    ```
    PU = 1000 / (1 + 0,137522) ^ (188 / 252)
-      = 1000 / (1,137522) ^ 0,746032
+      = 1000 / (1,137522) ^ 0,7460317460...
       = 908,347884...   → truncado: 908,347884
    ```
 
-3. **PU com o choque de +1 bp** (`taxa = 13,7622%`):
+3. **PU com o choque de +1 bp** (`taxa = 13,7622%`), mesmo expoente:
 
    ```
-   PU(+1bp) = 1000 / (1,137622) ^ 0,746032
+   PU(+1bp) = 1000 / (1,137622) ^ 0,7460317460...
             = 908,288316...  → truncado: 908,288316
    ```
 
@@ -468,7 +500,16 @@ primeiro deles que colidir — não necessariamente no que você apagou.
 
 **O procedimento** é apagar em sequência, seguindo a mensagem de erro:
 
-1. Rode `python -m tesouro.fetch_bloomberg` (com `PYTHONPATH=src`).
+1. Rode a coleta:
+
+   PowerShell:
+
+       $env:PYTHONPATH="src"; python -m tesouro.fetch_bloomberg
+
+   bash:
+
+       PYTHONPATH=src python -m tesouro.fetch_bloomberg
+
 2. Se der `FileExistsError` num arquivo, apague esse arquivo também (ele
    será refeito do zero, com o mesmo conteúdo de antes, porque a taxa e o
    VNA de uma data passada não mudam).

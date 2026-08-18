@@ -92,8 +92,9 @@ arquivo apagado à mão").
 
     python -m pytest tests/ -v
 
-(`tests/conftest.py` já ajusta o `sys.path` para achar `src/`, então os
-testes não precisam de `PYTHONPATH`.)
+(`tests/conftest.py` já ensina o Python a achar o código em `src/` sozinho,
+então os testes não precisam de `PYTHONPATH` — ao contrário dos outros
+comandos deste documento.)
 
 Os testes em `tests/test_coerencia.py` e `tests/test_coerencia_dv.py`
 cruzam tabelas independentes entre si. São os mais importantes: um parser
