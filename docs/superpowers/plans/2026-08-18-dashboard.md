@@ -818,3 +818,498 @@ git commit -m "Adiciona os tres graficos de funding"
 ```
 
 ---
+
+## Task 4: Estoque — composição por indexador com a banda do PAF
+
+**Files:**
+- Create: `src/tesouro/graficos/paf.py`
+- Create: `src/tesouro/graficos/estoque.py`
+- Modify: `src/tesouro/graficos/estilo.py` (sobe o corte de janela)
+- Modify: `src/tesouro/graficos/funding.py` (usa o corte do estilo; literais viram escape)
+- Test: `tests/test_graficos_estoque.py`, e mais dois testes em `tests/test_estilo.py`
+
+**Interfaces:**
+- Consumes: `valida_referencia.conferir_paf`, `valida_referencia.caminho_paf`,
+  `estilo.COR`, `estilo.recorta`, `estilo.eixo_anual`, `estilo.grade_fina`.
+- Produces:
+  - `estilo.recorta(df, janela)` — o corte de janela, que sai do `funding.py`.
+  - `paf.bandas(indicador, caminho=None)` -> DataFrame indexado por ano, colunas
+    `minimo, maximo, minimo_original, maximo_original, realizado`.
+  - `paf.COMPOSICAO` -> tupla dos quatro indicadores que particionam a dívida.
+  - `estoque.dados_composicao(janela=None)` -> DataFrame indexado por data, uma
+    coluna por indexador **em percentual da DPF**, mais `estoque_milhoes`.
+  - `estoque.desenha_composicao(dados, bandas, ax)`
+
+**Fonte:** `composicao_dpf.csv` (`data, indexador, valor_milhoes`), 307 meses de
+dez/2000 a jun/2026, e `referencia/paf_bandas.csv`, 192 linhas de 2003 a 2026.
+
+**Por que esta tarefa existe.** É o gráfico que a dona do projeto chama de retrato da
+gestão: a participação de cada indexador na DPF, mês a mês, com a banda que o PAF
+prometeu para cada ano desenhada por cima. E é a primeira vez que a banda aparece —
+os gráficos de vencimentos (Task 6) e de prazo médio (Task 7) reusam o mesmo leitor.
+
+**Por que a banda ganha um módulo próprio.** A spec lista um módulo por tema e não
+prevê `paf.py`. É desvio consciente: **três gráficos** carregam banda, e a
+alternativa é repetir em três lugares a leitura do CSV, a chamada do validador e a
+resolução entre banda original e revisada. Um leitor só, testado uma vez.
+
+**Decisões que o código deve respeitar:**
+
+- **História completa por padrão, não 5 anos.** A queda do câmbio de **51,0% em
+  set/2002 para 3,7% hoje** é o fato central da gestão da dívida brasileira, e some
+  numa janela curta. A janela de 5 anos existe no botão, mas o padrão é a série
+  inteira.
+- **A banda vigente é a revisada quando existe**, porque é a que valia no fechamento
+  do ano; a original vai em linha pontilhada por baixo, para que a mudança de meta
+  fique visível em vez de desaparecer.
+- **A banda é desenhada ano a ano sobre o gráfico**, não como caixa estática embaixo
+  do jeito que o RMD faz.
+- **O validador é pré-requisito de execução.** Se `referencia/paf_bandas.csv`
+  estiver quebrado, `paf.bandas` **levanta** em vez de desenhar banda errada.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **Os dois CSVs escrevem o mesmo indexador com nomes diferentes.** A aba 2.1
+   grava `"Índice Preços"` e a 1.2 grava `"Índice de Preços"` —
+   com "de" no meio. Copiar a lista de nomes do `funding.py` produz uma coluna
+   vazia e um gráfico com um indexador faltando.
+2. **O `realizado` do PAF não é a nossa medida.** O gráfico desenha a **nossa**
+   série, do `composicao_dpf.csv`; a coluna `realizado` do PAF só serve de
+   cruzamento contra fonte independente, e é isso que o teste faz.
+3. **O ano aberto não tem realizado.** 2026 tem banda e `realizado` vazio. Tratar
+   `NaN` como zero desenharia a composição caindo a zero em 2026.
+4. **O `funding.py` da Task 3 tem literais acentuados**, contra a restrição global de
+   ASCII puro. Esta tarefa fecha isso com um teste que varre o pacote inteiro, em vez
+   de conferir arquivo por arquivo à mão.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_estoque.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro.graficos import estilo, estoque, paf
+
+
+# ---------------------------------------------------------------------------
+# A banda do PAF
+# ---------------------------------------------------------------------------
+
+def test_a_banda_de_2026_do_prefixado_bate_com_a_planilha_do_paf():
+    b = paf.bandas("prefixado_pct")
+    assert b.loc[2026, "minimo"] == 21.0
+    assert b.loc[2026, "maximo"] == 25.0
+    # 2026 ainda nao fechou: realizado VAZIO, nunca zero -- zero seria lido como
+    # "a participacao do prefixado foi a zero".
+    assert pd.isna(b.loc[2026, "realizado"])
+
+
+def test_a_revisao_de_2025_vira_a_banda_vigente_e_guarda_a_original():
+    # O estoque de 2025 foi revisado de 8.100-8.500 para 8.500-8.800. A banda
+    # vigente e a revisada, porque e a que valia no fechamento; a original vai por
+    # baixo em linha pontilhada, para a mudanca de meta ficar visivel.
+    b = paf.bandas("estoque_bilhoes")
+    assert b.loc[2025, "minimo"] == 8500.0
+    assert b.loc[2025, "maximo"] == 8800.0
+    assert b.loc[2025, "minimo_original"] == 8100.0
+    assert b.loc[2025, "maximo_original"] == 8500.0
+    # Ano sem revisao nao tem original separada.
+    assert pd.isna(b.loc[2023, "minimo_original"])
+
+
+def test_os_oito_anos_revisados_estao_todos_presentes():
+    # A aba 5.7 do RMD guarda so quatro revisoes; a planilha do PAF guarda oito.
+    # E por isso que a fonte da banda e referencia/paf_bandas.csv e nao a 5.7.
+    b = paf.bandas("prefixado_pct")
+    revisados = sorted(b.index[b["minimo_original"].notna()])
+    assert revisados == [2008, 2015, 2016, 2018, 2020, 2021, 2024, 2025]
+
+
+def test_o_paf_falha_alto_quando_a_referencia_esta_quebrada(tmp_path):
+    # Pre-requisito de execucao: banda quebrada derruba, nunca desenha errado.
+    # O percentual escrito como fracao (0,21 em vez de 21) e o erro que um
+    # limiar de plausibilidade nao pega -- 0,21 esta entre 0 e 100.
+    ruim = tmp_path / "paf_bandas.csv"
+    ruim.write_text(
+        "ano,versao,indicador,minimo,maximo,realizado\n"
+        "2026,original,prefixado_pct,0.21,0.25,\n",
+        encoding="ascii",
+    )
+    with pytest.raises(ValueError) as erro:
+        paf.bandas("prefixado_pct", caminho=ruim)
+    assert "paf_bandas.csv" in str(erro.value)
+
+
+# ---------------------------------------------------------------------------
+# A composicao
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def comp():
+    return estoque.dados_composicao()
+
+
+def test_a_composicao_de_junho_de_2026_bate_com_o_medido(comp):
+    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
+    u = comp.iloc[-1]
+    assert round(u["Prefixado"], 1) == 21.0
+    assert round(u["\u00cdndice Pre\u00e7os"], 1) == 25.9
+    assert round(u["Taxa Flutuante"], 1) == 49.3
+    assert round(u["C\u00e2mbio"], 1) == 3.7
+    assert round(u["estoque_milhoes"] / 1000, 1) == 9268.4
+
+
+def test_cada_mes_da_composicao_soma_100(comp):
+    cols = [c for c in comp.columns if c != "estoque_milhoes"]
+    assert len(comp) == 307
+    assert (comp[cols].sum(axis=1) - 100).abs().max() < 1e-9
+
+
+def test_o_cambio_cai_do_pico_de_51_para_37(comp):
+    # O fato central da gestao da divida brasileira, e a razao de a serie completa
+    # ser o padrao: numa janela de 5 anos ele nao aparece.
+    cam = comp["C\u00e2mbio"]
+    assert round(cam.max(), 1) == 51.0
+    assert cam.idxmax() == pd.Timestamp("2002-09-30")
+    assert round(cam.iloc[-1], 2) == 3.74
+
+
+def test_o_nosso_dado_bate_com_o_realizado_que_o_paf_registra(comp):
+    # Cruzamento contra fonte independente: a composicao sai da aba 2.1 pelo nosso
+    # parser, e o realizado do PAF foi digitado a mao de outra fonte. De 2011 em
+    # diante os dois tem de coincidir.
+    #
+    # Antes de 2011 divergem em ate 2,8 p.p. na taxa flutuante, e o realizado do
+    # PAF soma 97,7 em 2003 em vez de 100 -- o PAF antigo media a DPF de outro
+    # jeito. Documentado, nao perseguido (ver a spec, secao 10).
+    for indicador, coluna in estoque.BANDA_DE.items():
+        b = paf.bandas(indicador)
+        for ano in range(2011, 2026):
+            fecha = pd.Timestamp(f"{ano}-12-31")
+            assert abs(comp.loc[fecha, coluna] - b.loc[ano, "realizado"]) < 0.01, \
+                f"{indicador} em {ano}"
+
+
+def test_o_desenho_traz_a_banda_de_cada_ano_visivel():
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao(janela=5)
+    bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
+    estoque.desenha_composicao(dados, bandas, ax)
+    faixas = list(ax.collections)
+    plt.close(fig)
+    # Seis anos visiveis (2021 a 2026) vezes quatro indexadores.
+    assert len(faixas) == 24
+
+
+def test_o_desenho_marca_a_banda_original_dos_anos_revisados():
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
+    estoque.desenha_composicao(dados, bandas, ax)
+    finas = [l for l in ax.lines if l.get_linestyle() == ":"]
+    plt.close(fig)
+    # Oito anos revisados, quatro indexadores, duas linhas cada (piso e teto).
+    assert len(finas) == 64
+```
+
+```python
+# acrescentar em tests/test_estilo.py
+
+def test_todo_o_pacote_de_graficos_e_ascii():
+    # A restricao vale para o pacote inteiro, nao so para o estilo. Conferir
+    # arquivo por arquivo a mao nao escala para dez modulos, e o byte acentuado
+    # entra sem ninguem ver.
+    import pathlib
+    from tesouro import graficos
+
+    pasta = pathlib.Path(graficos.__file__).parent
+    arquivos = sorted(pasta.glob("*.py"))
+    assert len(arquivos) >= 3
+    for arquivo in arquivos:
+        with open(arquivo, "rb") as f:
+            try:
+                f.read().decode("ascii")
+            except UnicodeDecodeError as erro:
+                raise AssertionError(f"{arquivo.name} tem byte nao-ASCII: {erro}")
+
+
+def test_o_corte_de_janela_preserva_o_ultimo_ponto():
+    import pandas as pd
+    datas = pd.date_range("2015-01-31", "2026-06-30", freq="ME")
+    df = pd.DataFrame({"v": range(len(datas))}, index=datas)
+    assert len(estilo.recorta(df, None)) == len(df)
+    curto = estilo.recorta(df, 5)
+    assert curto.index.max() == df.index.max()
+    assert curto.index.min() >= df.index.max() - pd.DateOffset(years=5)
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/test_estilo.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'paf'` nos primeiros, e
+`AttributeError: module 'tesouro.graficos.estilo' has no attribute 'recorta'` no
+teste de janela.
+
+- [ ] **Passo 3: subir o corte de janela para o estilo**
+
+Acrescente a `estilo.py`:
+
+```python
+def recorta(df, janela):
+    """Ultimos 'janela' anos de um DataFrame indexado por data.
+
+    janela=None devolve a serie inteira. Mora aqui, e nao em cada modulo de
+    grafico, porque nove dos dezesseis graficos aceitam janela e a conta e a
+    mesma em todos.
+    """
+    import pandas as pd
+    if janela is None:
+        return df
+    return df[df.index >= df.index.max() - pd.DateOffset(years=janela)]
+```
+
+E em `funding.py`: apague o `_recorta` local, troque as três chamadas por
+`estilo.recorta(...)`, e substitua os literais acentuados por escape Unicode:
+
+| era | fica |
+|---|---|
+| `"Índice de Preços"` | `"\u00cdndice de Pre\u00e7os"` |
+| `"Câmbio"` | `"C\u00e2mbio"` |
+| `"net do mês"` | `"net do m\u00eas"` |
+| `"R$ bilhões por mês"` | `"R$ bilh\u00f5es por m\u00eas"` |
+| `"R$ bilhões"` | `"R$ bilh\u00f5es"` |
+| `"R$ bilhões emitidos"` | `"R$ bilh\u00f5es emitidos"` |
+
+O mesmo vale para `tests/test_graficos_funding.py`, que também tem
+`"Índice de Preços"` acentuado — troque pelo escape. **O teste de ASCII varre
+`src/`, não `tests/`**, mas manter os dois no mesmo padrão evita que alguém copie o
+literal acentuado de volta para o código.
+
+- [ ] **Passo 4: escrever o leitor da banda**
+
+```python
+# src/tesouro/graficos/paf.py
+"""A banda do PAF, lida uma vez e desenhada por tres graficos.
+
+O PAF define, para cada ano, um piso e um teto para seis indicadores da divida.
+Este modulo devolve essa banda ja resolvida: onde houve revisao no meio do ano, a
+banda VIGENTE e a revisada -- e a que valia no fechamento -- e a original fica
+guardada a parte, para o desenho traca-la em linha fina por baixo.
+
+O validador de referencia/paf_bandas.csv roda ANTES de qualquer leitura, e o erro
+derruba. E decisao da spec (secao 6): banda quebrada nao vira grafico com banda
+errada, que e o defeito que ninguem enxerga olhando a figura.
+"""
+
+import pandas as pd
+
+from .. import valida_referencia
+
+# Os quatro que particionam a divida. O estoque e o prazo medio tambem tem banda,
+# mas nao sao participacao e nao entram no grafico de composicao.
+COMPOSICAO = ("prefixado_pct", "indice_precos_pct",
+              "taxa_flutuante_pct", "cambio_pct")
+
+_COLUNAS = ["minimo", "maximo", "minimo_original", "maximo_original", "realizado"]
+
+
+def bandas(indicador, caminho=None):
+    """Banda ano a ano de um indicador, resolvida entre original e revisada.
+
+    'minimo'/'maximo' sao a banda vigente no fechamento do ano. Nos anos revisados,
+    'minimo_original'/'maximo_original' guardam a que foi substituida; nos demais
+    ficam vazias. 'realizado' fica vazio no ano que ainda nao fechou -- nunca zero,
+    que seria lido como "a participacao foi a zero".
+    """
+    if indicador not in valida_referencia.INDICADORES:
+        raise ValueError(
+            f"indicador '{indicador}' nao e um dos seis do PAF: "
+            f"{list(valida_referencia.INDICADORES)}"
+        )
+
+    caminho = caminho or valida_referencia.caminho_paf()
+    erros = valida_referencia.conferir_paf(caminho)
+    if erros:
+        raise ValueError(
+            f"{caminho.name} esta invalido e o dashboard nao desenha banda "
+            f"suspeita. {len(erros)} problema(s):\n" + "\n".join(erros)
+        )
+
+    tudo = pd.read_csv(caminho)
+    d = tudo[tudo["indicador"] == indicador]
+    orig = d[d["versao"] == "original"].set_index("ano").sort_index()
+    rev = d[d["versao"] == "revisado"].set_index("ano").sort_index()
+
+    saida = pd.DataFrame(index=orig.index, columns=_COLUNAS, dtype=float)
+    saida["minimo"] = orig["minimo"]
+    saida["maximo"] = orig["maximo"]
+    saida["realizado"] = orig["realizado"]
+
+    for ano in rev.index:
+        saida.loc[ano, "minimo_original"] = orig.loc[ano, "minimo"]
+        saida.loc[ano, "maximo_original"] = orig.loc[ano, "maximo"]
+        saida.loc[ano, "minimo"] = rev.loc[ano, "minimo"]
+        saida.loc[ano, "maximo"] = rev.loc[ano, "maximo"]
+
+    return saida
+```
+
+- [ ] **Passo 5: escrever o gráfico da composição**
+
+```python
+# src/tesouro/graficos/estoque.py
+"""Composicao da DPF por indexador, com a banda do PAF por cima.
+
+O retrato da gestao: quanto da divida esta em cada indexador, mes a mes desde
+dez/2000, contra o que o PAF prometeu para cada ano.
+
+A serie completa e o padrao, e nao os 5 anos: o cambio sai de 51,0% em set/2002
+para 3,7% hoje, e essa queda -- que e o fato central da gestao da divida brasileira
+-- nao existe dentro de uma janela curta.
+
+ARMADILHA: a aba 2.1 grava o indexador como "Indice Precos" e a aba 1.2, que
+alimenta o funding.py, grava "Indice de Precos", com "de" no meio. Copiar a lista
+de nomes de la deixa uma coluna vazia e um indexador fora do grafico.
+"""
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+JANELAS = {"5 anos": 5, "completa": None}
+
+_ORDEM = ["Prefixado", "\u00cdndice Pre\u00e7os", "Taxa Flutuante",
+          "C\u00e2mbio", "Demais"]
+
+_CHAVE_COR = {"Prefixado": "Prefixado",
+              "\u00cdndice Pre\u00e7os": "Indice Precos",
+              "Taxa Flutuante": "Taxa Flutuante",
+              "C\u00e2mbio": "Cambio",
+              "Demais": "Demais"}
+
+# Qual banda do PAF corresponde a qual coluna do nosso CSV.
+BANDA_DE = {"prefixado_pct": "Prefixado",
+            "indice_precos_pct": "\u00cdndice Pre\u00e7os",
+            "taxa_flutuante_pct": "Taxa Flutuante",
+            "cambio_pct": "C\u00e2mbio"}
+
+
+def dados_composicao(janela=None):
+    """Participacao de cada indexador na DPF, em percentual, mes a mes.
+
+    'estoque_milhoes' viaja junto porque o percentual sozinho nao diz que a divida
+    saiu de 654 bi para 9.268 bi no mesmo periodo.
+    """
+    c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
+                    parse_dates=["data"])
+    piv = c.pivot_table(index="data", columns="indexador",
+                        values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    total = piv.sum(axis=1)
+    share = piv.div(total, axis=0) * 100
+    share = share[[k for k in _ORDEM if k in share.columns]].copy()
+    share["estoque_milhoes"] = total
+    return estilo.recorta(share, janela)
+
+
+def desenha_composicao(dados, bandas, ax):
+    """Uma linha por indexador, com a banda do PAF desenhada ano a ano.
+
+    A banda vai por cima do proprio grafico, ano a ano, e nao como caixa estatica
+    embaixo do jeito que o RMD faz: assim da para ver, em cada ano, se o realizado
+    ficou dentro ou fora do que foi prometido.
+
+    Nos anos revisados a banda original aparece em linha pontilhada por baixo, para
+    que a mudanca de meta nao desapareca.
+    """
+    visiveis = range(dados.index.min().year, dados.index.max().year + 1)
+
+    for indicador, coluna in BANDA_DE.items():
+        b = bandas[indicador]
+        cor = estilo.COR[_CHAVE_COR[coluna]]
+        for ano in visiveis:
+            if ano not in b.index:
+                continue
+            inicio = pd.Timestamp(year=ano, month=1, day=1)
+            fim = pd.Timestamp(year=ano, month=12, day=31)
+            ax.fill_between([inicio, fim],
+                            b.loc[ano, "minimo"], b.loc[ano, "maximo"],
+                            color=cor, alpha=0.12, linewidth=0, zorder=1)
+            if pd.notna(b.loc[ano, "minimo_original"]):
+                for nivel in ("minimo_original", "maximo_original"):
+                    ax.plot([inicio, fim], [b.loc[ano, nivel]] * 2,
+                            color=cor, lw=0.8, ls=":", zorder=2)
+
+    for coluna in [c for c in dados.columns if c != "estoque_milhoes"]:
+        if coluna == "Demais":
+            continue                     # nunca passa de 0,06% da DPF
+        ax.plot(dados.index, dados[coluna], lw=2.2,
+                color=estilo.COR[_CHAVE_COR[coluna]], label=coluna, zorder=3)
+        ax.annotate(estilo.num_br(dados[coluna].iloc[-1], 1),
+                    xy=(dados.index[-1], dados[coluna].iloc[-1]),
+                    xytext=(6, 0), textcoords="offset points",
+                    fontsize=9, color=estilo.COR[_CHAVE_COR[coluna]],
+                    va="center", weight="bold")
+
+    ax.set_ylabel("% da DPF")
+    ax.set_ylim(0, 60)
+    estilo.grade_fina(ax, 10, 5)
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=4, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.08))
+```
+
+- [ ] **Passo 6: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/test_estilo.py -v
+```
+
+Esperado: 10 passed no arquivo do estoque e 7 no do estilo.
+
+- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- apague o laço `for ano in rev.index:` do `paf.bandas` —
+  `test_a_revisao_de_2025_vira_a_banda_vigente_e_guarda_a_original` deve falhar;
+- troque `versao == "revisado"` por `== "original"` — o teste dos oito anos
+  revisados deve falhar;
+- devolva `[]` em vez de levantar quando `conferir_paf` acusa erro — o teste do
+  arquivo quebrado deve falhar;
+- troque `div(total, axis=0)` por `div(total.iloc[-1])` — a âncora de junho e a
+  soma de 100 devem falhar;
+- apague o bloco do `fill_between` — o teste das 24 bandas deve falhar;
+- apague as duas linhas do `ls=":"` — o teste das 64 linhas finas deve falhar;
+- **cole um byte acentuado** dentro de um comentário de `estoque.py` —
+  `test_todo_o_pacote_de_graficos_e_ascii` deve falhar apontando o arquivo.
+
+**Um caso em que a asserção não tem dentes, e fica registrado:** trocar `alpha=0.12`
+por `alpha=0` no `fill_between` mantém as 24 coleções e o teste **passa**. Aquele
+teste protege a *contagem* de bandas, não a visibilidade delas. Ninguém deve achar
+que ele cobre mais do que cobre.
+
+- [ ] **Passo 8: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 333 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/ tests/test_graficos_estoque.py tests/test_estilo.py tests/test_graficos_funding.py
+git commit -m "Adiciona a composicao do estoque com a banda do PAF"
+```
+
+---
