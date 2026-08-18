@@ -527,21 +527,38 @@ def test_formatar_pontual_explica_por_que_vence_e_decay_sao_positivos():
     assert "sinal positivo" in texto
 
 
-def test_gravar_regrava_os_dois_csvs_de_producao(tmp_path, monkeypatch):
-    # Item 3 (Important): __main__ trocou gravar_painel() por main(), e o
-    # pipeline nao gera dv_por_papel.csv/decay_por_papel.csv em lugar
-    # nenhum -- "python -m tesouro.dv" era a UNICA forma de regerar os
-    # dois. --gravar devolve essa capacidade sem reintroduzir o
-    # comportamento antigo como padrao.
+def test_gravar_regrava_os_tres_csvs_de_producao(tmp_path, monkeypatch, capsys):
+    # Item 3 (Important, Tarefa 7): __main__ trocou gravar_painel() por
+    # main(), e o pipeline nao gera dv_por_papel.csv/decay_por_papel.csv
+    # em lugar nenhum -- "python -m tesouro.dv" era a UNICA forma de
+    # regerar os dois. --gravar devolve essa capacidade sem reintroduzir
+    # o comportamento antigo como padrao.
+    #
+    # I6 (Important, revisao da Tarefa 8): resultado_mensal.csv (gravado
+    # por gravar_resultado(), Tarefa 8) nunca era chamado por --gravar --
+    # o CSV gravado uma vez ficaria parado, envelhecendo em silencio ao
+    # lado dos outros dois, sempre atualizados. Dois meses sinteticos
+    # (nao um so) para o resultado ter pelo menos uma linha de verdade,
+    # com "financeiro_milhoes" no estoque porque gravar_resultado() agora
+    # tambem imprime a nota de cobertura (achado I5), que le esse campo.
     monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
     d0 = CAL.ultimo_dia_util_do_mes(date(2026, 5, 31))
+    d1 = CAL.ultimo_dia_util_do_mes(date(2026, 6, 30))
     venc = date(2028, 1, 1)
     pd.DataFrame(
-        [(str(d0), "Prefixados", "LTN", str(venc), "ISINTESTE1", 10.0)],
-        columns=["data", "indexador", "titulo", "vencimento", "isin", "quantidade_mil"],
+        [(str(d0), "Prefixados", "LTN", str(venc), "ISINTESTE1", 10.0, 8.7),
+         (str(d1), "Prefixados", "LTN", str(venc), "ISINTESTE1", 10.0, 8.6)],
+        columns=["data", "indexador", "titulo", "vencimento", "isin",
+                 "quantidade_mil", "financeiro_milhoes"],
     ).to_csv(tmp_path / "estoque_titulos_vencimento.csv", index=False)
     pd.DataFrame(
-        [(str(d0), "ISINTESTE1", "LTN", str(venc), 12.0)],
+        # +200 bp, nao +50: a um mes do vencimento o efeito de carrego
+        # (menos dias para descontar) supera um choque de taxa pequeno e
+        # o resultado sai positivo mesmo com a taxa subindo -- confirmado
+        # a mao com precificacao.pu antes de escolher este delta. +200 bp
+        # garante o sinal negativo esperado sem depender de coincidencia.
+        [(str(d0), "ISINTESTE1", "LTN", str(venc), 12.0),
+         (str(d1), "ISINTESTE1", "LTN", str(venc), 14.0)],
         columns=["data", "isin", "titulo", "vencimento", "taxa_pct"],
     ).to_csv(tmp_path / "taxa_por_papel.csv", index=False)
     pd.DataFrame(
@@ -550,9 +567,19 @@ def test_gravar_regrava_os_dois_csvs_de_producao(tmp_path, monkeypatch):
     ).to_csv(tmp_path / "vna.csv", index=False)
 
     dv.main(["--gravar"])
+    saida = capsys.readouterr().out
 
     assert (tmp_path / "dv_por_papel.csv").exists()
     assert (tmp_path / "decay_por_papel.csv").exists()
+    assert (tmp_path / "resultado_mensal.csv").exists()
     painel_gravado = pd.read_csv(tmp_path / "dv_por_papel.csv")
-    assert len(painel_gravado) == 1
+    assert len(painel_gravado) == 2
     assert painel_gravado.iloc[0]["titulo"] == "LTN"
+
+    resultado_gravado = pd.read_csv(tmp_path / "resultado_mensal.csv")
+    assert len(resultado_gravado) == 1
+    # taxa subiu 200 bp (12.0 -> 14.0): o prefixado perde, resultado < 0.
+    assert resultado_gravado.iloc[0]["resultado_milhoes"] < 0
+
+    assert "resultado_mensal.csv" in saida
+    assert "cobertura do estoque" in saida

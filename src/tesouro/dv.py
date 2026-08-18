@@ -501,26 +501,10 @@ _COLUNAS_RESULTADO = [
 ]
 
 
-def resultado_mensal():
-    """Conta A: resultado em dinheiro sobre a posicao congelada.
-
-    A posicao e a do inicio do periodo, reprecificada com o PU do fim: o
-    papel emitido no dia 20 nao deu lucro nem prejuizo a quem estava
-    posicionado no dia 1o.
-
-    Inclui a LFT: ela nao tem DV (dv_unitario e None por construcao), mas
-    tem PU real -- o resultado em dinheiro dela existe e e quase metade
-    do estoque, entao excluir a LFT daqui esconderia a maior parte do
-    financeiro da divida. LFT nao entra em variacao_de_dv, que mede risco
-    de taxa, nao dinheiro.
-
-    Papel que vence dentro do periodo fica marcado e com pu_fim vazio. Nao
-    sabemos a que preco o dinheiro foi reinvestido, e arbitrar uma hipotese
-    de reinvestimento aqui embutiria decisao de analise na camada de dados.
-    """
-    cal = calendario.padrao()
-    p = painel()
-
+def _resultado_de(cal, p):
+    """Nucleo de resultado_mensal(), separado para resultado_decomposto()
+    poder reusar o mesmo painel() ja carregado por quem chama, em vez de
+    ler o CSV duas vezes (achado da revisao da Tarefa 8)."""
     datas = sorted(p["data"].unique())
     por_data = {d: g.set_index("isin") for d, g in p.groupby("data")}
 
@@ -543,6 +527,28 @@ def resultado_mensal():
     return pd.DataFrame(linhas, columns=_COLUNAS_RESULTADO).sort_values(
         ["data_fim", "titulo", "isin"]
     ).reset_index(drop=True)
+
+
+def resultado_mensal():
+    """Conta A: resultado em dinheiro sobre a posicao congelada.
+
+    A posicao e a do inicio do periodo, reprecificada com o PU do fim: o
+    papel emitido no dia 20 nao deu lucro nem prejuizo a quem estava
+    posicionado no dia 1o.
+
+    Inclui a LFT: ela nao tem DV (dv_unitario e None por construcao), mas
+    tem PU real -- o resultado em dinheiro dela existe e e quase metade
+    do estoque, entao excluir a LFT daqui esconderia a maior parte do
+    financeiro da divida. LFT nao entra em variacao_de_dv, que mede risco
+    de taxa, nao dinheiro.
+
+    Papel que vence dentro do periodo fica marcado e com pu_fim vazio. Nao
+    sabemos a que preco o dinheiro foi reinvestido, e arbitrar uma hipotese
+    de reinvestimento aqui embutiria decisao de analise na camada de dados.
+    """
+    cal = calendario.padrao()
+    p = painel()
+    return _resultado_de(cal, p)
 
 
 def variacao_de_dv():
@@ -569,20 +575,148 @@ def variacao_de_dv():
     return por.reset_index(drop=True)
 
 
+_COLUNAS_RESULTADO_DECOMPOSTO = [
+    "data_ini", "data_fim", "isin", "titulo", "quantidade_mil_ini",
+    "resultado_milhoes", "resultado_indice_milhoes",
+    "resultado_taxa_e_carrego_milhoes",
+]
+
+
+def resultado_decomposto():
+    """Conta A, decomposta: separa acumulacao de indice de movimento de
+    taxa real (+ carrego), para os titulos indexados (NTN-B ao IPCA, LFT
+    a Selic).
+
+    O mesmo fenomeno nas duas pontas -- achado da revisao da Tarefa 8: o
+    VNA cresce entre as duas datas mesmo com a taxa (cupom real da NTN-B,
+    agio da LFT) parada, e essa parte NAO e o mercado "ganhando dinheiro",
+    e correcao monetaria. Sem separar, resultado_mensal() sozinho pode
+    enganar nos dois papeis indexados: num periodo de doze meses medido
+    nesta revisao, a NTN-B fechou em +R$ 29.495,0 milhoes no total, mas
+    isso escondia +R$ 90.095,9 milhoes de indexacao contra -R$ 60.600,9
+    milhoes de taxa real -- o sinal do total nem bate com o sinal da
+    parcela de taxa real. Na LFT o efeito e maior ainda: quase todo o
+    resultado dela e indexacao (Selic), por construcao (ela nao tem
+    duration de juros).
+
+    Metodo, por linha viva (a mesma populacao de resultado_milhoes nao
+    vazio): reprecifica em data_fim, com a taxa de data_ini e o VNA de
+    cada ponta --
+
+        pu_base   = pu(titulo, data_fim, venc, taxa_ini, vna_ini)
+        pu_indice = pu(titulo, data_fim, venc, taxa_ini, vna_fim)
+        resultado_indice = (pu_indice - pu_base) * qtd_ini / 1000
+
+    E um experimento controlado -- mesma data de precificacao, mesma
+    taxa, so o VNA muda -- que isola a acumulacao de indice sozinha. O
+    residuo (resultado_milhoes - resultado_indice) fecha em
+    resultado_taxa_e_carrego_milhoes; as duas colunas somam de volta o
+    resultado_milhoes original por construcao (telescopa), o que
+    tests/test_resultado.py confere linha a linha.
+
+    LTN e NTN-F nao sao indexados: resultado_indice_milhoes sai 0.0 (nao
+    None -- a acumulacao de indice e genuinamente nula ali, "nao se
+    aplica" seria enganoso) e resultado_taxa_e_carrego_milhoes fica igual
+    ao resultado_milhoes inteiro.
+
+    Nao ganha coluna nova em resultado_mensal() (quebraria a lista exata
+    de test_colunas_canonicas sem necessidade) nem vira CSV -- e analise
+    calculada na hora, mesma regra de variacao_de_dv(): o projeto nao
+    persiste derivado.
+    """
+    cal = calendario.padrao()
+    p = painel()
+    r = _resultado_de(cal, p)
+    vivas = r[r["resultado_milhoes"].notna()]
+
+    por_data = {d: g.set_index("isin") for d, g in p.groupby("data")}
+
+    linhas = []
+    for linha in vivas.itertuples(index=False):
+        titulo = linha.titulo
+        resultado_total = linha.resultado_milhoes
+        if titulo not in _INDICE_DO_TITULO:
+            linhas.append((linha.data_ini, linha.data_fim, linha.isin,
+                           titulo, linha.quantidade_mil_ini,
+                           resultado_total, 0.0, resultado_total))
+            continue
+
+        ini_row = por_data[linha.data_ini].loc[linha.isin]
+        fim_row = por_data[linha.data_fim].loc[linha.isin]
+        if pd.isna(ini_row["taxa_pct"]) or pd.isna(ini_row["vna"]) or pd.isna(fim_row["vna"]):
+            # Falta insumo para decompor (mas resultado_milhoes ja tinha
+            # sido calculado com sucesso, senao a linha nem estaria em
+            # "vivas") -- nao inventamos VNA nem taxa; a linha fica com a
+            # decomposicao vazia, e o total continua valendo.
+            linhas.append((linha.data_ini, linha.data_fim, linha.isin,
+                           titulo, linha.quantidade_mil_ini,
+                           resultado_total, None, None))
+            continue
+
+        taxa_ini = ini_row["taxa_pct"] / 100.0
+        vna_ini = ini_row["vna"]
+        vna_fim = fim_row["vna"]
+        venc = ini_row["vencimento"]
+        qtd = linha.quantidade_mil_ini
+
+        pu_base = precificacao.pu(cal, titulo, linha.data_fim, venc, taxa_ini, vna_ini)
+        pu_indice = precificacao.pu(cal, titulo, linha.data_fim, venc, taxa_ini, vna_fim)
+        resultado_indice = (pu_indice - pu_base) * qtd / 1000
+        resultado_taxa = resultado_total - resultado_indice
+        linhas.append((linha.data_ini, linha.data_fim, linha.isin, titulo,
+                       qtd, resultado_total, resultado_indice, resultado_taxa))
+
+    return pd.DataFrame(linhas, columns=_COLUNAS_RESULTADO_DECOMPOSTO)
+
+
+def _nota_cobertura_resultado(cal, data_fim):
+    """Nota de cobertura para os totais da Conta A -- achado da revisao
+    da Tarefa 8: nenhum total do modulo nomeava a cobertura, ao contrario
+    de pontual(). resultado_mensal() (dinheiro, inclui LFT) cobre quase
+    todo o estoque; variacao_de_dv() (risco de taxa, sem LFT) cobre bem
+    menos -- as duas nao sao a mesma base, e somar/comparar os totais
+    direto sem saber disso engana.
+    """
+    c = _cobertura(cal, data_fim)
+    if c is None:
+        return (f"cobertura em {data_fim:%d/%m/%Y}: nao foi possivel "
+                f"calcular (sem estoque total medido nesta data).")
+    cobertura_dinheiro = c["cobertos_pct"] + c["lft_pct"]
+    return (
+        f"cobertura do estoque em {data_fim:%d/%m/%Y}: resultado_mensal "
+        f"(dinheiro, inclui LFT) cobre {_num_br(cobertura_dinheiro, 1)}%; "
+        f"variacao_de_dv (risco de taxa, sem LFT) cobre "
+        f"{_num_br(c['cobertos_pct'], 1)}%. Bases diferentes -- nao "
+        f"compare os dois totais como se fossem a mesma fatia do estoque."
+    )
+
+
 def gravar_resultado():
     """Grava resultado_mensal.csv em data/processed/.
 
     Mesmo padrao de gravar_painel/gravar_decay: conteudo gerado localmente
     a partir de data/processed/ ja validado, entao df.to_csv direto, sem
     gravar_atomico (essa protege download bruto de rede, nao e o caso
-    aqui). variacao_de_dv nao tem gravar_* -- e agregacao calculada na
-    hora, o projeto nao persiste derivado.
+    aqui). variacao_de_dv e resultado_decomposto nao tem gravar_* -- sao
+    agregacao/analise calculadas na hora, o projeto nao persiste derivado.
+
+    Imprime a cobertura do ultimo mes do arquivo, para quem le a saida do
+    comando (nao o CSV em si, que fica sem rodape) nao presumir que o
+    numero cobre 100% do estoque.
     """
     config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     df = resultado_mensal()
     saida = config.PROCESSED_DIR / "resultado_mensal.csv"
     df.to_csv(saida, index=False, encoding="utf-8")
     print(f"gravado: {saida} ({len(df)} linhas)")
+    if df.empty:
+        # Painel com menos de dois meses (ex.: teste sintetico de um mes
+        # so): nao ha periodo para calcular cobertura de nada.
+        print("sem periodo no painel para calcular cobertura (menos de "
+              "dois meses).")
+    else:
+        cal = calendario.padrao()
+        print(_nota_cobertura_resultado(cal, df["data_fim"].max()))
 
 
 def main(argumentos=None):
@@ -618,19 +752,24 @@ def main(argumentos=None):
     )
     analisador.add_argument(
         "--gravar", action="store_true",
-        help="regrava dv_por_papel.csv e decay_por_papel.csv em "
-             "data/processed/ e sai, sem calcular o pontual",
+        help="regrava dv_por_papel.csv, decay_por_papel.csv e "
+             "resultado_mensal.csv em data/processed/ e sai, sem "
+             "calcular o pontual",
     )
     opcoes = analisador.parse_args(argumentos)
 
     if opcoes.gravar:
-        # Unica forma de linha de comando de regerar os dois CSVs -- antes
-        # desta tarefa era 'python -m tesouro.dv' sem argumento nenhum.
-        # A ligacao com o pipeline geral fica para a Tarefa 10; aqui so
+        # Unica forma de linha de comando de regerar os tres CSVs -- antes
+        # da Tarefa 5 era 'python -m tesouro.dv' sem argumento nenhum. A
+        # ligacao com o pipeline geral fica para a Tarefa 10; aqui so
         # devolvemos a capacidade que o proprio __main__ tinha antes de
-        # virar o comando pontual.
+        # virar o comando pontual. resultado_mensal.csv entrou na Tarefa
+        # 8, mas so foi ligado aqui na revisao -- achado I6: sem isso, o
+        # CSV gravado por gravar_resultado() ficaria parado enquanto os
+        # outros dois envelheciam junto, em silencio.
         gravar_painel()
         gravar_decay()
+        gravar_resultado()
         return
 
     def ler_data(valor, nome_opcao):
