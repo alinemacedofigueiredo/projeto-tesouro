@@ -471,6 +471,120 @@ def _formatar(r):
     return "\n".join(linhas)
 
 
+# ---------------------------------------------------------------------------
+# Resultado mensal: Conta A da spec -- dinheiro de verdade, com taxa e VNA
+# se movendo entre as duas datas. Duas metades, com base de posicao
+# DIFERENTE de proposito, porque respondem perguntas diferentes:
+#
+#   resultado_mensal(): quanto dinheiro quem estava posicionado no comeco
+#   do mes ganhou ou perdeu ate o fim. A posicao e a de data_ini, CONGELADA
+#   -- papel emitido no dia 20 nao deu lucro nem prejuizo a quem carregava
+#   desde o dia 1o. Reprecificar sobre o estoque final atribuiria a esse
+#   investidor um ganho que ele nao teve.
+#
+#   variacao_de_dv(): quanto risco o mercado passou a carregar. Aqui a base
+#   E o estoque real de cada data -- emissao e resgate fazem parte da
+#   resposta, entao a posicao NAO e congelada. E o oposto de proposito da
+#   outra metade.
+#
+# A LFT entra em resultado_mensal (tem PU real, logo tem dinheiro real
+# ganho ou perdido, mesmo sem duration de juros -- ver docs/convencoes-
+# dv.md), mas nao em variacao_de_dv: dv_unitario dela e None por decisao
+# de modelagem (precificacao.dv), entao dv_posicao_milhoes.notna() ja a
+# exclui sozinho, e faz sentido excluir -- essa funcao mede risco de taxa,
+# que a LFT nao tem por construcao.
+# ---------------------------------------------------------------------------
+
+_COLUNAS_RESULTADO = [
+    "data_ini", "data_fim", "isin", "titulo", "venceu_no_periodo",
+    "quantidade_mil_ini", "pu_ini", "pu_fim", "resultado_milhoes",
+]
+
+
+def resultado_mensal():
+    """Conta A: resultado em dinheiro sobre a posicao congelada.
+
+    A posicao e a do inicio do periodo, reprecificada com o PU do fim: o
+    papel emitido no dia 20 nao deu lucro nem prejuizo a quem estava
+    posicionado no dia 1o.
+
+    Inclui a LFT: ela nao tem DV (dv_unitario e None por construcao), mas
+    tem PU real -- o resultado em dinheiro dela existe e e quase metade
+    do estoque, entao excluir a LFT daqui esconderia a maior parte do
+    financeiro da divida. LFT nao entra em variacao_de_dv, que mede risco
+    de taxa, nao dinheiro.
+
+    Papel que vence dentro do periodo fica marcado e com pu_fim vazio. Nao
+    sabemos a que preco o dinheiro foi reinvestido, e arbitrar uma hipotese
+    de reinvestimento aqui embutiria decisao de analise na camada de dados.
+    """
+    cal = calendario.padrao()
+    p = painel()
+
+    datas = sorted(p["data"].unique())
+    por_data = {d: g.set_index("isin") for d, g in p.groupby("data")}
+
+    linhas = []
+    for ini, fim in zip(datas, datas[1:]):
+        antes, depois = por_data[ini], por_data[fim]
+        for isin, r in antes.iterrows():
+            venceu = cal.ajustar_vencimento(r["vencimento"]) <= fim
+            pu_fim = None
+            if not venceu and isin in depois.index:
+                pu_fim = depois.loc[isin, "pu"]
+                if pd.isna(pu_fim):
+                    pu_fim = None
+            resultado = None
+            if pu_fim is not None and not pd.isna(r["pu"]):
+                resultado = (pu_fim - r["pu"]) * r["quantidade_mil"] / 1000
+            linhas.append((ini, fim, isin, r["titulo"], venceu,
+                           r["quantidade_mil"], r["pu"], pu_fim, resultado))
+
+    return pd.DataFrame(linhas, columns=_COLUNAS_RESULTADO).sort_values(
+        ["data_fim", "titulo", "isin"]
+    ).reset_index(drop=True)
+
+
+def variacao_de_dv():
+    """Conta A, outra metade: variacao do DV sobre o estoque REAL.
+
+    Diferente do resultado, aqui a posicao nao e congelada -- emissao e
+    resgate fazem parte da resposta a pergunta "quanto risco o mercado
+    passou a carregar".
+
+    A LFT fica de fora sozinha: dv_posicao_milhoes dela e sempre None
+    (dv_unitario e None por decisao de modelagem), entao o filtro notna()
+    ja a remove -- coerente com esta funcao medir risco de taxa, que a
+    LFT nao tem por construcao.
+
+    Nao vira tabela: e agregacao simples do painel, e o projeto nao
+    persiste derivado.
+    """
+    p = painel()
+    p = p[p["dv_posicao_milhoes"].notna()]
+    por = (p.groupby(["data", "titulo"])["dv_posicao_milhoes"].sum()
+             .reset_index().rename(columns={"dv_posicao_milhoes": "dv_milhoes"}))
+    por = por.sort_values(["titulo", "data"])
+    por["variacao_milhoes"] = por.groupby("titulo")["dv_milhoes"].diff()
+    return por.reset_index(drop=True)
+
+
+def gravar_resultado():
+    """Grava resultado_mensal.csv em data/processed/.
+
+    Mesmo padrao de gravar_painel/gravar_decay: conteudo gerado localmente
+    a partir de data/processed/ ja validado, entao df.to_csv direto, sem
+    gravar_atomico (essa protege download bruto de rede, nao e o caso
+    aqui). variacao_de_dv nao tem gravar_* -- e agregacao calculada na
+    hora, o projeto nao persiste derivado.
+    """
+    config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    df = resultado_mensal()
+    saida = config.PROCESSED_DIR / "resultado_mensal.csv"
+    df.to_csv(saida, index=False, encoding="utf-8")
+    print(f"gravado: {saida} ({len(df)} linhas)")
+
+
 def main(argumentos=None):
     import argparse
     import sys
