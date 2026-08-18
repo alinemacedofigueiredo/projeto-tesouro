@@ -63,12 +63,11 @@ def _pasta():
     return p
 
 
-def _nota_cobertura(cal, data):
-    """Cobertura de verdade NA data pedida, via dv._cobertura -- nunca uma
-    constante fixa (ver comentario acima de dv._cobertura: 46,6% e o
-    numero de 30/06/2026, mas a cobertura muda mes a mes; em 2020-12-31
-    ela chega a 60,4%, catorze pontos acima)."""
-    cobertura = dv._cobertura(cal, data)
+def _texto_cobertura(cobertura, data):
+    """Formata a nota de cobertura a partir de um dict ja calculado (pelo
+    formato de dv._cobertura). Separada de _nota_cobertura para quem ja
+    tem o dict pronto -- como grafico_pontual, que reusa resumo['cobertura']
+    de dv.pontual() em vez de recalcular a mesma coisa duas vezes."""
     if cobertura is None:
         return (
             f"cobertura do DV01 em {data:%d/%m/%Y}: nao foi possivel "
@@ -81,6 +80,14 @@ def _nota_cobertura(cal, data):
         f"juros por construcao, e {dv._num_br(cobertura['excluidos_pct'], 1)}% "
         f"fica fora por nao ter preco no secundario."
     )
+
+
+def _nota_cobertura(cal, data):
+    """Cobertura de verdade NA data pedida, via dv._cobertura -- nunca uma
+    constante fixa (ver comentario acima de dv._cobertura: 46,6% e o
+    numero de 30/06/2026, mas a cobertura muda mes a mes; em 2020-12-31
+    ela chega a 60,4%, catorze pontos acima)."""
+    return _texto_cobertura(dv._cobertura(cal, data), data)
 
 
 def _serie_por_titulo(p=None):
@@ -153,7 +160,6 @@ def _figura_pontual(resumo):
     """Monta a figura da decomposicao pontual e devolve (fig, eixo,
     rotulos, valores) -- mesma razao de _figura_do_sistema: testar contra
     os artistas, nao contra o PNG."""
-    cal = calendario.padrao()
     rotulos = ["DV na base", "vence", "decay", "DV no alvo"]
     valores = [resumo["dv_base"], resumo["dv_que_vence"],
                resumo["decay_sobreviventes"], resumo["dv_alvo"]]
@@ -174,9 +180,10 @@ def _figura_pontual(resumo):
     )
     eixo.set_ylabel("DV01 (R$ milhoes por bp)")
     eixo.grid(axis="y", alpha=0.25)
+    texto_cobertura = _texto_cobertura(resumo["cobertura"], resumo["data_base"])
     fig.text(
         0.01, 0.01,
-        f"{_nota_cobertura(cal, resumo['data_base'])} {_NOTA_SINAL}",
+        f"{texto_cobertura} {_NOTA_SINAL}",
         fontsize=7, color="#555555", wrap=True,
     )
     fig.tight_layout(rect=(0, 0.14, 1, 1))
