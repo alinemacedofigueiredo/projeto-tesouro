@@ -41,10 +41,37 @@ def main(argumentos=None):
         else:
             print("sem --ano/--mes: usando o RMD ja presente em data/raw/rmd/")
 
+        # A coleta da Bloomberg nao derruba o pipeline quando o terminal
+        # (Bloomberg Terminal/API local) nao esta disponivel: ela avisa e
+        # segue com o que ja estiver em disco. Mesmo principio de
+        # --sem-coleta, aplicado a uma fonte que pode faltar mesmo com rede
+        # -- o terminal so existe na maquina da mesa, nao em toda maquina
+        # com internet.
+        from . import fetch_bloomberg
+        try:
+            fetch_bloomberg.baixar()
+        except Exception as erro:               # noqa: BLE001
+            print(f"coleta da Bloomberg pulada: {erro}")
+
     print("\n--- leiloes ---")
     parse_leiloes.gravar()
     print("\n--- rmd ---")
     parse_rmd.gravar_tudo()
+
+    print("\n--- bloomberg ---")
+    from . import parse_bloomberg
+    parse_bloomberg.gravar()
+
+    print("\n--- dv01 e decay ---")
+    from . import dv as _dv
+    _dv.gravar_painel()
+    _dv.gravar_decay()
+    _dv.gravar_resultado()
+
+    print("\n--- figuras ---")
+    from . import figuras
+    figuras.gravar_todas()
+
     print("\nconcluido.")
 
 
