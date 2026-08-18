@@ -233,18 +233,48 @@ def gravar_decay():
 # ninguem sabe se ainda vale (ver docs/convencoes-dv.md e o brief da Tarefa
 # 7). O comando de linha (main, abaixo) imprime na tela e para por ai.
 #
-# Cobertura do DV01 sobre o estoque (junho de 2026, docs/convencoes-dv.md):
-# LTN 14,4% + NTN-F 7,5% + NTN-B 24,7% = 46,6% coberto. Dos outros 53,4%,
-# 51,3% e LFT (sem duration de juros por construcao, nao por lacuna de
-# dado) e 2,1% sao papeis excluidos por nao terem preco observavel no
-# secundario. Esse numero tem que acompanhar todo total impresso, senao
-# quem le supoe que o DV mede a divida inteira.
+# Cobertura do DV01 sobre o estoque: NAO e uma constante fixa. 46,6% (LTN
+# 14,4% + NTN-F 7,5% + NTN-B 24,7%) e o numero de junho de 2026 em
+# docs/convencoes-dv.md, mas a composicao da divida muda mes a mes -- em
+# 2020-12-31 a cobertura medida e 60,4%, quatorze pontos acima. Por isso
+# _cobertura calcula o numero de verdade NA data_base pedida, a partir do
+# financeiro_milhoes bruto de estoque_titulos_vencimento.csv (que cobre
+# todo titulo, inclusive LFT e os excluidos, ao contrario do painel de
+# DV que so tem LTN/NTN-F/NTN-B/LFT). Sem isso, um total impresso para
+# uma data antiga vinha rotulado com a cobertura errada -- achado da
+# revisao da Tarefa 7.
 # ---------------------------------------------------------------------------
 
-_COBERTURA_DV01_PCT = 46.6
-_COBERTURA_POR_TITULO_PCT = {"LTN": 14.4, "NTN-F": 7.5, "NTN-B": 24.7}
-_COBERTURA_LFT_PCT = 51.3
-_COBERTURA_EXCLUIDOS_PCT = 2.1
+_TITULOS_LFT = ("LFT", "LFT-TD1 Reserva")
+
+
+def _cobertura(cal, data_base):
+    """Cobertura real do DV01 sobre o estoque, calculada NA data_base.
+
+    Devolve None se nao houver estoque total medido nessa data (sem
+    financeiro em nenhum titulo) -- quem chama decide o que fazer.
+    """
+    e = _ler("estoque_titulos_vencimento", parse_dates=["data"])
+    e = e[e["quantidade_mil"].fillna(0) > 0].copy()
+    e["data"] = e["data"].dt.date.map(cal.ultimo_dia_util_do_mes)
+    grupo = e[e["data"] == data_base]
+
+    total = grupo["financeiro_milhoes"].sum()
+    if total == 0:
+        return None
+
+    por_titulo_pct = {
+        t: 100 * grupo[grupo["titulo"] == t]["financeiro_milhoes"].sum() / total
+        for t in TITULOS if t != "LFT"          # LTN, NTN-F, NTN-B, nessa ordem
+    }
+    lft_pct = 100 * grupo[grupo["titulo"].isin(_TITULOS_LFT)]["financeiro_milhoes"].sum() / total
+    cobertos_pct = sum(por_titulo_pct.values())
+    return {
+        "por_titulo_pct": por_titulo_pct,
+        "cobertos_pct": cobertos_pct,
+        "lft_pct": lft_pct,
+        "excluidos_pct": 100 - cobertos_pct - lft_pct,
+    }
 
 
 def _daqui_um_ano(d):
@@ -266,10 +296,14 @@ def _validar_no_calendario(cal, d, nome):
         # de Calendario._verificar_janela aparece no traceback junto com
         # esta mensagem (via "During handling of the above exception..."),
         # exatamente o que o brief da Tarefa 7 pede para evitar.
+        # cal._inicio/_fim, nao um literal "2001 a 2099": a janela vem do
+        # arquivo de feriados carregado (ver Calendario no modulo
+        # calendario), entao se o arquivo mudar a mensagem continua certa
+        # em vez de mentir com um numero fixo desatualizado.
         raise ValueError(
             f"a {nome} ({d:%d/%m/%Y}) esta fora do calendario de dias "
-            f"uteis, que cobre 01/01/2001 a 31/12/2099. Escolha uma "
-            f"{nome} dentro desse intervalo."
+            f"uteis, que cobre {cal._inicio:%d/%m/%Y} a {cal._fim:%d/%m/%Y}. "
+            f"Escolha uma {nome} dentro desse intervalo."
         ) from None
 
 
@@ -330,15 +364,27 @@ def pontual(data_alvo=None, data_base=None):
         "dv_que_vence": -vence["dv_base"].sum(),
         "decay_sobreviventes": vive["decay"].sum(),
         "dv_alvo": df["dv_alvo"].sum(),
+        "por_titulo": _por_titulo(df),
+        "cobertura": _cobertura(cal, data_base),
     }
-    resumo["por_titulo"] = (
+    return resumo
+
+
+def _por_titulo(df):
+    """Agrega dv_base, dv_alvo, contagem de papeis e de vencimentos por
+    titulo. Extraida de pontual() para poder ser testada com um DataFrame
+    sintetico pequeno -- ver test_por_titulo_agrega_as_quatro_colunas_
+    corretamente, que usa ISIN duplicado de proposito porque no dado real
+    cada ISIN aparece uma unica vez por (titulo, data) e por isso
+    "nunique" e "count" dao o mesmo numero, escondendo essa mutacao.
+    """
+    return (
         df.groupby("titulo")
           .agg(dv_base=("dv_base", "sum"), dv_alvo=("dv_alvo", "sum"),
                papeis=("isin", "nunique"),
                vencendo=("venceu_no_caminho", "sum"))
           .reset_index()
     )
-    return resumo
 
 
 def _num_br(x, casas=2, forcar_sinal=False):
@@ -363,41 +409,84 @@ def _formatar(r):
         "vencendo": "vencendo_no_caminho",
     })
 
-    cobertura_titulos = " + ".join(
-        f"{t} {_num_br(pct, 1)}%" for t, pct in _COBERTURA_POR_TITULO_PCT.items()
-    )
+    # Linhas rotulo/valor com largura de rotulo calculada, nao espacos
+    # contados a mao -- um quadro com rotulos de tamanhos diferentes
+    # ("DV na data-base" vs "(-) decay dos sobreviventes") desalinhava a
+    # virgula decimal entre as quatro linhas quando o espaco era fixo
+    # (achado da revisao da Tarefa 7).
+    itens = [
+        ("DV na data-base", r["dv_base"], False),
+        ("(-) DV que vence no caminho", r["dv_que_vence"], True),
+        ("(-) decay dos sobreviventes", r["decay_sobreviventes"], True),
+        ("DV na data-alvo", r["dv_alvo"], False),
+    ]
+    largura_rotulo = max(len(rotulo) for rotulo, _, _ in itens)
+    quadro = [
+        f"  {rotulo:<{largura_rotulo}}  {_num_br(valor, forcar_sinal=sinal):>14}"
+        for rotulo, valor, sinal in itens
+    ]
 
     linhas = [
         f"posicao em {r['data_base']:%d/%m/%Y}, projetada para "
         f"{r['data_alvo']:%d/%m/%Y}",
         "",
-        f"  DV na data-base                 {_num_br(r['dv_base']):>14}",
-        f"  (-) DV que vence no caminho      {_num_br(r['dv_que_vence'], forcar_sinal=True):>14}",
-        f"  (-) decay dos sobreviventes      {_num_br(r['decay_sobreviventes'], forcar_sinal=True):>14}",
-        f"  DV na data-alvo                  {_num_br(r['dv_alvo']):>14}",
+        *quadro,
         "",
         "valores em R$ milhoes por bp; negativo = mercado perde na alta de "
         "taxa. 'DV que vence' e 'decay' aparecem com sinal positivo porque "
         "somam ao DV base, que e negativo -- o efeito de ambos e deixar o "
         "DV menos negativo.",
         "",
-        f"cobertura do DV01: {_num_br(_COBERTURA_DV01_PCT, 1)}% do estoque "
-        f"({cobertura_titulos})",
-        f"fora do DV01: LFT {_num_br(_COBERTURA_LFT_PCT, 1)}% (sem duration "
-        f"de juros por construcao) + {_num_br(_COBERTURA_EXCLUIDOS_PCT, 1)}% "
-        f"excluidos sem preco no secundario",
+    ]
+
+    cobertura = r["cobertura"]
+    if cobertura is None:
+        linhas.append(
+            "cobertura do DV01: nao foi possivel calcular para esta "
+            "data-base (sem estoque total medido nela)."
+        )
+    else:
+        cobertura_titulos = " + ".join(
+            f"{t} {_num_br(pct, 1)}%"
+            for t, pct in cobertura["por_titulo_pct"].items()
+        )
+        linhas += [
+            f"cobertura do DV01 em {r['data_base']:%d/%m/%Y}: "
+            f"{_num_br(cobertura['cobertos_pct'], 1)}% do estoque "
+            f"({cobertura_titulos})",
+            f"fora do DV01: LFT {_num_br(cobertura['lft_pct'], 1)}% (sem "
+            f"duration de juros por construcao) + "
+            f"{_num_br(cobertura['excluidos_pct'], 1)}% excluidos sem "
+            f"preco no secundario",
+        ]
+
+    linhas += [
         "",
         tabela.to_string(index=False),
+        "",
+        "'papeis' conta todo ISIN do titulo presente no painel nesta "
+        "data-base, inclusive os sem taxa/DV medido -- pode ser maior do "
+        "que o numero de papeis que de fato compoe dv_base_milhoes.",
     ]
     return "\n".join(linhas)
 
 
 def main(argumentos=None):
     import argparse
+    import sys
     from datetime import datetime
 
     analisador = argparse.ArgumentParser(
-        description="Decay do DV01 ate uma data-alvo. Requer PYTHONPATH=src."
+        description=(
+            "Decay do DV01 ate uma data-alvo.\n\n"
+            "Exemplos de uso (o modulo nao se instala; sempre com "
+            "PYTHONPATH apontando para src/):\n\n"
+            "  PowerShell:\n"
+            "    $env:PYTHONPATH=\"src\"; python -m tesouro.dv --alvo 31/12/2026\n\n"
+            "  bash:\n"
+            "    PYTHONPATH=src python -m tesouro.dv --alvo 31/12/2026"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     analisador.add_argument(
         "--alvo", default=None,
@@ -413,7 +502,22 @@ def main(argumentos=None):
         "--figura", default=None,
         help="caminho para gravar o grafico (opcional; ver Tarefa 9)",
     )
+    analisador.add_argument(
+        "--gravar", action="store_true",
+        help="regrava dv_por_papel.csv e decay_por_papel.csv em "
+             "data/processed/ e sai, sem calcular o pontual",
+    )
     opcoes = analisador.parse_args(argumentos)
+
+    if opcoes.gravar:
+        # Unica forma de linha de comando de regerar os dois CSVs -- antes
+        # desta tarefa era 'python -m tesouro.dv' sem argumento nenhum.
+        # A ligacao com o pipeline geral fica para a Tarefa 10; aqui so
+        # devolvemos a capacidade que o proprio __main__ tinha antes de
+        # virar o comando pontual.
+        gravar_painel()
+        gravar_decay()
+        return
 
     def ler_data(valor, nome_opcao):
         try:
@@ -447,11 +551,18 @@ def main(argumentos=None):
         try:
             from . import figuras
         except ImportError:
-            raise SystemExit(
-                f"--figura ainda nao esta disponivel (modulo tesouro."
-                f"figuras nao existe nesta versao); o quadro acima ja foi "
-                f"impresso normalmente."
+            # Nao e um erro do calculo -- o quadro acima ja saiu certo e
+            # completo. Sai com codigo 0: um script que so olha o
+            # resultado do calculo pontual nao deve falhar por causa de
+            # um recurso opcional, ainda nao implementado (Tarefa 9),
+            # sinalizado claramente no stderr.
+            print(
+                "\n--figura ainda nao esta disponivel (modulo "
+                "tesouro.figuras nao existe nesta versao); o quadro "
+                "acima ja foi impresso normalmente.",
+                file=sys.stderr,
             )
+            return
         figuras.grafico_pontual(r, opcoes.figura)
         print(f"\nfigura: {opcoes.figura}")
 

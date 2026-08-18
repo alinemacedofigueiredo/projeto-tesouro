@@ -2,7 +2,7 @@ from datetime import date
 
 import pandas as pd
 import pytest
-from tesouro import calendario, dv, precificacao
+from tesouro import calendario, config, dv, precificacao
 
 CAL = calendario.padrao()
 
@@ -353,6 +353,10 @@ def test_pontual_em_data_muito_distante_zera_tudo():
     # Depois de 2060 nao sobra papel vivo.
     r = dv.pontual(date(2070, 1, 2))
     assert abs(r["dv_alvo"]) < 1e-6
+    # Minor da revisao: sem checar dv_base, um DataFrame vazio (por
+    # exemplo se o filtro de titulo quebrasse e nao sobrasse linha
+    # nenhuma) tambem daria sum() == 0.0 e passaria vacuamente.
+    assert r["dv_base"] < 0
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +403,7 @@ def test_pontual_com_alvo_marca_alvo_padrao_como_falso():
 def test_formatar_pontual_menciona_cobertura_do_dv01():
     r = dv.pontual(date(2027, 12, 31))
     texto = dv._formatar(r)
-    assert "46,6%" in texto
+    assert "cobertura do DV01" in texto
     assert "LFT" in texto
 
 
@@ -411,3 +415,144 @@ def test_formatar_pontual_usa_virgula_decimal():
     assert dv._num_br(1234.5) == "1.234,50"
     assert dv._num_br(-1234.5) == "-1.234,50"
     assert dv._num_br(45.2, forcar_sinal=True) == "+45,20"
+
+
+# ---------------------------------------------------------------------------
+# Achados da revisao da Tarefa 7. Cada teste abaixo corresponde a um item
+# do relatorio de revisao (numerado no comentario) e falha sem a correcao
+# correspondente -- confirmado a mao revertendo cada correcao uma de cada
+# vez antes de escrever o teste definitivo.
+# ---------------------------------------------------------------------------
+
+def test_cobertura_do_dv01_nao_e_constante_muda_com_a_data_base():
+    # Item 2 (Important): a cobertura impressa era uma constante de junho
+    # de 2026 (46,6%), afirmada para QUALQUER --base. O revisor mediu a
+    # cobertura real por data e achou 60,4% em 2020-12-31, 14 pontos
+    # acima. Os numeros abaixo foram calculados uma vez, a mao, com um
+    # script separado sobre estoque_titulos_vencimento.csv (financeiro
+    # bruto, nao o financeiro_calculado_milhoes do painel) -- nao vem de
+    # dv._cobertura, que e a propria funcao sob teste.
+    esperado = {
+        date(2026, 6, 30): {"cobertos": 46.5, "lft": 51.3},
+        date(2020, 12, 31): {"cobertos": 60.4, "lft": 36.8},
+    }
+    for data_base, valores in esperado.items():
+        c = dv._cobertura(CAL, data_base)
+        assert c is not None
+        assert c["cobertos_pct"] == pytest.approx(valores["cobertos"], abs=0.15)
+        assert c["lft_pct"] == pytest.approx(valores["lft"], abs=0.15)
+        # cobertos + lft + excluidos fecha em 100%, por construcao.
+        assert c["cobertos_pct"] + c["lft_pct"] + c["excluidos_pct"] == pytest.approx(100.0, abs=1e-6)
+
+    # As duas datas tem que dar numeros DIFERENTES -- e a trava real
+    # contra a regressao para uma constante fixa, o bug que a revisao
+    # encontrou.
+    c1 = dv._cobertura(CAL, date(2026, 6, 30))
+    c2 = dv._cobertura(CAL, date(2020, 12, 31))
+    assert abs(c1["cobertos_pct"] - c2["cobertos_pct"]) > 5
+
+
+def test_quadro_impresso_usa_a_cobertura_da_propria_data_base():
+    # Complementa o teste acima checando o texto que a usuaria le de
+    # verdade: --base 31/12/2020 tem que imprimir 60,x%, nao 46,6%.
+    r = dv.pontual(date(2027, 12, 31), data_base=date(2020, 12, 31))
+    texto = dv._formatar(r)
+    assert "60,4%" in texto
+    assert "46,6%" not in texto
+
+
+def test_por_titulo_agrega_as_quatro_colunas_corretamente():
+    # Item 4 (Important): o revisor mutou a agregacao de por_titulo (troca
+    # de coluna, soma por maximo, nunique por count, soma por minimo) e a
+    # suite inteira continuou passando, porque so dv_base tinha ancora.
+    # No dado real cada ISIN aparece uma unica vez por (titulo, data),
+    # entao "nunique" e "count" dao o mesmo resultado ali -- por isso este
+    # teste usa um DataFrame sintetico com ISIN "A" duplicado de
+    # proposito, testando _por_titulo isolada (extraida de pontual()).
+    df = pd.DataFrame({
+        "titulo": ["LTN", "LTN", "LTN", "NTN-F"],
+        "isin": ["A", "A", "B", "C"],
+        "dv_base": [-1.0, -1.0, -2.0, -5.0],
+        "dv_alvo": [-0.4, -0.4, -1.5, -4.0],
+        "venceu_no_caminho": [False, False, True, False],
+    })
+    r = dv._por_titulo(df).set_index("titulo")
+
+    assert r.loc["LTN", "dv_base"] == pytest.approx(-4.0)     # soma das 3 linhas
+    assert r.loc["LTN", "dv_alvo"] == pytest.approx(-2.3)     # soma, nao max (-0.4)
+    assert r.loc["LTN", "papeis"] == 2                        # isin unico (A, B), nao 3 linhas
+    assert r.loc["LTN", "vencendo"] == 1                      # soma de bool, nao min (0)
+
+    assert r.loc["NTN-F", "dv_base"] == pytest.approx(-5.0)
+    assert r.loc["NTN-F", "dv_alvo"] == pytest.approx(-4.0)
+    assert r.loc["NTN-F", "papeis"] == 1
+    assert r.loc["NTN-F", "vencendo"] == 0
+
+
+def test_formatar_pontual_imprime_as_quatro_linhas_da_decomposicao():
+    # Item 4 (Important), continuacao: apagar a linha "DV na data-alvo" de
+    # _formatar tambem deixava a suite inteira passar.
+    r = dv.pontual(date(2027, 12, 31))
+    texto = dv._formatar(r)
+    assert "DV na data-base" in texto
+    assert "DV que vence no caminho" in texto
+    assert "decay dos sobreviventes" in texto
+    assert "DV na data-alvo" in texto
+
+
+def test_pontual_nao_vaza_o_valueerror_cru_do_calendario():
+    # Item 5 (Important): a mensagem certa nao basta -- sem "from None" em
+    # _validar_no_calendario, o ValueError cru de
+    # Calendario._verificar_janela continua anexado como __context__ e
+    # reaparece no traceback ("During handling of the above exception...")
+    # sempre que pontual() e chamada fora de um try/except, mesmo com a
+    # mensagem final correta. match=... (usado nos testes de mensagem
+    # acima) passa nos dois casos, entao nao serve pra travar isso -- e
+    # __context__ tambem NAO serve (Python o preenche de qualquer forma,
+    # "from None" so muda __suppress_context__, conferido a mao no
+    # interpretador antes de escrever este teste). A assercao certa e
+    # sobre __suppress_context__, que e o que o formatador de traceback do
+    # Python de fato consulta para decidir se imprime a cadeia.
+    with pytest.raises(ValueError) as excinfo:
+        dv.pontual(date(2100, 1, 1))
+    assert excinfo.value.__context__ is not None       # o calendario levantou algo
+    assert excinfo.value.__suppress_context__ is True   # mas a cadeia fica escondida
+
+
+def test_formatar_pontual_explica_por_que_vence_e_decay_sao_positivos():
+    # Minor: o rodape que evita a leitura errada "(-) numero positivo =
+    # subtraia isto" tambem podia ser apagado sem derrubar nenhum teste.
+    r = dv.pontual(date(2027, 12, 31))
+    texto = dv._formatar(r)
+    assert "sinal positivo" in texto
+
+
+def test_gravar_regrava_os_dois_csvs_de_producao(tmp_path, monkeypatch):
+    # Item 3 (Important): __main__ trocou gravar_painel() por main(), e o
+    # pipeline nao gera dv_por_papel.csv/decay_por_papel.csv em lugar
+    # nenhum -- "python -m tesouro.dv" era a UNICA forma de regerar os
+    # dois. --gravar devolve essa capacidade sem reintroduzir o
+    # comportamento antigo como padrao.
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+    d0 = CAL.ultimo_dia_util_do_mes(date(2026, 5, 31))
+    venc = date(2028, 1, 1)
+    pd.DataFrame(
+        [(str(d0), "Prefixados", "LTN", str(venc), "ISINTESTE1", 10.0)],
+        columns=["data", "indexador", "titulo", "vencimento", "isin", "quantidade_mil"],
+    ).to_csv(tmp_path / "estoque_titulos_vencimento.csv", index=False)
+    pd.DataFrame(
+        [(str(d0), "ISINTESTE1", "LTN", str(venc), 12.0)],
+        columns=["data", "isin", "titulo", "vencimento", "taxa_pct"],
+    ).to_csv(tmp_path / "taxa_por_papel.csv", index=False)
+    pd.DataFrame(
+        [(str(d0), "SELIC", 15000.0)],  # LTN nao usa; so evita CSV vazio
+        columns=["data", "indice", "vna"],
+    ).to_csv(tmp_path / "vna.csv", index=False)
+
+    dv.main(["--gravar"])
+
+    assert (tmp_path / "dv_por_papel.csv").exists()
+    assert (tmp_path / "decay_por_papel.csv").exists()
+    painel_gravado = pd.read_csv(tmp_path / "dv_por_papel.csv")
+    assert len(painel_gravado) == 1
+    assert painel_gravado.iloc[0]["titulo"] == "LTN"
