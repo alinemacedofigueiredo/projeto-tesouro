@@ -20,11 +20,6 @@ import pandas as pd
 
 from . import config
 
-# O painel comeca em 2010 e ha NTN-B vencendo em 2060; o arquivo da
-# Anbima cobre 2001 a 2099. Indexamos a janela inteira, uma vez.
-_INICIO = date(2000, 1, 1)
-_FIM = date(2099, 12, 31)
-
 
 def carregar_feriados(caminho=None):
     """Le o arquivo da Anbima e devolve o conjunto de datas de feriado.
@@ -50,31 +45,51 @@ class Calendario:
     `du(a, b)` reproduz exatamente a contagem dia a dia: o numero de dias
     uteis no intervalo fechado [a, b], menos um. Com a e b uteis, e o
     numero de dias uteis decorridos entre eles.
+
+    A janela indexada nao e fixada no codigo: ela vem do proprio conjunto
+    de feriados recebido, do primeiro ao ultimo ano com feriado listado.
+    Fixar a janela a mao arriscaria cobrir anos em que o arquivo nao lista
+    feriado nenhum -- toda data nesses anos pareceria util, mesmo sendo
+    Natal ou Tiradentes, porque simplesmente nao ha dado ali. Fora da
+    janela derivada, os metodos levantam erro em vez de responder errado.
     """
 
     def __init__(self, feriados):
         self.feriados = set(feriados)
+        anos = {d.year for d in self.feriados}
+        if not anos:
+            raise ValueError(
+                "conjunto de feriados vazio; nao da para determinar a "
+                "janela do calendario"
+            )
+        self._inicio = date(min(anos), 1, 1)
+        self._fim = date(max(anos), 12, 31)
         self._idx = {}
         n = 0
-        d = _INICIO
+        d = self._inicio
         um_dia = timedelta(days=1)
-        while d <= _FIM:
+        while d <= self._fim:
             if d.weekday() < 5 and d not in self.feriados:
                 n += 1
-            self._idx[d] = n          # dias uteis em [_INICIO, d], inclusive
+            self._idx[d] = n          # dias uteis em [self._inicio, d], inclusive
             d += um_dia
 
+    def _verificar_janela(self, d):
+        if d < self._inicio or d > self._fim:
+            raise ValueError(
+                f"data {d} fora da janela do calendario carregado "
+                f"({self._inicio} a {self._fim}); a janela vem da cobertura "
+                f"do arquivo de feriados, entao fora dela nao ha garantia de "
+                f"que os feriados estejam completos"
+            )
+
     def eh_dia_util(self, d):
+        self._verificar_janela(d)
         return d.weekday() < 5 and d not in self.feriados
 
     def _acumulado(self, d):
-        try:
-            return self._idx[d]
-        except KeyError:
-            raise ValueError(
-                f"data {d} fora do calendario carregado "
-                f"({_INICIO} a {_FIM})"
-            ) from None
+        self._verificar_janela(d)
+        return self._idx[d]
 
     def du(self, a, b):
         if b < a:

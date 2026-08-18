@@ -95,3 +95,17 @@ def test_du_e_rapido(cal):
     for _ in range(20000):
         cal.du(a, b)
     assert time.perf_counter() - t0 < 1.0
+
+
+def test_data_anterior_ao_primeiro_ano_com_feriado_levanta_erro(cal):
+    # O arquivo da Anbima nao lista feriado nenhum de 2000; a janela
+    # indexada comeca no primeiro ano com feriado (2001), entao consultar
+    # 2000 tem de falhar alto em vez de tratar todo dia de semana como
+    # util por falta de dado.
+    with pytest.raises(ValueError):
+        cal.eh_dia_util(date(2000, 12, 25))
+
+
+def test_mover_alem_do_fim_da_janela_levanta_erro(cal):
+    with pytest.raises(ValueError):
+        cal.mover(date(2099, 12, 28), 5)
