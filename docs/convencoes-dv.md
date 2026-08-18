@@ -155,6 +155,23 @@ referência, não a dela.
 lados — nunca por data literal.** A Bloomberg devolve 29/05 onde o estoque do RMD
 traz 31/05; casar por data crua descarta um terço do painel em silêncio.
 
+**`BZAC2000 Index` é CDI acumulado, não Selic.** É um erro fácil de cometer
+porque os dois nomes soam parecidos e as séries ficam próximas por longos
+períodos; a diferença cresce com o tempo. O campo certo para o VNA da LFT é
+`ACCUMULATED_SELIC`, não `BZAC2000 Index`.
+
+**O nome do arquivo salvo em `data/raw/bloomberg/` precisa seguir o formato
+ISO (`AAAA-MM_AAAA-MM`), sem exceção.** `parse_bloomberg.py` lê todos os
+arquivos de um tipo (taxa, VNA) e concatena na ordem alfabética do nome,
+mantendo a última ocorrência de cada `(data, isin)`/`(data, índice)`
+repetido — que só é a coleta mais recente se o nome ordenar
+cronologicamente. Um arquivo nomeado fora do padrão (ex.: dia antes do ano)
+ordena antes ou depois do que deveria, e a coleta mais nova é descartada em
+favor da mais antiga, **sem erro nenhum**. É por isso que o leitor confere o
+nome de cada arquivo contra um padrão fixo antes de ler qualquer um deles, e
+por que a exportação manual por `BDH` (`docs/como-baixar.md`) precisa nomear
+o arquivo do mesmo jeito.
+
 ---
 
 ## Calendário de dias úteis
@@ -170,6 +187,22 @@ mas ele conta como dia útil para o cálculo — e é assim que fazemos.
 
 Quinta-feira santa é dia útil desde 2000, por resolução do Banco Central, e por isso
 não está na lista.
+
+**A data que a Bloomberg devolve nem sempre é dia útil pela Anbima.** No bruto
+da coleta (`bbg_taxas_*.csv`), 272 das 8.898 linhas trazem uma data de origem
+que a Anbima não considera dia útil, concentradas em 6 datas: véspera de
+Sexta-feira Santa (29/03/2013, 30/03/2018, 29/03/2024), de Carnaval
+(28/02/2017, 28/02/2022) e de Corpus Christi (31/05/2018). O calendário que a
+Bloomberg usa para fechar o mês não é o mesmo da Anbima nesses feriados
+móveis. É por isso que a normalização para o último dia útil é feita **dos
+dois lados** — Bloomberg e RMD — e não só do lado do RMD, que é onde a
+armadilha de "último dia corrido" já era conhecida.
+
+O custo de pular essa normalização é medido: juntando `taxa_por_papel.csv`
+com o estoque (`estoque_titulos_vencimento.csv`) pela data **literal**, sem
+mapear nenhum dos dois lados para o último dia útil, sobram 6.074 pares
+papel-mês dos 9.366 do painel — 64,9%, uma perda silenciosa de 35,1%. A
+junção correta (os dois lados normalizados) preserva 93,89% (8.794 pares).
 
 ---
 
@@ -188,13 +221,302 @@ terço do painel — erro pequeno em cada ponto, sistemático no conjunto, e inv
 
 | | Papéis | Fatia do estoque |
 |---|---|---|
-| **Com DV01 calculado** | LTN, NTN-F, NTN-B | **46,6%** |
+| **Com DV01 calculado** | LTN, NTN-F, NTN-B | **46,5%** |
 | Sem duration de juros | LFT (e LFT-TD1 Reserva) | 51,3% |
-| Fora por decisão | NTN-C, NTN-B Principal, RendA+, EducA+ | 2,1% |
+| Fora por decisão | NTN-C, NTN-B Principal, RendA+, EducA+ | 2,2% |
 
-Percentuais pelo estoque de junho de 2026. Os excluídos ficaram de fora por não
-terem preço observável no secundário.
+Percentuais pelo estoque de junho de 2026 (LTN 14,4% + NTN-F 7,5% + NTN-B
+24,7% — a soma das três parcelas arredondadas dá 46,6%, mas o total calculado
+com precisão total, sem arredondar cada parcela antes, é 46,5%; é o número
+preciso que conta). Os excluídos ficaram de fora por não terem preço
+observável no secundário.
 
-**O DV01 agregado cobre 46,6% do estoque.** Esse número precisa aparecer sempre que
+**O DV01 agregado cobre 46,5% do estoque.** Esse número precisa aparecer sempre que
 um total for reportado — caso contrário, alguém soma o DV01 da carteira e supõe que
 ele mede a dívida inteira.
+
+**A cobertura não é uma constante — ela é calculada NA data pedida**, porque a
+composição da dívida muda mês a mês: em 30/06/2026 é 46,5%, mas em 31/12/2020
+era 60,4% (catorze pontos acima, com mais LTN e menos NTN-B no estoque da
+época). `dv.pontual()` recalcula a cobertura a cada chamada em vez de usar uma
+constante fixa — um total antigo rotulado com a cobertura de hoje estaria
+errado.
+
+**Há uma segunda leitura de cobertura, com denominador diferente: pela nossa
+marcação a mercado, não pela base do RMD.** Os 46,5% acima usam
+`financeiro_milhoes` da aba 2.2 (a base "oficial" do Tesouro) tanto no
+numerador (LTN+NTN-F+NTN-B) quanto no denominador (estoque inteiro). Trocando
+o numerador pelo `financeiro_calculado_milhoes` da entrega 2 — nossa marcação
+a mercado, ver a seção seguinte — a cobertura em 30/06/2026 cai para **43,3%**.
+Os 3,3 pontos de diferença são o desconto entre a marcação na curva do RMD e
+a marcação a mercado desta entrega: o financeiro da 2.2 vale um pouco mais
+para NTN-F e NTN-B do que o PU calculado a partir da taxa observada. Isso
+**não** afeta o cálculo do DV01 em si (`dv_unitario × quantidade_mil` nunca lê
+`financeiro_milhoes`) — só muda qual dos dois denominadores uma fração de
+cobertura está citando. Sempre que citar "cobertura de X%", diga contra qual
+base.
+
+---
+
+## O financeiro da aba 2.2 é marcação na curva, não a mercado
+
+A spec da camada de dados
+(`docs/superpowers/specs/2026-08-14-camada-de-dados-design.md`, §8) deixou
+essa pergunta em aberto, com a suspeita de que fosse curva. Esta entrega
+responde, com evidência forte.
+
+**O teste:** comparar a taxa que reproduz `financeiro_milhoes / quantidade_mil`
+(aba 2.2) contra o PU calculado a partir da taxa de mercado real (Bloomberg,
+fonte `ANDE`). Se as duas baterem, o financeiro do Tesouro é marcação a
+mercado; se divergirem de forma sistemática, é marcação na curva.
+
+- **NTN-B 15/05/2050 (`BRSTNCNTB3D4`):** a taxa implícita no financeiro do
+  Tesouro fica **cravada entre 5,34% e 5,54% por doze anos**, enquanto a taxa
+  de mercado no mesmo período foi de **3,59% (2020) a 7,56% (2025)**. Uma
+  curva parada não se move com o mercado real.
+- **NTN-F 01/01/2031 (`BRSTNCNTF204`):** a taxa implícita **sobe
+  monotonicamente de 6,99% para 12,28%**, enquanto o mercado fez
+  **6,86% → 14,85% → 13,23%** no mesmo período — sobe, cai e sobe de novo. A
+  curva do RMD segue uma trajetória suave que o mercado real não seguiu.
+- **O controle que fecha o argumento é a LFT.** A LFT quase não carrega cupom
+  futuro para uma curva "chutar" — sobra pouco para divergir. E de fato: a
+  taxa (ágio) implícita no financeiro do Tesouro bate com o ágio de mercado
+  dentro de poucas dezenas de pontos-base, a mesma ordem de grandeza do ruído
+  de marcação normal — bem diferente da divergência sistemática de NTN-F e
+  NTN-B. Isso descarta erro de fórmula ou de unidade do nosso lado: o defeito
+  não aparece no título de controle, só nos títulos com cupom longo para uma
+  curva reprecificar.
+
+**Consequência prática:** a cobertura do DV01 medida pela base do RMD é
+46,5%; medida pela nossa marcação a mercado é 43,3% (ver a seção anterior). O
+cálculo do DV01 em si não muda — `dv.painel()` usa `dv_unitario ×
+quantidade_mil` e nunca lê `financeiro_milhoes` —, só o denominador de
+qualquer fração de cobertura reportada contra a base do RMD.
+
+Reprodução: `tests/test_coerencia_dv.py::test_pu_vezes_quantidade_bate_com_o_financeiro_do_tesouro`
+e `test_ntnb_2050_tem_taxa_implicita_cravada_no_financeiro_do_tesouro` fazem
+essa comparação linha a linha e travam as faixas acima.
+
+---
+
+## Convenção de sinal do decay
+
+O decay (`decay_por_papel.csv`, gerado por `dv.decay()`) segue a mesma lógica
+de sinal do DV (ver "Antes de qualquer cálculo: confira o lado", no topo
+deste documento), mas o sinal do resultado surpreende quem não parar para
+pensar:
+
+**O DV de um título é negativo. Com menos prazo até o vencimento, o DV fica
+MENOS negativo — então `decay = dv_alvo − dv_base` é POSITIVO para um
+sobrevivente.** O número mede o quanto o risco "encolheu" em módulo com a
+passagem do tempo, não uma perda. Para um papel que vence no caminho,
+`dv_alvo` é `0.0` e a mesma fórmula também dá um `decay` positivo — mas essa
+positividade é vencimento (calendário), não redução gradual de risco de um
+papel vivo. É exatamente para não confundir os dois que existe a coluna
+`venceu_no_caminho`: nunca some as duas populações sem olhá-la (ver
+`docs/dicionario-de-dados.md`, seção `decay_por_papel.csv`, para o número
+medido do efeito de misturar).
+
+Fonte: `src/tesouro/dv.py:129-142` (comentário acima de `HORIZONTES`).
+
+---
+
+## As duas contas: resultado realizado e decay a taxa constante
+
+O projeto responde duas perguntas diferentes, com bases de posição
+diferentes de propósito — cada gráfico e cada tabela deste projeto diz qual
+das duas está usando, e as duas nunca devem ser somadas ou comparadas como
+se fossem a mesma coisa.
+
+**Conta A — resultado realizado, de um fim de mês ao seguinte**
+(`dv.resultado_mensal()` → `resultado_mensal.csv`, e `dv.variacao_de_dv()`,
+não persistida). Quanto dinheiro se ganhou ou perdeu, com taxa e VNA se
+movendo de verdade entre as duas datas. Tem duas metades, com bases de
+posição **diferentes** porque respondem perguntas diferentes:
+
+- o **resultado em dinheiro** (`resultado_mensal.csv`) usa a posição
+  **congelada no início do mês** — o papel emitido no dia 20 não deu lucro
+  nem prejuízo a quem já carregava o título desde o dia 1º; reprecificar
+  sobre o estoque final atribuiria a esse investidor um ganho que ele nunca
+  teve;
+- a **variação de DV** (`dv.variacao_de_dv()`) usa o **estoque real de cada
+  data** — emissão e resgate fazem parte da resposta, porque a pergunta aqui
+  é "quanto risco o mercado passou a carregar", não "quanto dinheiro alguém
+  ganhou".
+
+**Conta B — decay a taxa constante** (`dv.decay()`/`dv.pontual()` →
+`decay_por_papel.csv`, e o comando `python -m tesouro.dv --alvo`). Só o
+efeito da passagem do tempo, com taxa e VNA **congelados** na data-base:
+mecânico, sem dinheiro e sem VNA reprojetado. Prazo menor implica DV menor
+em módulo, e é só isso que a Conta B mede.
+
+Confundir as duas leva a erro de interpretação, não de conta: a Conta A pode
+mostrar ganho num mês em que a Conta B mostra queda de risco (ou
+vice-versa), e isso é esperado — elas respondem perguntas diferentes, com
+bases de posição diferentes.
+
+---
+
+## Resultado mensal: separando a acumulação de índice da taxa real
+
+Para os títulos indexados (NTN-B ao IPCA, LFT à Selic), o resultado em
+dinheiro do mês (`resultado_milhoes`, Conta A) mistura duas coisas de
+natureza diferente: o VNA sobe entre as duas datas mesmo com a taxa
+(cupom real da NTN-B, ágio da LFT) parada, e essa parte é correção
+monetária, não o mercado "ganhando dinheiro" com uma queda de taxa.
+
+É por isso que existe `dv.resultado_decomposto()` (não persistida em CSV —
+é análise calculada na hora, mesma regra de `variacao_de_dv()`): reprecifica
+cada papel vivo em `data_fim` duas vezes, uma com o VNA de `data_ini` e outra
+com o de `data_fim`, mantendo a taxa de `data_ini` fixa nas duas. A diferença
+entre as duas reprecificações isola a acumulação de índice; o resíduo é
+`resultado_taxa_e_carrego_milhoes`. As duas colunas somam de volta o
+`resultado_milhoes` original por construção.
+
+**Sem separar, o resultado mensal sozinho engana.** Medido nos doze meses
+terminados em 30/06/2026:
+
+- A NTN-B fechou em **+R$ 29.495,0 milhões** no total — mas isso escondia
+  **+R$ 90.095,9 milhões** de acumulação de inflação (3,05× o próprio
+  resultado) contra **−R$ 60.600,9 milhões** de movimento de taxa real. O
+  sinal do total nem bate com o sinal da parcela que de fato veio de taxa.
+  Em março de 2026 sozinho, a parcela de inflação chegou a **565% do
+  resultado total do mês** de NTN-B.
+- Na LFT o efeito é ainda maior, por construção (ela não tem duration de
+  juros): dos **R$ 738.059,3 milhões** de resultado total do painel inteiro
+  nesses doze meses, **R$ 568.716,3 milhões (77%)** são o resultado da LFT,
+  e desse total quase tudo é acumulação de Selic no VNA, não ágio/deságio de
+  mercado.
+
+Reprodução: `tests/test_resultado.py` trava a decomposição linha a linha
+(telescopagem exata); os números acima vêm de `dv.resultado_decomposto()`
+sobre o painel real.
+
+---
+
+## Refazendo uma conta à mão
+
+`dv_por_papel.csv` guarda os insumos (taxa, VNA, quantidade) junto do
+resultado (PU, DV) de propósito, exatamente para isto: abrir o CSV, pegar uma
+linha, e reproduzir a conta numa calculadora comum.
+
+Exemplo real, LTN (a fórmula mais simples — sem cupom, sem VNA), linha de
+`dv_por_papel.csv` em `data = 30/06/2026`, `isin = BRSTNCLTN8I0`,
+`vencimento = 01/04/2027`:
+
+```
+taxa_pct = 13,7522      (13,7522% a.a.)
+quantidade_mil = 127.836,253
+```
+
+1. **Dias úteis entre as duas datas** (calendário Anbima, `cal.du`):
+   `du = 188`.
+2. **PU** (fórmula da LTN, base 252, truncado em 6 casas):
+
+   ```
+   PU = 1000 / (1 + 0,137522) ^ (188 / 252)
+      = 1000 / (1,137522) ^ 0,746032
+      = 908,347884...   → truncado: 908,347884
+   ```
+
+3. **PU com o choque de +1 bp** (`taxa = 13,7622%`):
+
+   ```
+   PU(+1bp) = 1000 / (1,137622) ^ 0,746032
+            = 908,288316...  → truncado: 908,288316
+   ```
+
+4. **DV unitário** = `PU(+1bp) − PU` = `908,288316 − 908,347884` =
+   **−0,059568** — negativo, como todo título prefixado (ver "Antes de
+   qualquer cálculo: confira o lado", no topo).
+
+5. **DV da posição**, em R$ milhões por bp:
+
+   ```
+   dv_posicao_milhoes = dv_unitario × quantidade_mil / 1000
+                       = −0,059568 × 127.836,253 / 1000
+                       = −7,614950
+   ```
+
+Os cinco números — `PU = 908,347884`, `dv_unitario = −0,059568` e
+`dv_posicao_milhoes = −7,614950` — batem exatamente com a linha do CSV. Para
+NTN-F e NTN-B o procedimento é o mesmo, só com um laço de fluxos de cupom
+somados antes de truncar (ver "Como o DV de cada papel é calculado", acima);
+para a NTN-B, multiplique a cotação truncada em 4 casas pelo VNA antes do
+truncamento final em 6.
+
+---
+
+## Recuperando um arquivo apagado à mão em `data/raw/bloomberg/`
+
+`data/raw/` nunca é sobrescrito nem perde dado — é uma invariante do projeto
+— mas o caminho de recuperação quando alguém apaga um arquivo bruto à mão é
+áspero, e vale escrever o procedimento em vez de deixar que cada pessoa
+descubra sozinha.
+
+Cada rodada de `fetch_bloomberg.baixar()` grava **três** arquivos juntos,
+sempre com o mesmo período no nome (a mesma "marca"):
+`bbg_taxas_ANDE_<de>_<até>.csv`, `bbg_vna_<de>_<até>.csv` e
+`bbg_precos_ANDE_<de>_<até>.csv`. Se você apagar só um dos três (por
+exemplo, só o de VNA) e os outros dois do
+mesmo período continuarem na pasta, `baixar()` recalcula corretamente que
+aquele período voltou a faltar — mas ao tentar gravar de novo, ele tenta
+recriar os **três** arquivos daquele período, na mesma ordem sempre (taxa,
+depois VNA, depois preço). Como os outros dois (que você não apagou) ainda
+existem com aquele nome exato, a função para em `FileExistsError` no
+primeiro deles que colidir — não necessariamente no que você apagou.
+
+**O procedimento** é apagar em sequência, seguindo a mensagem de erro:
+
+1. Rode `python -m tesouro.fetch_bloomberg` (com `PYTHONPATH=src`).
+2. Se der `FileExistsError` num arquivo, apague esse arquivo também (ele
+   será refeito do zero, com o mesmo conteúdo de antes, porque a taxa e o
+   VNA de uma data passada não mudam).
+3. Rode de novo. Repita até a coleta completar sem erro — normalmente duas
+   ou três rodadas, porque o irmão que colide muda a cada tentativa (taxa,
+   depois VNA, depois preço, na ordem em que `baixar()` os grava).
+
+Isso nunca sobrescreve nada e nunca perde dado — o pior custo é repetir uma
+consulta à Bloomberg para um período que já estava correto. É o preço de o
+projeto nunca sobrescrever `data/raw/` silenciosamente (ver o incidente
+registrado no docstring de `src/tesouro/fetch_bloomberg.py` que motivou essa
+regra).
+
+---
+
+## Verificação pendente de autorização
+
+Duas verificações deste sub-projeto dependem de uma consulta à Bloomberg que
+não foi autorizada durante a execução, e por isso ficam registradas aqui
+como pendência, não como lacuna silenciosa:
+
+- **A coleta ao vivo do coletor (`fetch_bloomberg.baixar()`) nunca foi
+  executada de fato** — os testes cobrem a lógica de requisição e o corte
+  incremental com um terminal Bloomberg simulado (dublê), nunca com o
+  terminal de verdade.
+- **O teste que compara o PU calculado com o `PX_DIRTY_MID` da Bloomberg
+  pula automaticamente** (`tests/test_coerencia_dv.py::
+  test_pu_reproduz_o_preco_da_bloomberg_com_deslocamento_de_d1`), com a
+  mensagem explicando o motivo: falta `data/raw/bloomberg/bbg_precos_*.csv`.
+  A validação de 438 pares papel-data que fundamenta a seção "Liquidação"
+  acima foi feita à mão, fora deste teste — exata em todas as 228
+  comparações de NTN-F e nas 210 de NTN-B, diferença máxima de 0,0083 bp,
+  com o deslocamento de D+1 aplicado — mas não se reverifica sozinha
+  enquanto esse arquivo não existir no repositório.
+
+**O que rodar para habilitar as duas**, com o terminal Bloomberg disponível
+e autorização explícita para a consulta:
+
+PowerShell:
+
+    $env:PYTHONPATH="src"; python -m tesouro.fetch_bloomberg
+
+bash:
+
+    PYTHONPATH=src python -m tesouro.fetch_bloomberg
+
+Depois de confirmar que `bbg_precos_ANDE_*.csv` apareceu em
+`data/raw/bloomberg/`, rode a suíte de novo — o teste que hoje pula deve
+passar a rodar (e a passar).
+
+---

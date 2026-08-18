@@ -314,6 +314,37 @@ Fica registrado que a entrega 2 depende de uma **fonte de taxas** (Anbima ou
 equivalente) que não está no escopo deste sub-projeto nem tem spec própria
 ainda.
 
+**Resposta (entrega 2, 2026-08-18): é marcação NA CURVA, não a mercado.** A
+suspeita acima se confirmou, com evidência forte. Comparando
+`financeiro_milhoes / quantidade_mil` (aba 2.2) contra o PU calculado pela
+entrega 2 a partir da taxa de mercado (Bloomberg, fonte `ANDE`):
+
+- Na NTN-B 15/05/2050 (`BRSTNCNTB3D4`), a taxa que reproduz o financeiro do
+  Tesouro fica cravada entre 5,34% e 5,54% por doze anos, enquanto a taxa de
+  mercado no mesmo período foi de 3,59% (2020) a 7,56% (2025) — uma curva que
+  não se move com o mercado real.
+- Na NTN-F 01/01/2031 (`BRSTNCNTF204`), a mesma taxa implícita sobe de forma
+  monotônica de 6,99% para 12,28%, enquanto o mercado fez 6,86% → 14,85% →
+  13,23% no mesmo intervalo — o mercado sobe, cai e sobe de novo; a curva do
+  RMD só sobe, devagar.
+- **O controle que fecha o argumento é a LFT:** como o preço da LFT quase não
+  carrega cupom futuro para uma curva "chutar", a taxa (ágio) implícita no
+  financeiro do Tesouro bate com o ágio de mercado dentro de poucas dezenas de
+  pontos-base — a mesma ordem de grandeza do ruído normal de marcação, bem
+  diferente da divergência sistemática de NTN-F e NTN-B. Isso descarta erro de
+  fórmula ou de unidade do nosso lado: o problema não aparece no título de
+  controle, só nos que têm cupom longo para a curva reprecificar.
+
+Consequência prática para o DV01: a cobertura do estoque medida pela base do
+RMD (aba 2.2) é 46,5% em 30/06/2026; medida pela nossa marcação a mercado
+(substituindo o financeiro do RMD dos títulos cobertos pelo
+`financeiro_calculado_milhoes` da entrega 2) é 43,3% — os 3,3 pontos de
+diferença são o desconto de marcação entre curva e mercado. O cálculo de DV01
+em si não é afetado: ele usa `dv_unitario × quantidade_mil` e nunca lê
+`financeiro_milhoes`; só muda qual denominador a fração de cobertura cita.
+Detalhe completo, com os números e o método de cada verificação, em
+`docs/convencoes-dv.md`.
+
 ---
 
 ## 9. Testes

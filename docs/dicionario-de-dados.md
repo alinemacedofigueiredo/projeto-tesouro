@@ -1,10 +1,19 @@
 # Dicionário de dados
 
-Um CSV por seção, dezessete no total, gerados por `python -m tesouro.pipeline`
-em `data/processed/`. As colunas abaixo foram conferidas contra o código dos
-parsers (`src/tesouro/parse_rmd/*.py`, `src/tesouro/parse_leiloes.py`) e
-contra os CSVs gerados — não contra a especificação original, que foi escrita
-antes da implementação e ficou desatualizada em alguns pontos.
+Vinte e dois CSVs, gerados por `python -m tesouro.pipeline` em
+`data/processed/`. Dezessete vêm do anexo do RMD e do histórico de leilões
+(camada de dados, `src/tesouro/parse_rmd/*.py` e
+`src/tesouro/parse_leiloes.py`); cinco vêm do sub-projeto de DV01 e decay
+(`taxa_por_papel`, `vna`, `dv_por_papel`, `decay_por_papel`,
+`resultado_mensal` — produzidos por `src/tesouro/parse_bloomberg.py` e
+`src/tesouro/dv.py`, documentados na sua própria seção mais abaixo). As
+colunas abaixo foram conferidas contra o código e contra os CSVs gerados —
+não contra a especificação original, que foi escrita antes da implementação
+e ficou desatualizada em alguns pontos.
+
+As convenções de sinal e as fórmulas de cálculo do PU e do DV01 estão em
+`docs/convencoes-dv.md`, não repetidas aqui — confira lá antes de qualquer
+conta que envolva sinal ou taxa.
 
 Convenções gerais (ver também `docs/superpowers/specs/2026-08-14-camada-de-dados-design.md`,
 §6):
@@ -115,10 +124,19 @@ Estoque de cada papel da DPMFi, por vencimento, mês a mês. Origem: aba 2.2.
 posição em título, em **milhares** de títulos, porque é assim que a aba 2.2
 publica (`Quantidade (mil)`). A quantidade de `leiloes.csv` está em unidades
 de título: juntar as duas exige um fator de mil (ver a nota daquela tabela).
-Não está confirmado se `financeiro_milhoes` é marcação a mercado ou na curva
-(a suspeita é curva); por isso ele serve de conferência, não de fonte de
-preço. Os títulos aqui aparecem **desagregados** em relação a
-`estoque_dpf.csv` — ver a nota daquela tabela.
+**`financeiro_milhoes` é marcação NA CURVA, não a mercado** — confirmado no
+sub-projeto de DV01 (ver `docs/convencoes-dv.md` e
+`tests/test_coerencia_dv.py`): a taxa que reproduz
+`financeiro_milhoes / quantidade_mil` fica presa numa faixa estreita por anos
+a fio (ex.: a NTN-B 2050 entre 5,34% e 5,54% por doze anos, com o mercado
+variando de 3,59% a 7,56% no mesmo período), enquanto a LFT — que quase não
+tem cupom futuro para uma curva "chutar" — bate com o ágio de mercado dentro
+de poucas dezenas de pontos-base. Por isso `financeiro_milhoes` serve de
+conferência (é o que a tabela de DV01, `dv_por_papel.csv`, usa para o
+cruzamento de coerência), não de fonte de preço: quem precisar de PU ou de
+marcação a mercado usa `dv_por_papel.csv`, não esta coluna. Os títulos aqui
+aparecem **desagregados** em relação a `estoque_dpf.csv` — ver a nota daquela
+tabela.
 
 **Atenção — só linhas observadas são gravadas.** A aba lista todo papel
 contra todo mês, e a maioria dessas combinações não existe: o papel foi
@@ -515,15 +533,189 @@ títulos compara grandezas diferentes. Cada leilão pode ter `1.ª volta` e
 
 ---
 
+## DV01, decay e resultado (sub-projeto de entrega 2)
+
+As cinco tabelas abaixo não vêm do RMD nem dos leilões: `taxa_por_papel` e
+`vna` vêm da Bloomberg (`src/tesouro/parse_bloomberg.py`); `dv_por_papel`,
+`decay_por_papel` e `resultado_mensal` são calculadas a partir delas e do
+estoque (`src/tesouro/dv.py`). Todas em formato longo, mesma convenção do
+resto do projeto. Contagens de linha e `value_counts()` abaixo conferidos
+contra os CSVs reais em `data/processed/` (painel de 30/06/2026, 9.366
+linhas em `dv_por_papel.csv`).
+
+### `taxa_por_papel.csv`
+
+Taxa indicativa de mercado (Anbima, fonte `ANDE`) por papel e fim de mês.
+Origem: Bloomberg, campo `YLD_YTM_MID`. 8.836 linhas.
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `data` | data | Último dia **útil** do mês — não o último dia corrido (ver `docs/convencoes-dv.md`, seção "Calendário de dias úteis") |
+| `isin` | texto | Código ISIN |
+| `titulo` | texto | `LTN` (2.169), `NTN-F` (1.200), `NTN-B` (2.945), `LFT` (2.522) |
+| `vencimento` | data | Vencimento do papel |
+| `taxa_pct` | número | % ao ano (`13.5` = 13,5% a.a.); pode ser negativa (a LFT já teve deságio negativo, ex. `-0,39%`) |
+
+**Atenção — `data` é o último dia ÚTIL, `estoque_titulos_vencimento.csv`
+traz o último dia CORRIDO.** Juntar as duas tabelas por data literal (sem
+normalizar um dos dois lados com `calendario.ultimo_dia_util_do_mes`) perde
+35,1% do painel em silêncio: dos 9.366 pares papel-mês do painel de DV01,
+uma junção por data crua preserva só 6.074 (64,9%), contra 8.794 (93,89%) da
+junção correta. `src/tesouro/dv.py` normaliza o lado do estoque antes de
+juntar; qualquer código novo que ler este CSV junto com o estoque precisa
+fazer o mesmo.
+
+**Atenção — para a LFT, `taxa_pct` é ágio/deságio sobre a Selic, não uma
+taxa absoluta** (mesma convenção de `leiloes.csv`); comparar esse número
+entre LFT e os demais títulos compara grandezas diferentes.
+
+**Atenção — a Bloomberg às vezes cota num dia que a Anbima não considera
+útil.** Em 272 das 8.898 linhas do bruto (antes da normalização acima), a
+data de origem cai em véspera de Sexta-feira Santa (2013, 2018, 2024),
+Carnaval (2017, 2022) ou Corpus Christi (2018) — feriados móveis que a
+Bloomberg parece fechar diferente da Anbima. É por isso que a normalização
+para o último dia útil é feita nos dois lados (Bloomberg e RMD), não só do
+lado do RMD.
+
+### `vna.csv`
+
+Valor Nominal Atualizado por índice e fim de mês, em reais. Origem:
+Bloomberg, campo `IDX_RATIO` (IPCA) ou `ACCUMULATED_SELIC` (Selic), × 1000,
+com override `SETTLE_DT` na data desejada. 396 linhas.
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `data` | data | Último dia útil do mês |
+| `indice` | texto | `IPCA` (198) ou `SELIC` (198) |
+| `vna` | número | R$ por unidade de VNA |
+
+**Atenção — o VNA é por índice, não por papel.** Verificado: idêntico entre
+todos os papéis do mesmo índice na mesma data, nas 198 datas do painel (ver
+`docs/convencoes-dv.md`). Uma NTN-B e outra do mesmo mês sempre usam a mesma
+linha deste CSV.
+
+**Atenção — `SETTLE_DT` não serve para taxa histórica, só para VNA.** Ver
+`docs/convencoes-dv.md`, seção "Fontes na Bloomberg", para o porquê (erro de
+135 bp medido se usado para taxa).
+
+### `dv_por_papel.csv`
+
+O fato atômico do sub-projeto: uma linha por papel e fim de mês, com os
+insumos (taxa, VNA, PU) junto do resultado (DV01), de propósito — quem
+quiser conferir um papel abre este CSV e refaz a conta à mão (ver exemplo em
+`docs/convencoes-dv.md`, seção "Refazendo uma conta à mão"). Gerado por
+`dv.painel()`. 9.366 linhas.
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `data` | data | Último dia útil do mês |
+| `isin` | texto | Código ISIN |
+| `titulo` | texto | `LTN` (2.499), `NTN-F` (1.203), `NTN-B` (3.003), `LFT` (2.661) |
+| `vencimento` | data | Vencimento do papel |
+| `taxa_pct` | número | % ao ano, de `taxa_por_papel.csv`; vazia onde a Bloomberg não cobre o par papel-mês |
+| `vna` | número | R$, de `vna.csv`; sempre vazio para LTN e NTN-F (não são indexados, não usam VNA) |
+| `pu` | número | Preço unitário calculado (não é o `financeiro_milhoes` do RMD — ver abaixo) |
+| `dv_unitario` | número | R$ por título, variação do PU para +1 bp; **vazio para LFT, não zero** — é decisão de modelagem (a LFT não tem duration de juros por construção), e a diferença importa para quem somar: `0` entraria numa soma como "risco nulo medido", `NaN`/vazio corretamente some da soma |
+| `quantidade_mil` | número | Milhares de títulos (posição), sempre preenchida quando a linha existe |
+| `dv_posicao_milhoes` | número | R$ milhões por bp = `dv_unitario × quantidade_mil / 1000`; vazio onde `dv_unitario` é vazio |
+| `financeiro_calculado_milhoes` | número | R$ milhões = `pu × quantidade_mil / 1000` — **nossa marcação a mercado**, calculada a partir da taxa; não confundir com `financeiro_milhoes` de `estoque_titulos_vencimento.csv`, que é marcação NA CURVA (ver a nota daquela tabela e `docs/convencoes-dv.md`) |
+
+**Atenção — 572 linhas (6,1% do painel) ficam sem taxa** e por isso sem
+`pu`/`dv_unitario`/`financeiro_calculado_milhoes` (vazios, não zero);
+`quantidade_mil` continua preenchida (a posição existiu, só falta a taxa
+para precificá-la). A composição é heterogênea, não "quase toda LFT de
+2010-2011" como se poderia supor de memória: `LTN` (335 linhas, espalhadas
+de 2013 a 2026), `LFT` (155, **integralmente** em 2010-2011), `NTN-B` (73,
+a maioria em 2010) e `NTN-F` (9). Confira sempre com `value_counts()` contra
+o CSV real antes de descrever a composição de um subconjunto — é esse tipo
+de suposição não conferida que já causou erro factual neste dicionário.
+
+**Atenção — a cobertura do DV01 não é uma constante, e precisa acompanhar
+qualquer total.** 46,5% do estoque (pela base do RMD) em 30/06/2026; 60,4%
+em 31/12/2020 — a composição da dívida muda mês a mês. Os fora de escopo são
+LFT (sem duration de juros por construção — `dv_unitario` vazio) e ~2,2%
+excluídos sem preço no secundário (NTN-C, NTN-B Principal, RendA+, EducA+).
+Ver `docs/convencoes-dv.md`, seção "Escopo".
+
+### `decay_por_papel.csv`
+
+Decay do DV01 a taxa e VNA constantes (Conta B — mecânico, sem dinheiro),
+nos horizontes fixos de 1, 5 e 21 dias úteis, por papel. Gerado por
+`dv.decay()`. 20.115 linhas.
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `data_base` | data | Data de partida (fim de mês do painel) |
+| `horizonte` | texto | `1du` (6.705), `5du` (6.705) ou `21du` (6.705) |
+| `data_alvo` | data | `data_base` mais o número de dias úteis do horizonte |
+| `isin` | texto | Código ISIN |
+| `titulo` | texto | `LTN` (7.497), `NTN-F` (3.609), `NTN-B` (9.009) — sem LFT, que não tem DV no projeto |
+| `venceu_no_caminho` | booleano | `True` (286 linhas) se o papel vence entre `data_base` e `data_alvo`; `False` (19.829) caso contrário |
+| `dv_base` | número | R$ milhões por bp na `data_base` (mesmo valor de `dv_posicao_milhoes` em `dv_por_papel.csv`) |
+| `dv_alvo` | número | R$ milhões por bp reprecificado em `data_alvo`, com a MESMA taxa e VNA da base; `0.0` se `venceu_no_caminho` — o risco existiu e foi a zero, não é ausência |
+| `decay` | número | `dv_alvo − dv_base`; positivo para um sobrevivente (o DV fica menos negativo — "encolheu" em módulo); positivo também para quem venceu no caminho (mesma fórmula, com `dv_alvo = 0`) |
+
+**Atenção — nunca some `decay` sem olhar `venceu_no_caminho`.** Um papel
+que venceu contribui um `decay` positivo do tamanho do `dv_base` inteiro —
+isso é calendário (o papel sumiu), não a passagem do tempo encolhendo um
+risco vivo. Somar as duas populações juntas produz um número que parece
+decay de mercado e é, na verdade, metade vencimento. Filtre por
+`venceu_no_caminho` antes de agregar, ou mantenha as duas somas separadas.
+
+**Atenção:** 1.251 linhas ficam com `dv_base`/`dv_alvo`/`decay` vazios —
+papéis sem taxa ou sem `dv_unitario` já na base, para os quais não havia
+risco de partida conhecido para medir a variação (não é o mesmo caso de
+`venceu_no_caminho`, que pressupõe risco de partida conhecido).
+
+**Atenção — o PU usado aqui é calculado em D+0**, e por isso fica cerca de
+5 bp abaixo do preço da tela, que cota D+1. Não é erro; ver
+`docs/convencoes-dv.md`, seção "Liquidação".
+
+### `resultado_mensal.csv`
+
+Resultado em dinheiro, mês a mês, sobre a posição CONGELADA no início do
+período (Conta A — o papel emitido no dia 20 não deu lucro nem prejuízo a
+quem carregava desde o dia 1º). Inclui a LFT (tem PU real, mesmo sem
+duration de juros). Gerado por `dv.resultado_mensal()`. 9.314 linhas.
+
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `data_ini` | data | Início do período (fim de mês) |
+| `data_fim` | data | Fim do período (fim do mês seguinte) |
+| `isin` | texto | Código ISIN |
+| `titulo` | texto | `LTN` (2.485), `NTN-F` (1.197), `NTN-B` (2.988), `LFT` (2.644) |
+| `venceu_no_periodo` | booleano | `True` (144 linhas) se o papel vence entre `data_ini` e `data_fim` |
+| `quantidade_mil_ini` | número | Posição em `data_ini` — a MESMA usada para o resultado em `data_fim`, mesmo que o estoque real tenha mudado |
+| `pu_ini` | número | PU em `data_ini` |
+| `pu_fim` | número | PU em `data_fim`; **vazio quando `venceu_no_periodo`, de propósito** — não sabemos a que preço o dinheiro foi reinvestido, e arbitrar uma hipótese aqui embutiria decisão de análise na camada de dados |
+| `resultado_milhoes` | número | R$ milhões = `(pu_fim − pu_ini) × quantidade_mil_ini / 1000`; vazio onde `pu_ini` ou `pu_fim` são vazios |
+
+**Atenção — 8 linhas vivas (não vencidas) ficam com `pu_fim` vazio mesmo
+assim**, sem nada na tabela que as distinga de "não se aplica": o ISIN some
+do painel do mês seguinte sem ter vencido (dado de origem da época — RMD de
+2010/2011 —, não defeito do parser). Somam R$ 291.954,8 milhões de posição
+(`pu_ini × quantidade_mil_ini`), todas com `data_fim` entre 2010-02 e
+2011-08 (nenhuma nos últimos doze meses do painel). Quem somar
+`resultado_milhoes` de um mês antigo nessa janela precisa saber que o total
+está incompleto ali — a contagem exata de 8 está travada em
+`tests/test_coerencia_dv.py::test_linhas_vivas_sem_pu_fim_sao_exatamente_oito`.
+
+**Atenção — para a NTN-B e a LFT, `resultado_milhoes` mistura acumulação de
+índice (IPCA/Selic) com movimento de taxa real**, e a parcela de índice pode
+superar o total (ou ter o sinal oposto). A função `dv.resultado_decomposto()`
+(não persistida — ver `docs/convencoes-dv.md`, seção "Resultado mensal:
+separando a acumulação de índice") separa as duas.
+
 ## Verificação
 
-Os dezessete nomes abaixo devem bater exatamente com os `.csv` presentes em
-`data/processed/` após rodar o pipeline:
+Os vinte e dois nomes abaixo devem bater exatamente com os `.csv` presentes
+em `data/processed/` após rodar o pipeline:
 
 ```
-composicao_dpf, cronograma_vencimentos, custo_medio, detentores,
-detentores_por_titulo, estoque_dpf, estoque_titulos_vencimento,
-funding_por_canal, funding_por_indexador, leiloes, paf_metas,
-prazo_medio_emissoes, prazo_medio_por_indexador, prazo_medio_por_titulo,
-reserva_liquidez, vencer_12m_indexador, vencimentos_faixa
+composicao_dpf, cronograma_vencimentos, custo_medio, decay_por_papel,
+detentores, detentores_por_titulo, dv_por_papel, estoque_dpf,
+estoque_titulos_vencimento, funding_por_canal, funding_por_indexador,
+leiloes, paf_metas, prazo_medio_emissoes, prazo_medio_por_indexador,
+prazo_medio_por_titulo, reserva_liquidez, resultado_mensal, taxa_por_papel,
+vencer_12m_indexador, vencimentos_faixa, vna
 ```
