@@ -164,14 +164,19 @@ def _decay_de(cal, linhas, data_base, data_alvo, rotulo):
     saida = []
     for r in linhas.itertuples(index=False):
         venceu = cal.ajustar_vencimento(r.vencimento) <= data_alvo
-        if venceu:
-            alvo = 0.0
-        elif pd.isna(r.taxa_pct) or pd.isna(r.dv_unitario):
-            # Sem taxa ou sem dv_unitario na base, tambem nao ha decay:
+        if pd.isna(r.taxa_pct) or pd.isna(r.dv_unitario):
+            # Sem taxa ou sem dv_unitario na base, nao ha decay medivel --
             # nao dava para medir o risco de partida, entao nao da para
-            # medir a variacao. None, nao zero -- "nao se aplica" e
-            # diferente de "risco genuinamente nulo".
+            # medir a variacao, mesmo que o papel tambem tenha vencido no
+            # caminho. None, nao zero -- "nao se aplica" e diferente de
+            # "risco genuinamente nulo". Esta guarda vem ANTES da de
+            # vencimento de proposito: um papel vencido sem dv_base
+            # medido (ex.: NTN-F ja vencida no estoque, sem taxa na
+            # data) nao pode virar "risco foi a zero", porque o risco de
+            # partida nunca foi conhecido.
             alvo = None
+        elif venceu:
+            alvo = 0.0
         else:
             unitario = precificacao.dv(
                 cal, r.titulo, data_alvo, r.vencimento, r.taxa_pct / 100.0, r.vna
