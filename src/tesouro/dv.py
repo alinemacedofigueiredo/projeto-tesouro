@@ -126,5 +126,98 @@ def gravar_painel():
     print(f"gravado: {saida} ({len(df)} linhas)")
 
 
+# ---------------------------------------------------------------------------
+# Decay: Conta B da spec -- so a passagem do tempo, taxa e VNA constantes.
+#
+# Nao envolve dinheiro nem VNA reprojetado: e mecanico, prazo menor implica
+# DV menor em modulo. A outra conta, o resultado realizado com movimento de
+# taxa (Conta A), fica na Tarefa 8 e nao usa nada daqui.
+#
+# Convencao de sinal do decay: dv e negativo para titulo (docs/convencoes-
+# dv.md). Com menos prazo o DV fica MENOS negativo, entao decay = dv_alvo -
+# dv_base e POSITIVO para um sobrevivente -- o numero mede o quanto o DV
+# "encolheu" em modulo. Para um papel que vence no caminho, dv_alvo e 0.0 e
+# decay tambem sai positivo (a mesma formula), mas dv_alvo=0 misturado com
+# o encolhimento normal e exatamente o que venceu_no_caminho existe para
+# marcar -- nunca somar as duas coisas sem olhar essa coluna.
+# ---------------------------------------------------------------------------
+
+HORIZONTES = {"1du": 1, "5du": 5, "21du": 21}
+
+_COLUNAS_DECAY = [
+    "data_base", "horizonte", "data_alvo", "isin", "titulo",
+    "venceu_no_caminho", "dv_base", "dv_alvo", "decay",
+]
+
+
+def _decay_de(cal, linhas, data_base, data_alvo, rotulo):
+    """Reprecifica cada papel na data-alvo, com taxa e VNA constantes.
+
+    Conta B da spec: so o efeito da passagem do tempo. Papel que vence no
+    caminho recebe dv_alvo zero -- ele existia e deixou de existir, o que
+    e informacao, nao ausencia -- e fica marcado em venceu_no_caminho para
+    nao se confundir com queda de risco de um papel vivo. Para papel
+    vencido, precificacao.dv nunca e chamado: o zero vem direto, sem
+    reprecificar nada (ver test_venceu_no_caminho_nunca_chama_precificacao
+    em tests/test_decay.py).
+    """
+    saida = []
+    for r in linhas.itertuples(index=False):
+        venceu = cal.ajustar_vencimento(r.vencimento) <= data_alvo
+        if venceu:
+            alvo = 0.0
+        elif pd.isna(r.taxa_pct) or pd.isna(r.dv_unitario):
+            # Sem taxa ou sem dv_unitario na base, tambem nao ha decay:
+            # nao dava para medir o risco de partida, entao nao da para
+            # medir a variacao. None, nao zero -- "nao se aplica" e
+            # diferente de "risco genuinamente nulo".
+            alvo = None
+        else:
+            unitario = precificacao.dv(
+                cal, r.titulo, data_alvo, r.vencimento, r.taxa_pct / 100.0, r.vna
+            )
+            alvo = unitario * r.quantidade_mil / 1000
+        base = r.dv_posicao_milhoes
+        decaimento = None if (alvo is None or pd.isna(base)) else alvo - base
+        saida.append((data_base, rotulo, data_alvo, r.isin, r.titulo,
+                      venceu, base, alvo, decaimento))
+    return saida
+
+
+def decay(horizontes=None):
+    """Decay a taxa constante, por papel, nos horizontes pedidos.
+
+    horizontes: dict rotulo -> passos em dias uteis (base 252). Default
+    HORIZONTES = {"1du": 1, "5du": 5, "21du": 21}.
+    """
+    horizontes = horizontes or HORIZONTES
+    cal = calendario.padrao()
+    p = painel()
+    p = p[p["titulo"] != "LFT"]           # LFT nao tem DV no projeto (None)
+
+    linhas = []
+    for data_base, grupo in p.groupby("data", sort=True):
+        for rotulo, passos in horizontes.items():
+            alvo = cal.mover(data_base, passos)
+            linhas += _decay_de(cal, grupo, data_base, alvo, rotulo)
+    return pd.DataFrame(linhas, columns=_COLUNAS_DECAY).sort_values(
+        ["data_base", "horizonte", "titulo", "isin"]
+    ).reset_index(drop=True)
+
+
+def gravar_decay():
+    """Grava decay_por_papel.csv em data/processed/.
+
+    Mesmo padrao de gravar_painel: conteudo gerado localmente a partir de
+    data/processed/ ja validado, entao df.to_csv direto, sem gravar_atomico
+    (essa protege download bruto de rede, nao e o caso aqui).
+    """
+    config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    df = decay()
+    saida = config.PROCESSED_DIR / "decay_por_papel.csv"
+    df.to_csv(saida, index=False, encoding="utf-8")
+    print(f"gravado: {saida} ({len(df)} linhas)")
+
+
 if __name__ == "__main__":
     gravar_painel()
