@@ -62,6 +62,14 @@ def _com_precos(cal):
     tx["data"] = tx["data"].dt.date
     vn = _ler("vna", parse_dates=["data"])
     vn["data"] = vn["data"].dt.date
+    dup = vn.duplicated(subset=["data", "indice"])
+    if dup.any():
+        exemplos = vn.loc[dup, ["data", "indice"]].drop_duplicates().head(5).values.tolist()
+        raise ValueError(
+            f"vna.csv tem (data, indice) duplicado em {int(dup.sum())} linha(s), "
+            f"exemplos: {exemplos}. O dicionario vna_por fica com a ultima "
+            f"ocorrencia em silencio; corrija a origem antes de montar o painel."
+        )
     vna_por = {(r.data, r.indice): r.vna for r in vn.itertuples(index=False)}
 
     df = pos.merge(tx[["data", "isin", "taxa_pct"]], on=["data", "isin"], how="left")

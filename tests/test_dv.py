@@ -45,6 +45,7 @@ def test_dv_da_lft_e_vazio_e_o_financeiro_nao(p):
 
 def test_dv_dos_titulos_e_negativo(p):
     tit = p[p["titulo"].isin(["LTN", "NTN-F", "NTN-B"]) & p["dv_unitario"].notna()]
+    assert len(tit) > 1000  # senao os dois .all() abaixo passam vacuamente
     assert (tit["dv_unitario"] < 0).all()
     assert (tit["dv_posicao_milhoes"] < 0).all()
 
@@ -69,6 +70,50 @@ def test_dv_total_do_sistema_e_plausivel(p):
     ult = p[(p["data"] == p["data"].max()) & p["dv_posicao_milhoes"].notna()]
     total = ult["dv_posicao_milhoes"].sum()
     assert -20000 < total < -500
+
+
+# ---------------------------------------------------------------------------
+# As duas bandas acima (financeiro 5-15 tri, DV entre -20.000 e -500) tem
+# 40x de folga -- largas o bastante para deixar passar _INDICE_DO_TITULO
+# trocado (NTN-B lendo SELIC, LFT lendo IPCA): o financeiro sai 11,03 tri
+# e o DV sai -4.847,1, 3,3x errado, e os dois ainda caem dentro da banda.
+# As duas assercoes abaixo checam o mapeamento diretamente: o vna de cada
+# NTN-B tem que bater com o IPCA cru daquela data (nunca o SELIC), e vice-
+# versa para a LFT; e LTN/NTN-F, que nao sao indexados, tem que ficar sem
+# vna nenhum. Uma troca do dicionario _INDICE_DO_TITULO quebra isso na
+# hora, independente da tolerancia de qualquer outro modulo.
+# ---------------------------------------------------------------------------
+
+def test_vna_casa_com_o_indice_certo_por_titulo(p):
+    vna_raw = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
+    vna_raw["data"] = vna_raw["data"].dt.date
+    ipca = vna_raw[vna_raw["indice"] == "IPCA"].set_index("data")["vna"]
+    selic = vna_raw[vna_raw["indice"] == "SELIC"].set_index("data")["vna"]
+
+    ntnb = p[(p["titulo"] == "NTN-B") & p["vna"].notna()]
+    lft = p[(p["titulo"] == "LFT") & p["vna"].notna()]
+    assert len(ntnb) > 1000
+    assert len(lft) > 1000
+    assert (ntnb["vna"].values == ntnb["data"].map(ipca).values).all()
+    assert (lft["vna"].values == lft["data"].map(selic).values).all()
+
+    assert p[p["titulo"] == "LTN"]["vna"].isna().all()
+    assert p[p["titulo"] == "NTN-F"]["vna"].isna().all()
+
+
+def test_dv_por_titulo_no_ultimo_mes_bate_com_o_valor_medido(p):
+    # Ancora o NIVEL do numero, nao so o sinal e a ordem de grandeza --
+    # trava tanto _INDICE_DO_TITULO trocado quanto VNA fora de escala
+    # (x10 ou /1000), que a banda larga de test_dv_total_do_sistema_e_
+    # plausivel deixa passar. Valores medidos em 2026-06-30 nesta sessao;
+    # tolerancia de 1% cobre reprocessamento com o mesmo dado de origem.
+    ult = p[p["data"] == p["data"].max()]
+    esperado = {"LTN": -198.54, "NTN-F": -177.76, "NTN-B": -1096.58}
+    for titulo, valor in esperado.items():
+        medido = ult[ult["titulo"] == titulo]["dv_posicao_milhoes"].sum()
+        assert medido == pytest.approx(valor, rel=0.01)
+    total = ult[ult["dv_posicao_milhoes"].notna()]["dv_posicao_milhoes"].sum()
+    assert total == pytest.approx(-1472.87, rel=0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -100,10 +145,34 @@ def _escrever_vna(diretorio, linhas):
 # "pd.isna(r.vna)". df["vna"] e uma coluna numerica; assim que ela recebe
 # qualquer valor float, o pandas converte os None ausentes em NaN, e
 # "NaN is None" e False. Com "is None" na guarda, uma NTN-B com taxa mas
-# sem VNA passaria pela guarda e cairia em precificacao.pu com vna=NaN --
-# que ou devolve PU NaN em silencio ou levanta ValueError dentro de
-# _truncar (math.trunc de NaN), em vez de a linha ser pulada como None.
+# sem VNA passaria pela guarda e cairia em precificacao.pu com vna=NaN.
+#
+# O teste original afirmava so o RESULTADO (pu/dv/financeiro == NaN), e
+# isso e insuficiente: um _truncar tolerante a NaN devolveria um PU NaN
+# em silencio e passaria nas mesmas assercoes, sem que a guarda tivesse
+# feito nada -- quem derrubaria o teste seria o math.trunc(NaN) de outro
+# modulo, nao a guarda em si. A assercao que importa e sobre o
+# COMPORTAMENTO: precificacao.pu nao pode ser chamado para a linha sem
+# VNA. Por isso o teste espiona precificacao.pu com monkeypatch.
 # ---------------------------------------------------------------------------
+
+def _espiar_pu(monkeypatch):
+    """Substitui precificacao.pu por uma versao que registra cada chamada
+    (data, titulo) antes de delegar para a implementacao real. dv.py chama
+    precificacao.pu pelo atributo do modulo, e precificacao.dv tambem
+    chama pu() (nome de modulo, mesmo namespace) -- os dois passam pelo
+    espiao porque setattr troca o __dict__ do modulo precificacao.
+    """
+    chamadas = []
+    original = precificacao.pu
+
+    def pu_espiao(cal, titulo, d0, vencimento, taxa, vna=None):
+        chamadas.append((d0, titulo))
+        return original(cal, titulo, d0, vencimento, taxa, vna)
+
+    monkeypatch.setattr(precificacao, "pu", pu_espiao)
+    return chamadas
+
 
 def test_vna_ausente_pula_a_linha_em_vez_de_precificar_com_nan(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
@@ -128,7 +197,13 @@ def test_vna_ausente_pula_a_linha_em_vez_de_precificar_com_nan(tmp_path, monkeyp
     # IPCA presente em d1, ausente em d2 -- so d2 fica sem VNA.
     _escrever_vna(tmp_path, [(str(d1), "IPCA", 4200.0)])
 
+    chamadas = _espiar_pu(monkeypatch)
     painel = dv.painel().set_index("data")
+
+    # A linha sem VNA nunca pode chegar ao motor de precificacao.
+    assert (d2, "NTN-B") not in chamadas
+    assert (d1, "NTN-B") in chamadas  # controle: a linha COM vna e precificada
+
     assert pd.notna(painel.loc[d1, "vna"])
     assert pd.notna(painel.loc[d1, "pu"])
 
@@ -138,6 +213,31 @@ def test_vna_ausente_pula_a_linha_em_vez_de_precificar_com_nan(tmp_path, monkeyp
     assert pd.isna(linha2["pu"])
     assert pd.isna(linha2["dv_unitario"])
     assert pd.isna(linha2["financeiro_calculado_milhoes"])
+
+
+def test_lft_vencida_sem_vna_nao_chama_pu(tmp_path, monkeypatch):
+    # Caminho genuinamente silencioso que a versao anterior deste teste nao
+    # cobria: pu_lft devolve 0.0 ANTES de tocar no vna quando o papel esta
+    # vencido (d0 >= venc). Se a guarda de VNA falhasse (voltasse a "r.vna
+    # is None"), uma LFT vencida com taxa mas sem VNA nao levantaria
+    # ValueError como a NTN-B -- sairia com pu=0.0 e financeiro=0.0 em vez
+    # de vazio, um erro silencioso pior que o da NTN-B. A defesa correta e
+    # a mesma: pu nunca pode ser chamado quando falta o VNA.
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+    d = date(2023, 6, 30)
+    venc_passado = date(2010, 1, 1)
+
+    _escrever_estoque(tmp_path, [(str(d), "Selic", "LFT", str(venc_passado), "ISINF1", 50.0)])
+    _escrever_taxas(tmp_path, [(str(d), "ISINF1", "LFT", str(venc_passado), 0.01)])
+    # IPCA presente na data, mas nenhum SELIC -- a LFT fica sem VNA.
+    _escrever_vna(tmp_path, [(str(d), "IPCA", 4200.0)])
+
+    chamadas = _espiar_pu(monkeypatch)
+    linha = dv.painel().iloc[0]
+
+    assert chamadas == []  # pu nao pode ser chamado -- nem pu_lft nem nada
+    assert pd.isna(linha["pu"])
+    assert pd.isna(linha["financeiro_calculado_milhoes"])
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +313,26 @@ def test_normalizacao_do_estoque_permite_casar_com_taxa_e_vna(tmp_path, monkeypa
     assert pd.notna(linha["taxa_pct"])
     assert linha["taxa_pct"] == 11.5
     assert pd.notna(linha["pu"])
+
+
+# ---------------------------------------------------------------------------
+# vna_por (em dv.py) e um dict comprehension sobre (data, indice) -- se o
+# vna.csv trouxer a mesma chave duas vezes com valores diferentes, o dict
+# fica com a ultima ocorrencia em silencio, e o financeiro/DV de todo
+# papel daquele indice na data usaria o VNA errado sem nenhum aviso. A
+# duplicata em taxa_por_papel.csv ja e coberta por test_sem_chave_
+# duplicada (via p.duplicated); esta cobre o lado do vna.csv, que dv.py
+# agora rejeita explicitamente antes de montar o dicionario.
+# ---------------------------------------------------------------------------
+
+def test_vna_csv_com_data_indice_duplicado_levanta_erro(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+    d = date(2023, 6, 30)
+
+    _escrever_estoque(tmp_path, [(str(d), "IPCA", "NTN-B", "2030-05-15", "ISINB2", 100.0)])
+    _escrever_taxas(tmp_path, [(str(d), "ISINB2", "NTN-B", "2030-05-15", 7.0)])
+    # Mesma (data, indice) duas vezes, com valores diferentes.
+    _escrever_vna(tmp_path, [(str(d), "IPCA", 4200.0), (str(d), "IPCA", 4300.0)])
+
+    with pytest.raises(ValueError, match="duplicado"):
+        dv.painel()
