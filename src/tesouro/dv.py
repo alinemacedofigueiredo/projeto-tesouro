@@ -224,5 +224,237 @@ def gravar_decay():
     print(f"gravado: {saida} ({len(df)} linhas)")
 
 
+# ---------------------------------------------------------------------------
+# Pontual: a pergunta do dia a dia -- "da posicao de hoje, quanto do meu DV
+# some ate tal data". Nao e uma funcao nova: e _decay_de com uma data-alvo
+# escolhida no momento, em vez de um dos tres horizontes fixos. Por isso o
+# resultado NUNCA e persistido em CSV -- e uma pergunta, nao um fato: a
+# data-alvo muda a cada chamada, e gravar a resposta criaria um arquivo que
+# ninguem sabe se ainda vale (ver docs/convencoes-dv.md e o brief da Tarefa
+# 7). O comando de linha (main, abaixo) imprime na tela e para por ai.
+#
+# Cobertura do DV01 sobre o estoque (junho de 2026, docs/convencoes-dv.md):
+# LTN 14,4% + NTN-F 7,5% + NTN-B 24,7% = 46,6% coberto. Dos outros 53,4%,
+# 51,3% e LFT (sem duration de juros por construcao, nao por lacuna de
+# dado) e 2,1% sao papeis excluidos por nao terem preco observavel no
+# secundario. Esse numero tem que acompanhar todo total impresso, senao
+# quem le supoe que o DV mede a divida inteira.
+# ---------------------------------------------------------------------------
+
+_COBERTURA_DV01_PCT = 46.6
+_COBERTURA_POR_TITULO_PCT = {"LTN": 14.4, "NTN-F": 7.5, "NTN-B": 24.7}
+_COBERTURA_LFT_PCT = 51.3
+_COBERTURA_EXCLUIDOS_PCT = 2.1
+
+
+def _daqui_um_ano(d):
+    """Mesma data, um ano depois; 29/02 sem bissexto seguinte vira 28/02."""
+    from datetime import date as _date
+    try:
+        return _date(d.year + 1, d.month, d.day)
+    except ValueError:
+        return _date(d.year + 1, d.month, d.day - 1)
+
+
+def _validar_no_calendario(cal, d, nome):
+    """Converte o ValueError interno do calendario numa mensagem que nao
+    exige conhecer _decay_de/Calendario para entender."""
+    try:
+        cal.eh_dia_util(d)
+    except ValueError:
+        # "from None" corta a cadeia: sem isso, o ValueError cru de dentro
+        # de Calendario._verificar_janela aparece no traceback junto com
+        # esta mensagem (via "During handling of the above exception..."),
+        # exatamente o que o brief da Tarefa 7 pede para evitar.
+        raise ValueError(
+            f"a {nome} ({d:%d/%m/%Y}) esta fora do calendario de dias "
+            f"uteis, que cobre 01/01/2001 a 31/12/2099. Escolha uma "
+            f"{nome} dentro desse intervalo."
+        ) from None
+
+
+def pontual(data_alvo=None, data_base=None):
+    """Decompoe a queda de DV entre a data-base e uma data-alvo escolhida.
+
+    Responde a pergunta do dia a dia: da posicao de hoje, quanto do DV
+    some ate a data-alvo, e quanto disso e vencimento em vez de encurtar.
+    Reusa _decay_de -- e a mesma conta dos horizontes fixos (1du/5du/21du),
+    so que com uma data escolhida na hora em vez de um dos tres rotulos.
+
+    data_base ausente: usa o ultimo fim de mes disponivel no painel.
+    data_alvo ausente: usa data_base + 1 ano (o resumo devolvido marca
+    isso em "alvo_padrao", para quem chama avisar o que foi assumido).
+
+    Conta B da spec: taxa e VNA constantes, sem dinheiro e sem VNA
+    reprojetado (ver o comentario acima de HORIZONTES).
+    """
+    cal = calendario.padrao()
+    p = painel()
+    p = p[p["titulo"] != "LFT"]           # LFT nao tem DV no projeto (None)
+
+    if data_base is None:
+        data_base = max(p["data"])
+    _validar_no_calendario(cal, data_base, "data-base")
+
+    alvo_padrao = data_alvo is None
+    if alvo_padrao:
+        data_alvo = _daqui_um_ano(data_base)
+    _validar_no_calendario(cal, data_alvo, "data-alvo")
+
+    if data_alvo <= data_base:
+        raise ValueError(
+            f"a data-alvo ({data_alvo:%d/%m/%Y}) precisa ser posterior a "
+            f"data-base ({data_base:%d/%m/%Y})"
+        )
+
+    grupo = p[p["data"] == data_base]
+    if grupo.empty:
+        datas = sorted(p["data"].unique())
+        raise ValueError(
+            f"nao ha posicao em {data_base:%d/%m/%Y} no painel; as datas "
+            f"disponiveis sao fins de mes, de {datas[0]:%d/%m/%Y} a "
+            f"{datas[-1]:%d/%m/%Y}. Informe --base com uma dessas datas, "
+            f"ou omita para usar a mais recente."
+        )
+
+    linhas = _decay_de(cal, grupo, data_base, data_alvo, "pontual")
+    df = pd.DataFrame(linhas, columns=_COLUNAS_DECAY)
+
+    vence = df[df["venceu_no_caminho"]]
+    vive = df[~df["venceu_no_caminho"]]
+    resumo = {
+        "data_base": data_base,
+        "data_alvo": data_alvo,
+        "alvo_padrao": alvo_padrao,
+        "dv_base": df["dv_base"].sum(),
+        "dv_que_vence": -vence["dv_base"].sum(),
+        "decay_sobreviventes": vive["decay"].sum(),
+        "dv_alvo": df["dv_alvo"].sum(),
+    }
+    resumo["por_titulo"] = (
+        df.groupby("titulo")
+          .agg(dv_base=("dv_base", "sum"), dv_alvo=("dv_alvo", "sum"),
+               papeis=("isin", "nunique"),
+               vencendo=("venceu_no_caminho", "sum"))
+          .reset_index()
+    )
+    return resumo
+
+
+def _num_br(x, casas=2, forcar_sinal=False):
+    """Formata em portugues: ponto de milhar, virgula decimal."""
+    neg = x < 0
+    texto = f"{abs(x):,.{casas}f}"
+    texto = texto.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+    if neg:
+        return f"-{texto}"
+    if forcar_sinal:
+        return f"+{texto}"
+    return texto
+
+
+def _formatar(r):
+    tabela = r["por_titulo"].copy()
+    tabela["dv_base"] = tabela["dv_base"].map(_num_br)
+    tabela["dv_alvo"] = tabela["dv_alvo"].map(_num_br)
+    tabela = tabela.rename(columns={
+        "titulo": "titulo", "dv_base": "dv_base_milhoes",
+        "dv_alvo": "dv_alvo_milhoes", "papeis": "papeis",
+        "vencendo": "vencendo_no_caminho",
+    })
+
+    cobertura_titulos = " + ".join(
+        f"{t} {_num_br(pct, 1)}%" for t, pct in _COBERTURA_POR_TITULO_PCT.items()
+    )
+
+    linhas = [
+        f"posicao em {r['data_base']:%d/%m/%Y}, projetada para "
+        f"{r['data_alvo']:%d/%m/%Y}",
+        "",
+        f"  DV na data-base                 {_num_br(r['dv_base']):>14}",
+        f"  (-) DV que vence no caminho      {_num_br(r['dv_que_vence'], forcar_sinal=True):>14}",
+        f"  (-) decay dos sobreviventes      {_num_br(r['decay_sobreviventes'], forcar_sinal=True):>14}",
+        f"  DV na data-alvo                  {_num_br(r['dv_alvo']):>14}",
+        "",
+        "valores em R$ milhoes por bp; negativo = mercado perde na alta de "
+        "taxa. 'DV que vence' e 'decay' aparecem com sinal positivo porque "
+        "somam ao DV base, que e negativo -- o efeito de ambos e deixar o "
+        "DV menos negativo.",
+        "",
+        f"cobertura do DV01: {_num_br(_COBERTURA_DV01_PCT, 1)}% do estoque "
+        f"({cobertura_titulos})",
+        f"fora do DV01: LFT {_num_br(_COBERTURA_LFT_PCT, 1)}% (sem duration "
+        f"de juros por construcao) + {_num_br(_COBERTURA_EXCLUIDOS_PCT, 1)}% "
+        f"excluidos sem preco no secundario",
+        "",
+        tabela.to_string(index=False),
+    ]
+    return "\n".join(linhas)
+
+
+def main(argumentos=None):
+    import argparse
+    from datetime import datetime
+
+    analisador = argparse.ArgumentParser(
+        description="Decay do DV01 ate uma data-alvo. Requer PYTHONPATH=src."
+    )
+    analisador.add_argument(
+        "--alvo", default=None,
+        help="data-alvo, no formato DD/MM/AAAA (ex.: 31/12/2026); se "
+             "omitido, usa data-base + 1 ano",
+    )
+    analisador.add_argument(
+        "--base", default=None,
+        help="data-base, no formato DD/MM/AAAA; o padrao e o ultimo fim de "
+             "mes do painel",
+    )
+    analisador.add_argument(
+        "--figura", default=None,
+        help="caminho para gravar o grafico (opcional; ver Tarefa 9)",
+    )
+    opcoes = analisador.parse_args(argumentos)
+
+    def ler_data(valor, nome_opcao):
+        try:
+            return datetime.strptime(valor, "%d/%m/%Y").date()
+        except ValueError:
+            raise SystemExit(
+                f"'{valor}' nao e uma data valida para {nome_opcao}. Use o "
+                f"formato DD/MM/AAAA (dia/mes/ano com 4 digitos), por "
+                f"exemplo 31/12/2026."
+            )
+
+    data_alvo = ler_data(opcoes.alvo, "--alvo") if opcoes.alvo else None
+    data_base = ler_data(opcoes.base, "--base") if opcoes.base else None
+
+    try:
+        r = pontual(data_alvo, data_base)
+    except ValueError as erro:
+        raise SystemExit(str(erro))
+
+    if r["alvo_padrao"]:
+        print(
+            f"nenhuma --alvo informada; usando data-base + 1 ano "
+            f"({r['data_alvo']:%d/%m/%Y}). Informe --alvo DD/MM/AAAA para "
+            f"escolher outra data."
+        )
+        print()
+
+    print(_formatar(r))
+
+    if opcoes.figura:
+        try:
+            from . import figuras
+        except ImportError:
+            raise SystemExit(
+                f"--figura ainda nao esta disponivel (modulo tesouro."
+                f"figuras nao existe nesta versao); o quadro acima ja foi "
+                f"impresso normalmente."
+            )
+        figuras.grafico_pontual(r, opcoes.figura)
+        print(f"\nfigura: {opcoes.figura}")
+
+
 if __name__ == "__main__":
-    gravar_painel()
+    main()

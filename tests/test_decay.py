@@ -317,3 +317,97 @@ def test_cada_horizonte_bate_com_a_soma_dos_passos_diarios_equivalentes(d):
             f"({soma_cadeia}) -- maior do que ruido de ponto flutuante, "
             f"investigar contagem de dias uteis"
         )
+
+
+# ---------------------------------------------------------------------------
+# Pontual: mesma conta de _decay_de, com uma data-alvo escolhida na hora em
+# vez de um dos tres horizontes fixos.
+# ---------------------------------------------------------------------------
+
+def test_pontual_fecha_a_identidade():
+    r = dv.pontual(date(2027, 12, 31))
+    soma = r["dv_base"] + r["dv_que_vence"] + r["decay_sobreviventes"]
+    assert abs(soma - r["dv_alvo"]) < 1e-6
+
+
+def test_pontual_separa_o_que_vence():
+    # Ate o fim de 2027 vence bastante papel; a parcela nao pode ser zero.
+    r = dv.pontual(date(2027, 12, 31))
+    assert r["dv_que_vence"] != 0
+    assert r["dv_base"] < 0            # convencao de sinal
+    assert abs(r["dv_alvo"]) < abs(r["dv_base"])
+
+
+def test_pontual_por_titulo_soma_o_total():
+    r = dv.pontual(date(2027, 12, 31))
+    assert set(r["por_titulo"]["titulo"]) <= {"LTN", "NTN-F", "NTN-B"}
+    assert abs(r["por_titulo"]["dv_base"].sum() - r["dv_base"]) < 1e-6
+
+
+def test_pontual_recusa_data_no_passado():
+    with pytest.raises(ValueError, match="posterior"):
+        dv.pontual(date(2010, 1, 31))
+
+
+def test_pontual_em_data_muito_distante_zera_tudo():
+    # Depois de 2060 nao sobra papel vivo.
+    r = dv.pontual(date(2070, 1, 2))
+    assert abs(r["dv_alvo"]) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# Casos de erro e de omissao que o brief da Tarefa 7 exige alem dos cinco
+# testes acima: data fora da janela do calendario nao pode vazar o
+# ValueError cru de dentro de calendario.Calendario, e omitir --alvo tem que
+# fazer algo sensato (documentado no proprio resultado, em "alvo_padrao").
+# ---------------------------------------------------------------------------
+
+def test_pontual_data_alvo_fora_da_janela_do_calendario_da_mensagem_clara():
+    with pytest.raises(ValueError, match="calendario de dias uteis"):
+        dv.pontual(date(2100, 1, 1))
+
+
+def test_pontual_data_base_fora_da_janela_do_calendario_da_mensagem_clara():
+    with pytest.raises(ValueError, match="calendario de dias uteis"):
+        dv.pontual(date(2027, 12, 31), data_base=date(1990, 1, 31))
+
+
+def test_pontual_data_base_fora_do_painel_da_mensagem_clara():
+    with pytest.raises(ValueError, match="painel"):
+        dv.pontual(date(2027, 12, 31), data_base=date(2026, 6, 15))
+
+
+def test_pontual_sem_alvo_usa_data_base_mais_um_ano():
+    r = dv.pontual()
+    assert r["alvo_padrao"] is True
+    assert r["data_alvo"] == date(r["data_base"].year + 1, r["data_base"].month,
+                                   r["data_base"].day)
+
+
+def test_pontual_com_alvo_marca_alvo_padrao_como_falso():
+    r = dv.pontual(date(2027, 12, 31))
+    assert r["alvo_padrao"] is False
+
+
+# ---------------------------------------------------------------------------
+# O quadro impresso tem que nomear a cobertura do DV01 (docs/convencoes-
+# dv.md) -- senao quem le supoe que o total mede a divida inteira -- e os
+# numeros tem que sair em portugues (virgula decimal), nao no formato
+# americano que pandas/Python usam por padrao.
+# ---------------------------------------------------------------------------
+
+def test_formatar_pontual_menciona_cobertura_do_dv01():
+    r = dv.pontual(date(2027, 12, 31))
+    texto = dv._formatar(r)
+    assert "46,6%" in texto
+    assert "LFT" in texto
+
+
+def test_formatar_pontual_usa_virgula_decimal():
+    r = dv.pontual(date(2027, 12, 31))
+    texto = dv._formatar(r)
+    # dv_base do total, negativo, formatado com virgula e ponto de milhar.
+    assert dv._num_br(r["dv_base"]) in texto
+    assert dv._num_br(1234.5) == "1.234,50"
+    assert dv._num_br(-1234.5) == "-1.234,50"
+    assert dv._num_br(45.2, forcar_sinal=True) == "+45,20"
