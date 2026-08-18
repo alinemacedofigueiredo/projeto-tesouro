@@ -344,7 +344,8 @@ tabela — mas quem filtrar `decay < 0` para caçar erro vai achar essas 933
 linhas, e precisa saber de antemão que isso é esperado, não sinal de algo
 quebrado.
 
-Fonte: `src/tesouro/dv.py:129-142` (comentário acima de `HORIZONTES`).
+Fonte: o comentário acima de `HORIZONTES`, em `src/tesouro/dv.py`, que traz os
+mesmos números — se você mudar um dos dois, mude o outro.
 
 ---
 

@@ -89,7 +89,7 @@ def _texto_cobertura(cobertura, data):
 
 def _nota_cobertura(cal, data):
     """Cobertura de verdade NA data pedida, via dv._cobertura -- nunca uma
-    constante fixa (ver comentario acima de dv._cobertura: 46,6% e o
+    constante fixa (ver comentario acima de dv._cobertura: 46,5% e o
     numero de 30/06/2026, mas a cobertura muda mes a mes; em 2020-12-31
     ela chega a 60,4%, catorze pontos acima)."""
     return _texto_cobertura(dv._cobertura(cal, data), data)

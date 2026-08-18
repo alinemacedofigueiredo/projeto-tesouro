@@ -135,11 +135,21 @@ def gravar_painel():
 #
 # Convencao de sinal do decay: dv e negativo para titulo (docs/convencoes-
 # dv.md). Com menos prazo o DV fica MENOS negativo, entao decay = dv_alvo -
-# dv_base e POSITIVO para um sobrevivente -- o numero mede o quanto o DV
-# "encolheu" em modulo. Para um papel que vence no caminho, dv_alvo e 0.0 e
-# decay tambem sai positivo (a mesma formula), mas dv_alvo=0 misturado com
-# o encolhimento normal e exatamente o que venceu_no_caminho existe para
-# marcar -- nunca somar as duas coisas sem olhar essa coluna.
+# dv_base e, EM REGRA, POSITIVO para um sobrevivente -- o numero mede o
+# quanto o DV "encolheu" em modulo. Para um papel que vence no caminho,
+# dv_alvo e 0.0 e decay tambem sai positivo (a mesma formula), mas dv_alvo=0
+# misturado com o encolhimento normal e exatamente o que venceu_no_caminho
+# existe para marcar -- nunca somar as duas coisas sem olhar essa coluna.
+#
+# "Em regra" porque ha excecao pequena e conhecida: em 933 das 18.596 linhas
+# de sobrevivente (5,0%, todas NTN-B) o decay sai levemente negativo, com
+# mediana -0,000019 e minimo -0,2326, concentrado nos horizontes curtos
+# (24,6% do 1du, 6,8% do 5du, 0,4% do 21du). E a mesma quantizacao da
+# truncagem descrita em "A truncagem faz parte do DV": dois PUs truncados
+# separadamente nem sempre guardam a ordem que o PU cheio guardaria. Nao e
+# defeito -- mas quem filtrar decay < 0 cacando erro vai achar essas linhas.
+# docs/convencoes-dv.md, secao "Convencao de sinal do decay", traz o mesmo
+# numero; se mudar um, mude o outro.
 # ---------------------------------------------------------------------------
 
 HORIZONTES = {"1du": 1, "5du": 5, "21du": 21}
@@ -233,9 +243,11 @@ def gravar_decay():
 # ninguem sabe se ainda vale (ver docs/convencoes-dv.md e o brief da Tarefa
 # 7). O comando de linha (main, abaixo) imprime na tela e para por ai.
 #
-# Cobertura do DV01 sobre o estoque: NAO e uma constante fixa. 46,6% (LTN
-# 14,4% + NTN-F 7,5% + NTN-B 24,7%) e o numero de junho de 2026 em
-# docs/convencoes-dv.md, mas a composicao da divida muda mes a mes -- em
+# Cobertura do DV01 sobre o estoque: NAO e uma constante fixa. Em junho de
+# 2026 o numero e 46,5% -- LTN 14,4% + NTN-F 7,5% + NTN-B 24,7% somam 46,6%
+# arredondando cada parcela antes, mas o total calculado com precisao total
+# da 46,5%, e e esse que docs/convencoes-dv.md publica (ele explica os dois).
+# A composicao da divida muda mes a mes -- em
 # 2020-12-31 a cobertura medida e 60,4%, quatorze pontos acima. Por isso
 # _cobertura calcula o numero de verdade NA data_base pedida, a partir do
 # financeiro_milhoes bruto de estoque_titulos_vencimento.csv (que cobre

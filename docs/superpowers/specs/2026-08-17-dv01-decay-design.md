@@ -30,8 +30,10 @@ comando de cálculo pontual até uma data-alvo escolhida.
 secundário, 2,1% do estoque. Fora também: curva de juros, rolldown, análise de
 leilões, simulação contra o PAF.
 
-**O DV01 cobre 46,6% do estoque** (LTN 14,4% + NTN-F 7,5% + NTN-B 24,7%, pelo
-estoque de junho de 2026). Os outros 53,4% são LFT, que não tem duration de juros
+**O DV01 cobre 46,5% do estoque** (LTN 14,4% + NTN-F 7,5% + NTN-B 24,7%, pelo
+estoque de junho de 2026 — as parcelas arredondadas somam 46,6%, mas o total
+calculado com precisão total é 46,5%; ver `docs/convencoes-dv.md`, seção
+"Escopo"). Os outros 53,5% são LFT, que não tem duration de juros
 por construção, e os excluídos. **Esse número aparece sempre que um total for
 reportado** — sem ele, alguém soma o DV01 e supõe que mede a dívida inteira.
 
