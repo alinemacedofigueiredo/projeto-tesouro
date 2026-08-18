@@ -49,10 +49,10 @@ def test_pu_vezes_quantidade_bate_com_o_financeiro_do_tesouro(p):
 
     Faixas medidas nesta sessao (mediana do erro relativo
     financeiro_calculado/financeiro_tesouro - 1):
-      LFT    -0,02%  (controle)
-      LTN    +0,01%  (controle)
-      NTN-F  +0,36%  (diverge)
-      NTN-B  +1,95%  (diverge mais -- cupom mais longo, mais peso de curva)
+      LFT    -0,0221%  (controle)
+      LTN    +0,0092%  (controle)
+      NTN-F  +0,3613%  (diverge)
+      NTN-B  +1,9518%  (diverge mais -- cupom mais longo, mais peso de curva)
     """
     e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                      parse_dates=["data"])
@@ -62,10 +62,20 @@ def test_pu_vezes_quantidade_bate_com_o_financeiro_do_tesouro(p):
                 how="inner")
     j = j[j["financeiro_calculado_milhoes"].notna()
           & (j["financeiro_milhoes"] > 0)]
-    # Sanidade de tamanho: se a juncao colapsasse (rotulo repetido, chave
-    # errada), sobraria uma fracao minuscula do painel e as medianas abaixo
-    # ficariam vazias ou sem sentido, sem erro nenhum.
-    assert len(j) > 5000
+    # Sanidade de tamanho, ANCORADA no tamanho do painel, nao numa
+    # constante solta: achado da revisao -- ">5000" passava intacto com a
+    # juncao feita por DATA LITERAL (sem normalizar para o ultimo dia
+    # util), que perde 30,9% do painel (6.074 de 9.366) exatamente pela
+    # armadilha que docs/convencoes-dv.md:154-156 manda vigiar. A juncao
+    # correta preserva 93,89% do painel (8.794 de 9.366, o mesmo numerador
+    # de test_cobertura_de_taxa_bate_com_a_medida_no_estoque, abaixo) --
+    # 0.93 deixa uma margem de ~1% sem abrir espaco para a juncao quebrada.
+    assert len(j) >= 0.93 * len(p), (
+        f"juncao produziu {len(j)} pares de {len(p)} no painel "
+        f"({100 * len(j) / len(p):.1f}%) -- esperava pelo menos 93%; "
+        f"confira se a normalizacao para o ultimo dia util (nao a data "
+        f"literal) foi aplicada nos dois lados antes do merge"
+    )
 
     j = j.copy()
     j["erro_rel"] = (j["financeiro_calculado_milhoes"] / j["financeiro_milhoes"]) - 1
@@ -73,15 +83,21 @@ def test_pu_vezes_quantidade_bate_com_o_financeiro_do_tesouro(p):
     assert set(mediana.index) == {"LFT", "LTN", "NTN-F", "NTN-B"}
 
     # Controle: sem cupom futuro para a curva "chutar", o erro tem que
-    # ficar perto de zero. Se um dia LFT ou LTN sairem dessa banda, o
-    # problema esta na NOSSA formula ou unidade -- nao mexa na tolerancia
-    # sem investigar antes.
-    for titulo in ("LFT", "LTN"):
-        assert abs(mediana[titulo]) < 0.0025, (
+    # ficar perto de zero -- e "perto" aqui e apertado, nao frouxo: um
+    # erro de 0,24% no controle passaria calado e vale, em 30/06/2026,
+    # cerca de R$ 3,0 bilhoes no livro de LTN e R$ 11,0 bilhoes no de LFT
+    # (achado da revisao). Os limiares abaixo (6 bp para LFT, 3 bp para
+    # LTN) deixam ~2,7x e ~3,3x de folga sobre a mediana medida -- a
+    # mesma ordem de folga das faixas de NTN-F/NTN-B logo abaixo, nao as
+    # 11x/27x de folga que a primeira versao deste teste deixava passar.
+    limites_controle = {"LFT": 0.0006, "LTN": 0.0003}
+    for titulo, limite in limites_controle.items():
+        assert abs(mediana[titulo]) < limite, (
             f"{titulo} (controle, sem cupom futuro) diverge do financeiro "
-            f"do Tesouro em {mediana[titulo]:.2%} na mediana -- deveria "
-            f"ficar perto de zero. Investigue erro de formula/unidade "
-            f"antes de mexer aqui."
+            f"do Tesouro em {mediana[titulo]:.4%} na mediana -- deveria "
+            f"ficar bem perto de zero. Investigue erro de formula/unidade "
+            f"antes de mexer aqui; um erro de fracao de percentual aqui "
+            f"vale bilhoes de reais no livro."
         )
 
     # Achado: NTN-F e NTN-B divergem de forma sistematica e POSITIVA, e bem
@@ -180,13 +196,19 @@ def test_pu_reproduz_o_preco_da_bloomberg_com_deslocamento_de_d1(cal):
     precos_arquivos = sorted(config.BLOOMBERG_DIR.glob("bbg_precos_*.csv"))
     if not precos_arquivos:
         pytest.skip(
-            "sem bbg_precos_*.csv em data/raw/bloomberg/: este teste cruza "
-            "o PU calculado contra o PX_DIRTY_MID da Bloomberg (fonte "
-            "ANDE), e a usuaria exige autorizar cada consulta a Bloomberg "
-            "caso a caso -- consulta ainda nao autorizada. Peca a ela para "
-            "autorizar e rodar a coleta de precos, e colocar o(s) "
-            "arquivo(s) 'bbg_precos_*.csv' em data/raw/bloomberg/ antes de "
-            "habilitar este teste."
+            "Este teste cruza o PU calculado contra o PX_DIRTY_MID da "
+            "Bloomberg (fonte ANDE), e falta data/raw/bloomberg/"
+            "bbg_precos_*.csv. Voce exige autorizar cada consulta a "
+            "Bloomberg caso a caso, e esta consulta ainda nao foi "
+            "autorizada -- este teste nao a fez sozinho. Para habilitar: "
+            "autorize a coleta de precos e rode (com o terminal Bloomberg "
+            "disponivel)\n\n"
+            "  PowerShell:\n"
+            '    $env:PYTHONPATH="src"; python -m tesouro.fetch_bloomberg\n\n'
+            "  bash:\n"
+            "    PYTHONPATH=src python -m tesouro.fetch_bloomberg\n\n"
+            "e confirme que o(s) arquivo(s) 'bbg_precos_*.csv' apareceram "
+            "em data/raw/bloomberg/ antes de rodar este teste de novo."
         )
 
     taxas_arquivos = sorted(config.BLOOMBERG_DIR.glob("bbg_taxas_*.csv"))
@@ -213,7 +235,14 @@ def test_pu_reproduz_o_preco_da_bloomberg_com_deslocamento_de_d1(cal):
     j = j[j["titulo"].isin(["NTN-F", "LTN", "NTN-B"])]
     assert len(j) > 50, "amostra pequena demais para o cruzamento valer"
 
-    erros = []
+    # Por titulo, nao um balaio so: docs/convencoes-dv.md:120-121 registra
+    # as medianas pre-D+1 POR TITULO (-5 bp em LTN/NTN-F, -1,95 bp em
+    # NTN-B). Se so a perna de VNA da NTN-B regredisse para D+0, a metade
+    # da amostra (NTN-B e 210 dos 438 pares) ficaria em -1,95 bp e a outra
+    # metade perto de zero -- a mediana AGRUPADA aterrissaria perto de
+    # zero e passaria, escondendo a regressao. Separado por titulo, isso
+    # nao acontece.
+    erros_por_titulo = {"NTN-F": [], "LTN": [], "NTN-B": []}
     for r in j.itertuples(index=False):
         d1 = cal.mover(r.data, 1)
         venc, taxa = r.vencimento, r.yld_ytm_mid / 100
@@ -226,41 +255,88 @@ def test_pu_reproduz_o_preco_da_bloomberg_com_deslocamento_de_d1(cal):
             if vna_d1 is None:
                 continue
             calc = precificacao.pu_ntnb(cal, d1, venc, taxa, vna_d1)
-        erros.append((calc - r.px_dirty_mid) / r.px_dirty_mid * 1e4)
+        erro_bp = (calc - r.px_dirty_mid) / r.px_dirty_mid * 1e4
+        erros_por_titulo[r.titulo].append(erro_bp)
 
-    assert len(erros) > 50, "amostra pos-filtro pequena demais para valer"
-    mediana = pd.Series(erros).median()
-    assert abs(mediana) < 0.5, (
-        f"PU calculado difere do preco da Bloomberg em {mediana:.3f} bp na "
-        f"mediana; com o deslocamento de D+1 isso deveria ser perto de "
-        f"zero. Releia docs/convencoes-dv.md antes de mexer na producao."
-    )
-
-
-# ---------------------------------------------------------------------------
-# 3. VNA identico entre papeis do mesmo indice, na mesma data.
-#
-# Verificado na coleta (parse_bloomberg.parse_vna): divergencia exatamente
-# zero. Cuidado documentado em docs/convencoes-dv.md: em 16 das 198 datas
-# de IPCA da colheita bruta ha um so papel, e divergencia zero ali nao
-# prova nada. O painel do projeto (agrupado por NTN-B/LFT, nao pelo
-# universo IPCA/SELIC inteiro da colheita) sempre tem 2+ ISINs por data --
-# confirmamos isso ANTES de exigir VNA unico, para a comparacao nao ser
-# vacua sem que ninguem perceba.
-# ---------------------------------------------------------------------------
-
-def test_vna_e_o_mesmo_entre_papeis_do_indice(p):
-    for titulo in ("NTN-B", "LFT"):
-        sub = p[(p["titulo"] == titulo) & p["vna"].notna()]
-        por_data = sub.groupby("data")
-        n_papeis = por_data["isin"].nunique()
-        assert (n_papeis >= 2).all(), (
-            f"{titulo} tem data com um so papel no painel; a comparacao de "
-            f"VNA ficaria vacua nela (ver docs/convencoes-dv.md sobre as "
-            f"16 datas de IPCA com um so papel na colheita bruta)"
+    # Limiar apertado: a validacao a mao de docs/convencoes-dv.md documenta
+    # diferenca MAXIMA de 0,0083 bp (ruido de ponto flutuante) nos 438
+    # pares, com D+1 aplicado. 0,05 bp deixa ~6x de folga sobre esse maximo
+    # -- nao as 60x que um limiar de 0,5 bp deixaria passar.
+    for titulo, erros in erros_por_titulo.items():
+        assert len(erros) > 20, (
+            f"{titulo}: amostra pos-filtro pequena demais para valer "
+            f"({len(erros)} pares)"
         )
-        n_vna = por_data["vna"].nunique()
-        assert (n_vna == 1).all(), f"{titulo} tem VNA divergente entre papeis na mesma data"
+        mediana = pd.Series(erros).median()
+        assert abs(mediana) < 0.05, (
+            f"{titulo}: PU calculado difere do preco da Bloomberg em "
+            f"{mediana:.4f} bp na mediana; com o deslocamento de D+1 isso "
+            f"deveria ser perto de zero (maximo documentado: 0,0083 bp). "
+            f"Releia docs/convencoes-dv.md antes de mexer na producao."
+        )
+
+
+# ---------------------------------------------------------------------------
+# 3. VNA identico entre papeis do mesmo indice, na colheita bruta.
+#
+# ACHADO DA REVISAO: a primeira versao deste teste rodava contra
+# dv.painel(), agrupando por (titulo, data) e conferindo
+# groupby("data")["vna"].nunique() == 1. Isso e estruturalmente
+# infalsificavel -- dv.py:73-79 monta um dict `vna_por` chaveado por
+# (data, indice), SEM ISIN, e atribui o mesmo valor a todo papel do
+# titulo naquela data por CONSTRUCAO. O teste so podia dar 1, mutacao
+# nenhuma o derruba (confirmado: a troca de _INDICE_DO_TITULO que quebra
+# tres outros testes deste arquivo nao move este teste em nada).
+#
+# O cruzamento de verdade -- papeis cotados de forma INDEPENDENTE pela
+# Bloomberg discordando entre si -- mora no arquivo BRUTO da colheita
+# (bbg_vna_*.csv), nas colunas n_papeis/divergencia, ANTES do dict de
+# dv.py colapsar tudo. Esse cruzamento ja e aplicado em tempo de escrita
+# por parse_bloomberg.parse_vna (_TOLERANCIA_DIVERGENCIA) e testado com
+# fixture sintetica em tests/test_parse_bloomberg.py -- o que falta, e o
+# que este teste cobre, e a mesma verificacao contra o arquivo bruto REAL
+# inteiro (nao uma fixture pequena), que e o dado que efetivamente
+# alimenta o painel.
+# ---------------------------------------------------------------------------
+
+def test_vna_nao_diverge_entre_papeis_na_colheita_bruta():
+    """Em 16 das 198 datas de IPCA a colheita bruta so tem 1 papel
+    (docs/convencoes-dv.md) -- divergencia zero ali e vacua, e por isso
+    essas datas sao excluidas antes de exigir divergencia baixa. As datas
+    de SELIC sempre tem 3 ou mais papeis no dado real (nenhuma vacua).
+    """
+    arquivos = sorted(config.BLOOMBERG_DIR.glob("bbg_vna_*.csv"))
+    assert arquivos, "sem bbg_vna_*.csv em data/raw/bloomberg/"
+    bruto = pd.concat([pd.read_csv(a) for a in arquivos], ignore_index=True)
+
+    contagem_vacua_esperada = {"IPCA": 16, "SELIC": 0}
+    for indice, esperado in contagem_vacua_esperada.items():
+        sub = bruto[bruto["indice"] == indice]
+        assert len(sub) > 100
+
+        vacuas = (sub["n_papeis"] == 1).sum()
+        assert vacuas == esperado, (
+            f"{indice}: {vacuas} data(s) com um so papel na colheita "
+            f"bruta, esperava exatamente {esperado}. Se esse numero "
+            f"mudou, confira antes de so atualizar a constante."
+        )
+
+        nao_vacuo = sub[sub["n_papeis"] >= 2]
+        assert len(nao_vacuo) > 100, (
+            f"{indice}: poucas datas com 2+ papeis para o cruzamento valer"
+        )
+
+        # 0,5 real, o mesmo limiar de parse_bloomberg._TOLERANCIA_
+        # DIVERGENCIA -- escrito aqui como literal, e nao importado do
+        # modulo sob teste, para que uma mudanca de tolerancia na
+        # producao nao arraste esta trava junto sem ninguem perceber.
+        piores = nao_vacuo[nao_vacuo["divergencia"].abs() > 0.5]
+        assert piores.empty, (
+            f"{indice}: {len(piores)} data(s) com 2+ papeis onde o VNA "
+            f"reportado diverge do implicito nos papeis em mais de "
+            f"R$0,50 -- "
+            f"{piores[['data', 'n_papeis', 'divergencia']].head(5).to_dict('records')}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +435,62 @@ def test_linhas_vivas_sem_pu_fim_sao_exatamente_oito():
 
     assert orfas["data_fim"].min() >= date(2010, 2, 1)
     assert orfas["data_fim"].max() <= date(2011, 8, 31)
+    # As 8 linhas ja estao confinadas a uma janela de 2010-02 a 2011-08
+    # pelas duas assercoes acima; a ultima data do painel real (2026-06)
+    # torna qualquer checagem adicional de "ultimos doze meses" estrita-
+    # mente implicada por essa janela (nunca pode falhar) -- removida na
+    # revisao por ser assercao morta, e porque a forma original
+    # (date(ano - 1, mes, dia)) levantava ValueError sempre que a ultima
+    # data do painel caisse em 29 de fevereiro.
 
-    ultimo_mes = r["data_fim"].max()
-    doze_meses_atras = date(ultimo_mes.year - 1, ultimo_mes.month, ultimo_mes.day)
-    assert (orfas["data_fim"] < doze_meses_atras).all(), (
-        "alguma das 8 linhas orfas caiu nos ultimos doze meses do painel "
-        "-- isso seria uma ausencia recente, nao um problema historico"
+
+# ---------------------------------------------------------------------------
+# 7. Cobertura de taxa: fracao dos pares papel-mes do estoque do RMD que
+# tem taxa da Bloomberg casada, e a mesma fracao ponderada pelo
+# financeiro. Numerador (taxa, Bloomberg) e denominador (estoque, RMD)
+# vem de fontes independentes -- e o mesmo cruzamento cuja juncao quebrada
+# (por data literal, sem normalizar para o ultimo dia util) faz o teste 1
+# perder um terco do painel em silencio (o numerador de ambos e o mesmo
+# 8.794). Este teste torna essa fracao um numero visivel e ancorado.
+# ---------------------------------------------------------------------------
+
+def test_cobertura_de_taxa_bate_com_a_medida_no_estoque(p):
+    """dv.painel() e o estoque em escopo (LTN/NTN-F/NTN-B/LFT com
+    quantidade_mil > 0) juntado a ESQUERDA com a taxa -- toda linha do
+    painel existe no estoque do RMD, e taxa_pct so esta presente onde a
+    Bloomberg casou. A fracao com taxa e a cobertura simples (pares
+    papel-mes); ponderada pelo financeiro BRUTO do RMD (nao o
+    financeiro_calculado_milhoes, que ja exige taxa por construcao) da a
+    cobertura ponderada.
+
+    Se a normalizacao de data quebrar de um dos dois lados (o estoque
+    traz o ultimo dia CORRIDO do mes, taxa/vna trazem o ultimo dia UTIL --
+    ver docs/convencoes-dv.md), a cobertura simples cai para 0,00%: nenhum
+    (data, isin) do estoque casaria mais com nenhum (data, isin) da taxa.
+    """
+    cobertura_simples = 100 * p["taxa_pct"].notna().sum() / len(p)
+    assert cobertura_simples == pytest.approx(93.89, abs=0.1), (
+        f"cobertura de taxa (pares papel-mes) e {cobertura_simples:.2f}%, "
+        f"esperava ~93,89%. Se caiu para perto de zero, a juncao de data "
+        f"entre taxa_por_papel.csv e estoque_titulos_vencimento.csv "
+        f"provavelmente parou de normalizar para o ultimo dia util de um "
+        f"dos dois lados."
+    )
+
+    cal = calendario.padrao()
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                     parse_dates=["data"])
+    e["data"] = e["data"].dt.date.map(cal.ultimo_dia_util_do_mes)
+    e = e[(e["quantidade_mil"].fillna(0) > 0) & e["titulo"].isin(dv.TITULOS)]
+
+    j = p.merge(e[["data", "isin", "financeiro_milhoes"]], on=["data", "isin"],
+                how="left")
+    assert len(j) == len(p)  # o painel INTEIRO tem que casar com o estoque
+
+    peso_total = j["financeiro_milhoes"].sum()
+    peso_com_taxa = j.loc[j["taxa_pct"].notna(), "financeiro_milhoes"].sum()
+    cobertura_ponderada = 100 * peso_com_taxa / peso_total
+    assert cobertura_ponderada == pytest.approx(99.23, abs=0.1), (
+        f"cobertura de taxa ponderada pelo financeiro e "
+        f"{cobertura_ponderada:.2f}%, esperava ~99,23%"
     )

@@ -33,6 +33,18 @@ def main(argumentos=None):
             "usa o RMD mais recente ja presente em data/raw/rmd/"
         )
 
+    # Falhas reais da coleta (nao o caso benigno "painel ja em dia")
+    # ficam acumuladas aqui, para aparecer de novo perto de "concluido." em
+    # vez de se perder cinco linhas acima no topo do log, e para o
+    # pipeline sair com codigo diferente de zero quando alguma perna foi
+    # pulada por falha de verdade -- achado da revisao da Tarefa 10: um
+    # "except Exception" generico fundia "nada novo para coletar" (rotina)
+    # com blpapi ausente/sessao recusada/arquivo corrompido/estoque ausente
+    # (falha real) sob a mesma linha neutra "pulada", e o pipeline seguia,
+    # regravava os 22 CSVs com dado velho e saia com codigo 0 nos dois
+    # casos -- indistinguivel para quem le o log ou agenda o job.
+    falhas = []
+
     if not opcoes.sem_coleta:
         from . import fetch_leiloes, fetch_rmd
         fetch_leiloes.baixar()
@@ -46,12 +58,30 @@ def main(argumentos=None):
         # segue com o que ja estiver em disco. Mesmo principio de
         # --sem-coleta, aplicado a uma fonte que pode faltar mesmo com rede
         # -- o terminal so existe na maquina da mesa, nao em toda maquina
-        # com internet.
+        # com internet. O import de fetch_bloomberg abaixo fica FORA do
+        # try de proposito -- so o import esta seguro sem terminal, porque
+        # "import blpapi" mora dentro de fetch_bloomberg._sessao(), nunca
+        # no topo do modulo (travado por
+        # tests/test_fetch_bloomberg.py::test_nao_importa_blpapi_no_topo);
+        # o que precisa do try/except e a CHAMADA a baixar(), nao o import.
         from . import fetch_bloomberg
         try:
             fetch_bloomberg.baixar()
+        except RuntimeError as erro:
+            # fetch_bloomberg.baixar so levanta RuntimeError nos dois casos
+            # "nada a coletar"/"nada novo a coletar": o painel do estoque
+            # ja esta coberto pelos arquivos existentes. Isso e rotina, nao
+            # falha -- nao entra em "falhas".
+            print(f"coleta da Bloomberg: {erro}")
         except Exception as erro:               # noqa: BLE001
-            print(f"coleta da Bloomberg pulada: {erro}")
+            # Qualquer outra excecao (blpapi ausente, sessao recusada,
+            # arquivo corrompido, estoque ausente etc.) e falha de
+            # verdade: prefixo bem visivel, porque o pipeline vai seguir e
+            # regravar os CSVs com o dado ja presente em disco -- isso
+            # nunca pode parecer rotina.
+            mensagem = f"coleta da Bloomberg FALHOU, seguindo com dado velho: {erro}"
+            print(f"ATENCAO: {mensagem}")
+            falhas.append(mensagem)
 
     print("\n--- leiloes ---")
     parse_leiloes.gravar()
@@ -72,7 +102,17 @@ def main(argumentos=None):
     from . import figuras
     figuras.gravar_todas()
 
+    if falhas:
+        print(
+            "\nATENCAO: concluido com falha(s) -- os CSVs acima podem "
+            "refletir dado desatualizado:"
+        )
+        for falha in falhas:
+            print(f"  - {falha}")
+        return 1
+
     print("\nconcluido.")
+    return 0
 
 
 if __name__ == "__main__":
