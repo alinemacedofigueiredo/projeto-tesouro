@@ -1,6 +1,5 @@
 from datetime import date
 
-import numpy as np
 import pandas as pd
 import pytest
 from tesouro import calendario, dv, precificacao
@@ -177,7 +176,7 @@ def test_decay_reduz_o_modulo_do_dv_dos_sobreviventes(d):
     s = s.merge(p, on=["data_base", "isin"], how="left")
     assert s["quantidade_mil"].notna().all()
 
-    degrau_unitario = np.where(s["titulo"] == "NTN-B", 1e-6 * s["vna"], 1e-6)
+    degrau_unitario = (1e-6 * s["vna"]).where(s["titulo"] == "NTN-B", 1e-6)
     tolerancia = 1.01 * degrau_unitario * s["quantidade_mil"] / 1000
 
     violacoes = s[s["dv_alvo"] < s["dv_base"] - tolerancia]
