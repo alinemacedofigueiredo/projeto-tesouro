@@ -2602,3 +2602,320 @@ git commit -m "Adiciona o prazo medio com banda e corrige o realizado de 2025 no
 ```
 
 ---
+
+## Task 8: Custo do estoque contra a Selic e o IPCA
+
+**Files:**
+- Create: `src/tesouro/graficos/custo.py`
+- Test: `tests/test_graficos_custo.py`
+
+**Interfaces:**
+- Consumes: `estilo.COR`, `estilo.num_br`, `estilo.recorta`, `estilo.eixo_anual`.
+- Produces:
+  - `JANELAS = {"5 anos": 5, "completa": None}`
+  - `variacao_12m_do_vna()` -> DataFrame indexado por data, colunas `SELIC, IPCA`,
+    em percentual acumulado em 12 meses.
+  - `dados_custo(janela=None)` -> DataFrame indexado por data, colunas
+    `DPF, DPMFi, SELIC, IPCA`, em % ao ano.
+  - `desenha_custo(dados, ax)`
+
+**Fonte:** `custo_medio.csv`, medida `acum_12m`, linhas agregadas de `DPF` e `DPMFi`,
+247 observações de dez/2005 a jun/2026; e `vna.csv`, 198 meses de jan/2010 a jun/2026,
+que vem da **entrega 2**.
+
+**Por que esta tarefa existe.** É o gráfico que responde "a dívida está cara?". O
+custo do estoque sozinho não responde: 12,68% ao ano é caro ou barato dependendo de
+onde estavam a Selic e a inflação. As três linhas juntas mostram que o custo acompanha
+a Selic com atraso, porque metade da dívida é LFT e a outra metade foi contratada no
+passado.
+
+**A Selic e o IPCA saem do nosso próprio VNA.** A variação de 12 meses do VNA **é** o
+índice acumulado: 14,78% e 4,81% em jun/2026. A página do RMD busca isso no site do
+Bacen; nós não precisamos, e é por isso que esta branch nasceu de `dv01-decay`.
+
+**Decisões tomadas com a usuária que o código deve respeitar:**
+
+- **Eixo do tempo em marcas anuais, mantendo o dado mensal.** A página do RMD usa
+  cerca de 170 rótulos mensais e ninguém lê.
+- **Rótulo só no último ponto de cada linha.** Quatro números na borda direita, e
+  nada escrito no meio do gráfico.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **O `custo_medio.csv` tem três medidas na mesma coluna.** `mensal`, `acum_12m` e
+   `emissoes_12m`. Este gráfico é o **`acum_12m`**. Pegar `mensal` dá 13,64 para a
+   DPF em vez de 12,68 — número plausível, gráfico errado, e nada acusa.
+2. **As linhas agregadas são as que têm `entidade` e `titulo` vazios**, a mesma
+   armadilha da Task 7. Sem os dois filtros entram as linhas por título.
+3. **O VNA é do último dia útil e o custo é do último dia do mês.** O VNA de maio/26
+   é 29/05 e o custo é 31/05. **Só 137 das 198 datas do VNA coincidem** com as do
+   custo: juntar por data exata perde 61 meses e desenha uma linha picotada que
+   parece dado faltando. A junção é por **competência** (ano e mês), não por data.
+4. **A variação de 12 meses precisa da série mensal completa.** `shift(12)` conta
+   posições, não meses: com um buraco, ele compara contra 13 ou 14 meses atrás sem
+   avisar. O VNA tem os 198 meses sem falha, e o teste trava isso.
+5. **A Selic e o IPCA só começam em jan/2011** — doze meses depois do início do VNA —
+   enquanto o custo começa em dez/2005. Os cinco primeiros anos ficam **vazios**, não
+   zerados: zero seria lido como "a Selic foi a zero".
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_custo.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro import config
+from tesouro.graficos import custo, estilo
+
+
+@pytest.fixture(scope="module")
+def dados():
+    return custo.dados_custo()
+
+
+def test_o_custo_de_junho_de_2026_bate_com_o_medido(dados):
+    u = dados.iloc[-1]
+    assert round(u["DPF"], 2) == 12.68
+    assert round(u["DPMFi"], 2) == 13.19
+
+
+def test_a_selic_e_o_ipca_saem_do_nosso_vna(dados):
+    # A variacao de 12 meses do VNA E o indice acumulado. A pagina do RMD busca
+    # isso no site do Bacen; nos temos em casa desde a entrega 2.
+    u = dados.iloc[-1]
+    assert round(u["SELIC"], 2) == 14.78
+    assert round(u["IPCA"], 2) == 4.81
+
+
+def test_a_medida_e_o_acumulado_de_12_meses_e_nao_o_mensal(dados):
+    # A medida 'mensal' da 13,64 para a DPF em junho: plausivel, e errado.
+    bruto = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv",
+                        parse_dates=["data"])
+    mensal = bruto[(bruto["medida"] == "mensal") & (bruto["nivel"] == "DPF")
+                   & bruto["entidade"].isna() & bruto["titulo"].isna()]
+    valor_mensal = mensal.set_index("data")["custo_aa_pct"].iloc[-1]
+    assert round(valor_mensal, 2) == 13.64          # existe, e nao e o nosso
+    assert round(dados.iloc[-1]["DPF"], 2) == 12.68
+
+
+def test_o_vna_e_mensal_e_completo():
+    # shift(12) conta posicoes, nao meses: com um buraco na serie a variacao de 12
+    # meses compara contra 13 ou 14 meses atras sem avisar.
+    v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
+    meses = v["data"].dt.to_period("M").drop_duplicates().sort_values()
+    esperado = pd.period_range(meses.min(), meses.max(), freq="M")
+    assert len(meses) == 198
+    assert list(meses) == list(esperado), "o VNA tem mes faltando"
+
+
+def test_a_juncao_e_por_competencia_e_nao_por_data(dados):
+    # O VNA e do ultimo dia util e o custo e do ultimo dia do mes: so 137 das 198
+    # datas coincidem. Juntar por data exata perde 61 meses.
+    v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
+    coincidem = set(v["data"]) & set(dados.index)
+    assert len(coincidem) < 150, "as datas coincidem demais; o teste perdeu sentido"
+    # Ainda assim nenhum mes de 2011 em diante fica sem Selic.
+    de_2011 = dados[dados.index >= "2011-01-01"]
+    assert de_2011["SELIC"].notna().all()
+    assert len(de_2011) >= 180
+
+
+def test_os_indices_ficam_vazios_antes_de_2011_e_nunca_zerados(dados):
+    antes = dados[dados.index < "2011-01-01"]
+    assert len(antes) > 50
+    assert antes["SELIC"].isna().all()
+    assert antes["IPCA"].isna().all()
+    # Zero seria lido como "a Selic foi a zero".
+    assert not (antes["SELIC"] == 0).any()
+    # O custo, esse, existe desde dez/2005.
+    assert antes["DPF"].notna().all()
+
+
+def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
+    curto = custo.dados_custo(janela=5)
+    longo = custo.dados_custo()
+    assert len(curto) < len(longo)
+    assert curto.index.max() == longo.index.max()
+    assert curto.index.min() >= longo.index.max() - pd.DateOffset(years=5)
+    assert round(curto.iloc[-1]["DPF"], 2) == 12.68
+
+
+def test_so_o_ultimo_ponto_de_cada_linha_leva_rotulo(dados):
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    custo.desenha_custo(dados, ax)
+    escritos = sorted(a.get_text() for a in ax.texts)
+    plt.close(fig)
+    # Quatro linhas, quatro numeros, todos na borda direita.
+    assert escritos == ["12,68", "13,19", "14,78", "4,81"]
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_custo.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'custo'`.
+
+- [ ] **Passo 3: escrever as funções de dado**
+
+```python
+# src/tesouro/graficos/custo.py
+"""Custo do estoque da divida contra a Selic e o IPCA.
+
+O custo sozinho nao responde se a divida esta cara: 12,68% ao ano e caro ou barato
+conforme onde estao a Selic e a inflacao. As tres linhas juntas mostram o custo
+acompanhando a Selic com atraso, porque metade da divida e LFT e a outra metade foi
+contratada no passado.
+
+A SELIC E O IPCA SAEM DO NOSSO PROPRIO VNA. A variacao de 12 meses do VNA e o
+indice acumulado -- 14,78% e 4,81% em jun/2026. A pagina do RMD busca isso no site
+do Bacen; nos nao precisamos, e e por isso que esta branch nasceu de dv01-decay.
+
+ARMADILHA 1: o custo_medio.csv tem tres medidas na mesma coluna. Este grafico e o
+'acum_12m'. O 'mensal' da 13,64 para a DPF em junho, numero plausivel e errado.
+
+ARMADILHA 2: o VNA e do ultimo dia util e o custo e do ultimo dia do mes -- so 137
+das 198 datas coincidem. A juncao e por competencia (ano e mes), nunca por data.
+
+ARMADILHA 3: shift(12) conta posicoes, nao meses. Com um buraco na serie do VNA a
+variacao compara contra 13 meses atras em silencio, e por isso a completude do VNA
+e travada por teste.
+"""
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+JANELAS = {"5 anos": 5, "completa": None}
+
+NIVEIS = ["DPF", "DPMFi"]
+INDICES = ["SELIC", "IPCA"]
+
+_COR = {"DPF": "#1f3864",
+        "DPMFi": "#3d9be9",
+        "SELIC": "#2ca02c",
+        "IPCA": "#ed7d31"}
+
+_ROTULO = {"DPF": "custo da DPF",
+           "DPMFi": "custo da DPMFi",
+           "SELIC": "Selic acumulada em 12m",
+           "IPCA": "IPCA acumulado em 12m"}
+
+
+def variacao_12m_do_vna():
+    """Selic e IPCA acumulados em 12 meses, a partir do VNA da entrega 2.
+
+    O VNA e um indice acumulado: a razao entre o de hoje e o de doze meses atras,
+    menos um, E a variacao do periodo. Nao ha nada a buscar no Bacen.
+    """
+    v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
+    piv = v.pivot_table(index="data", columns="indice", values="vna")
+    piv.index = piv.index.to_period("M")
+
+    esperado = pd.period_range(piv.index.min(), piv.index.max(), freq="M")
+    if list(piv.index) != list(esperado):
+        faltam = sorted(set(esperado) - set(piv.index))
+        raise LookupError(
+            f"vna.csv tem {len(faltam)} mes(es) faltando ({faltam[:3]}...). A "
+            f"variacao de 12 meses usa shift(12), que conta POSICOES: com buraco "
+            f"na serie ela compara contra 13 ou 14 meses atras sem avisar."
+        )
+
+    return (piv / piv.shift(12) - 1) * 100
+
+
+def dados_custo(janela=None):
+    """Custo acumulado em 12 meses da DPF e da DPMFi, com a Selic e o IPCA.
+
+    A juncao com o VNA e por competencia: o VNA e do ultimo dia util e o custo e do
+    ultimo dia do mes, e so 137 das 198 datas coincidem.
+    """
+    c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
+    agregado = c[(c["medida"] == "acum_12m")
+                 & c["entidade"].isna() & c["titulo"].isna()
+                 & c["nivel"].isin(NIVEIS)]
+    saida = agregado.pivot_table(index="data", columns="nivel",
+                                 values="custo_aa_pct")[NIVEIS]
+
+    indices = variacao_12m_do_vna()
+    competencia = saida.index.to_period("M")
+    for indice in INDICES:
+        saida[indice] = indices[indice].reindex(competencia).to_numpy()
+
+    return estilo.recorta(saida, janela)
+
+
+def desenha_custo(dados, ax):
+    """Quatro linhas, com o numero escrito so no ultimo ponto de cada uma.
+
+    O eixo do tempo e anual e o dado continua mensal: a pagina do RMD usa cerca de
+    170 rotulos mensais e ninguem le.
+    """
+    for coluna in NIVEIS + INDICES:
+        serie = dados[coluna].dropna()
+        largura = 2.6 if coluna in NIVEIS else 1.6
+        estilo_linha = "-" if coluna in NIVEIS else "--"
+        ax.plot(serie.index, serie, color=_COR[coluna], lw=largura,
+                ls=estilo_linha, label=_ROTULO[coluna])
+        ax.annotate(estilo.num_br(serie.iloc[-1], 2),
+                    xy=(serie.index[-1], serie.iloc[-1]), xytext=(6, 0),
+                    textcoords="offset points", fontsize=9.5, weight="bold",
+                    color=_COR[coluna], va="center")
+
+    ax.axhline(0, color="gray", lw=0.8)
+    ax.set_ylabel("% ao ano")
+    estilo.grade_fina(ax, 5, 2.5)
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=4, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.08))
+```
+
+- [ ] **Passo 4: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_custo.py -v
+```
+
+Esperado: 8 passed.
+
+- [ ] **Passo 5: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- troque `medida == "acum_12m"` por `== "mensal"` — a âncora de 12,68 deve falhar
+  com 13,64, que é o número plausível-e-errado que motivou o teste;
+- tire o `c["titulo"].isna()` do filtro — a âncora deve falhar;
+- troque a junção por competência por junção por data (`saida[indice] =
+  indices[indice]` direto, com o índice de data) — `test_a_juncao_e_por_competencia`
+  deve falhar, porque 61 meses ficam sem Selic;
+- troque `shift(12)` por `shift(11)` — a âncora de 14,78 deve falhar;
+- **apague uma linha do meio do `vna.csv`** (num arquivo temporário, nunca no
+  repositório) e rode: `variacao_12m_do_vna` deve **levantar** com a mensagem
+  explicativa, em vez de devolver número errado. Restaure o arquivo;
+- preencha os índices com `fillna(0)` — `test_os_indices_ficam_vazios_antes_de_2011`
+  deve falhar;
+- escreva o rótulo em todos os pontos (tire o `.iloc[-1]`) — o teste dos quatro
+  rótulos deve falhar.
+
+- [ ] **Passo 6: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 373 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/custo.py tests/test_graficos_custo.py
+git commit -m "Adiciona o custo do estoque contra a Selic e o IPCA"
+```
+
+---
