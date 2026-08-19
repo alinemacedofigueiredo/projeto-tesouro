@@ -49,14 +49,14 @@ def test_a_emissao_por_indexador_do_ultimo_mes_bate():
     u = funding.dados_emissao_indexador().iloc[-1]
     assert round(u["Taxa Flutuante"] / 1000, 1) == 102.6
     assert round(u["Prefixados"] / 1000, 1) == 35.5
-    assert round(u["Índice de Preços"] / 1000, 1) == 11.4
+    assert round(u["\u00cdndice de Pre\u00e7os"] / 1000, 1) == 11.4
 
 
 def test_a_emissao_anual_em_100_bate_com_o_medido():
     d = funding.dados_emissao_anual()
     assert round(d.loc[2025, "Prefixados"], 1) == 40.3
     assert round(d.loc[2025, "Taxa Flutuante"], 1) == 41.0
-    assert round(d.loc[2025, "Índice de Preços"], 1) == 18.6
+    assert round(d.loc[2025, "\u00cdndice de Pre\u00e7os"], 1) == 18.6
     assert round(d.loc[2025, "total_milhoes"] / 1000) == 1841
     assert round(d.loc[2024, "Taxa Flutuante"], 1) == 64.9   # o ano da LFT
 

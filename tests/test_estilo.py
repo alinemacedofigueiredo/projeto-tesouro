@@ -74,3 +74,31 @@ def test_as_cores_cobrem_os_indexadores_e_os_papeis():
         assert chave in estilo.COR
     for chave in ("LTN", "NTN-F", "NTN-B", "LFT"):
         assert chave in estilo.COR
+
+
+def test_todo_o_pacote_de_graficos_e_ascii():
+    # A restricao vale para o pacote inteiro, nao so para o estilo. Conferir
+    # arquivo por arquivo a mao nao escala para dez modulos, e o byte acentuado
+    # entra sem ninguem ver.
+    import pathlib
+    from tesouro import graficos
+
+    pasta = pathlib.Path(graficos.__file__).parent
+    arquivos = sorted(pasta.glob("*.py"))
+    assert len(arquivos) >= 3
+    for arquivo in arquivos:
+        with open(arquivo, "rb") as f:
+            try:
+                f.read().decode("ascii")
+            except UnicodeDecodeError as erro:
+                raise AssertionError(f"{arquivo.name} tem byte nao-ASCII: {erro}")
+
+
+def test_o_corte_de_janela_preserva_o_ultimo_ponto():
+    import pandas as pd
+    datas = pd.date_range("2015-01-31", "2026-06-30", freq="ME")
+    df = pd.DataFrame({"v": range(len(datas))}, index=datas)
+    assert len(estilo.recorta(df, None)) == len(df)
+    curto = estilo.recorta(df, 5)
+    assert curto.index.max() == df.index.max()
+    assert curto.index.min() >= df.index.max() - pd.DateOffset(years=5)

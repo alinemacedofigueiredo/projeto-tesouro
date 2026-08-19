@@ -1374,10 +1374,14 @@ falha, e desfaça:
 - **cole um byte acentuado** dentro de um comentário de `estoque.py` —
   `test_todo_o_pacote_de_graficos_e_ascii` deve falhar apontando o arquivo.
 
-**Um caso em que a asserção não tem dentes, e fica registrado:** trocar `alpha=0.12`
-por `alpha=0` no `fill_between` mantém as 24 coleções e o teste **passa**. Aquele
-teste protege a *contagem* de bandas, não a visibilidade delas. Ninguém deve achar
-que ele cobre mais do que cobre.
+**Dois casos em que a asserção não tem dentes, e ficam registrados:**
+
+- trocar `alpha=0.12` por `alpha=0` no `fill_between` mantém as 24 coleções e o teste
+  **passa**. Aquele teste protege a *contagem* de bandas, não a visibilidade delas;
+- trocar `div(total, axis=0)` por `div(total.iloc[-1])` **não** faz a âncora de junho
+  falhar — dividir pelo total do último mês dá o mesmo resultado *no último mês*. Quem
+  pega é `test_cada_mes_da_composicao_soma_100`, que olha os 307. Medido ao executar:
+  a âncora sozinha não cobre o erro que ela parece cobrir.
 
 - [ ] **Passo 8: rodar a suíte inteira e commitar**
 
