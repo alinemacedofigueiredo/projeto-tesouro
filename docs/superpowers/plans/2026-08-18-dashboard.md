@@ -1800,3 +1800,475 @@ git commit -m "Adiciona os tres graficos de detentores"
 ```
 
 ---
+
+## Task 6: Vencimentos — cronograma com o balde, e as faixas da DPF com banda
+
+**Files:**
+- Create: `src/tesouro/graficos/vencimentos.py`
+- Test: `tests/test_graficos_vencimentos.py`
+
+**Interfaces:**
+- Consumes: `estilo.COR`, `estilo.num_br`, `estilo.rotulo_mes`, `estilo.MES`.
+- Produces:
+  - `dados_cronograma_anual()` -> DataFrame indexado por ano, com a linha extra
+    `"Após 5 anos"`, uma coluna por grupo de título, em R$ milhões.
+  - `dados_cronograma_mensal()` -> DataFrame indexado por mês (os 60), uma coluna
+    por grupo, em R$ milhões.
+  - `ANOS_PARCIAIS` -> tupla dos dois anos das pontas, que têm seis meses.
+  - `desenha_cronograma(anual, mensal, fig)`
+  - `dados_faixas()` -> DataFrame indexado por data, quatro faixas em percentual.
+  - `banda_vincendo_12m()` -> DataFrame indexado por ano, colunas
+    `minimo, maximo, realizado`, de 2003 a **2022**.
+  - `desenha_faixas(dados, banda, fig)`
+
+**Fonte:** `cronograma_vencimentos.csv` **depois da Task 2** (com o balde e a coluna
+`faixa`), somando 8.920,7 bi; `vencimentos_faixa.csv` filtrado em `nivel == "DPF"`,
+246 meses de jan/2006 a jun/2026; e `paf_metas.csv`, da aba 5.7, para a banda.
+
+**Por que esta tarefa existe.** São os dois gráficos de "quando isso vence". O
+cronograma é a foto de curto prazo, mês a mês pelos próximos cinco anos mais o balde
+de tudo que vem depois; as faixas são a série histórica de quanto da dívida está
+vencendo em cada horizonte, com a banda que o PAF prometeu para o vincendo em doze
+meses.
+
+**Decisões tomadas com a usuária que o código deve respeitar:**
+
+- **O cronograma tem painel anual mais o balde "Após 5 anos"**, e embaixo o detalhe
+  mensal com marcas em jan/abr/jul/out e divisória na virada do ano.
+- **A composição da DPF por faixa agrupa em quatro:** até 12 meses, de 1 a 2 anos,
+  **de 2 a 5 anos** (soma de três faixas do CSV) e acima de 5 anos.
+- **A banda vai num painel próprio, embaixo**, sobre a linha do vincendo em 12 meses.
+  Desenhar a banda por cima de uma área empilhada de 100% deixaria as duas ilegíveis.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **Os dois anos das pontas têm seis meses, não doze.** A aba 3.4 detalha de jul/26
+   a jun/31, então a barra de 2026 (833,5 bi) é jul–dez e a de 2031 (636,5 bi) é
+   jan–jun. Compará-las com 2027 (1.771,9 bi) sem dizer isso é ler o gráfico errado —
+   e é o que a própria página do RMD convida a fazer. Vão com asterisco e com a nota
+   escrita.
+2. **A aba do cronograma é a 3.4, não a 3.1.** A 3.1 é a de faixas, que alimenta o
+   outro gráfico desta mesma tarefa. Já confundi as duas num rascunho.
+3. **A banda de vincendo em 12 meses acaba em 2022.** A aba 5.7 do anexo de jun/26
+   tem quatro blocos e o último termina em "PAF 2022"; não é o nosso parser parando
+   cedo. O `referencia/paf_bandas.csv`, que vai até 2026, **não tem este indicador** —
+   ele guarda seis, e vincendo não é um deles. Então a banda é desenhada até 2022 e a
+   legenda diz isso. Silenciar seria pior: o leitor entende ausência de banda como
+   ausência de meta.
+4. **A série de faixas da DPF começa em 2006, não em 1999.** O `vencimentos_faixa.csv`
+   tem DPMFi desde dez/1999, mas DPF só a partir de jan/2006. Filtrar por nível depois
+   de calcular o percentual mistura os dois.
+5. **A diferença de 16,6 bi contra a aba 2.2** é conhecida e travada por teste na
+   Task 10, onde o outro gráfico de vencimentos nasce. Não é para conciliar aqui.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_vencimentos.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro.graficos import estilo, vencimentos
+
+
+# ---------------------------------------------------------------------------
+# Aba 3.4: o cronograma
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def anual():
+    return vencimentos.dados_cronograma_anual()
+
+
+def test_o_cronograma_anual_bate_com_o_medido(anual):
+    por_ano = anual.sum(axis=1) / 1000
+    assert round(por_ano[2026], 1) == 833.5
+    assert round(por_ano[2027], 1) == 1771.9
+    assert round(por_ano[2028], 1) == 1133.2
+    assert round(por_ano[2029], 1) == 1315.6
+    assert round(por_ano[2030], 1) == 1223.2
+    assert round(por_ano[2031], 1) == 636.5
+
+
+def test_o_balde_entra_no_cronograma_e_o_total_fecha(anual):
+    # Sem o balde da Task 2 o grafico mostraria 78% do estoque como se fosse tudo.
+    por_ano = anual.sum(axis=1) / 1000
+    assert round(por_ano["Ap\u00f3s 5 anos"], 1) == 2006.9
+    assert round(por_ano.sum(), 1) == 8920.7
+
+
+def test_os_dois_anos_das_pontas_sao_parciais(anual):
+    # A aba 3.4 detalha jul/26 a jun/31: 2026 e jul-dez e 2031 e jan-jun. Comparar
+    # 833,5 com 1.771,9 sem saber disso e ler o grafico errado.
+    assert vencimentos.ANOS_PARCIAIS == (2026, 2031)
+    mensal = vencimentos.dados_cronograma_mensal()
+    meses = mensal.index.to_series().dt.year.value_counts()
+    assert meses[2026] == 6
+    assert meses[2031] == 6
+    assert meses[2027] == 12
+
+
+def test_o_cronograma_mensal_tem_os_sessenta_meses():
+    m = vencimentos.dados_cronograma_mensal()
+    total = m.sum(axis=1) / 1000
+    assert len(m) == 60
+    assert m.index.min() == pd.Timestamp("2026-07-31")
+    assert m.index.max() == pd.Timestamp("2031-06-30")
+    assert round(total.max(), 1) == 562.8
+    assert total.idxmax() == pd.Timestamp("2027-03-31")
+    assert round(total[pd.Timestamp("2026-07-31")], 1) == 256.0
+    # O balde NAO entra no detalhe mensal: ele nao tem mes.
+    assert round(total.sum(), 1) == 6913.8
+
+
+# ---------------------------------------------------------------------------
+# Aba 3.1: as faixas da DPF, com a banda
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def faixas():
+    return vencimentos.dados_faixas()
+
+
+def test_as_faixas_da_dpf_batem_com_o_medido(faixas):
+    u = faixas.iloc[-1]
+    assert round(u["At\u00e9 12 meses"], 1) == 20.1
+    assert round(u["De 1 a 2 anos"], 1) == 14.1
+    assert round(u["De 2 a 5 anos"], 1) == 42.2
+    assert round(u["Acima de 5 anos"], 1) == 23.6
+
+
+def test_cada_mes_das_faixas_soma_100(faixas):
+    assert len(faixas.columns) == 4
+    assert (faixas.sum(axis=1) - 100).abs().max() < 1e-9
+    # DPF so existe a partir de jan/2006 -- antes disso o CSV tem DPMFi apenas.
+    assert faixas.index.min() == pd.Timestamp("2006-01-31")
+    assert len(faixas) == 246
+
+
+def test_a_banda_de_vincendo_em_12_meses_para_em_2022():
+    # Nao e o parser parando cedo: a aba 5.7 do anexo de jun/26 tem quatro blocos e
+    # o ultimo termina em "PAF 2022". E o paf_bandas.csv, que vai ate 2026, guarda
+    # seis indicadores e vincendo nao e um deles.
+    b = vencimentos.banda_vincendo_12m()
+    assert b.index.min() == 2003
+    assert b.index.max() == 2022
+    assert b.loc[2022, "minimo"] == 19.0
+    assert b.loc[2022, "maximo"] == 23.0
+
+
+def test_o_realizado_do_vincendo_bate_com_o_nosso_dado(faixas):
+    # Cruzamento contra fonte independente: a faixa sai da aba 3.1 pelo nosso
+    # parser e o realizado sai da 5.7, que e outra aba e outro parser. A tolerancia
+    # de 0,05 e o arredondamento com que o proprio RMD imprime o realizado.
+    b = vencimentos.banda_vincendo_12m()
+    for ano in range(2011, 2023):
+        nosso = faixas.loc[pd.Timestamp(f"{ano}-12-31"), "At\u00e9 12 meses"]
+        assert abs(nosso - b.loc[ano, "realizado"]) < 0.05, f"vincendo em {ano}"
+
+
+# ---------------------------------------------------------------------------
+# Desenho
+# ---------------------------------------------------------------------------
+
+def test_o_desenho_marca_os_dois_anos_parciais():
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 9))
+    vencimentos.desenha_cronograma(vencimentos.dados_cronograma_anual(),
+                                   vencimentos.dados_cronograma_mensal(), fig)
+    rotulos = [t.get_text() for ax in fig.axes for t in ax.get_xticklabels()]
+    plt.close(fig)
+    assert "2026*" in rotulos and "2031*" in rotulos
+    assert "2027" in rotulos and "2027*" not in rotulos
+
+
+def test_o_desenho_do_mensal_divide_a_virada_do_ano():
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 9))
+    vencimentos.desenha_cronograma(vencimentos.dados_cronograma_anual(),
+                                   vencimentos.dados_cronograma_mensal(), fig)
+    # Quatro viradas de ano dentro dos 60 meses: 26/27, 27/28, 28/29, 29/30, 30/31.
+    divisorias = [l for ax in fig.axes for l in ax.lines
+                  if l.get_linestyle() == "--"]
+    plt.close(fig)
+    assert len(divisorias) == 5
+
+
+def test_a_banda_nao_e_desenhada_onde_nao_existe():
+    # Depois de 2022 nao ha banda. Um retangulo esticado ate 2026 inventaria meta.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    vencimentos.desenha_faixas(vencimentos.dados_faixas(),
+                               vencimentos.banda_vincendo_12m(), fig)
+    faixas_desenhadas = [c for ax in fig.axes for c in ax.collections]
+    plt.close(fig)
+    # Uma por ano de 2006 (inicio da nossa serie) a 2022.
+    assert len(faixas_desenhadas) == 17
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_vencimentos.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'vencimentos'`.
+
+**Se falhar com `KeyError: 'faixa'`,** a Task 2 não foi executada nesta cópia do
+repositório. Volte e execute-a: o cronograma sem o balde some com 2.006,9 bi.
+
+- [ ] **Passo 3: escrever as funções de dado**
+
+```python
+# src/tesouro/graficos/vencimentos.py
+"""Quando a divida vence: as abas 3.4 (cronograma) e 3.1 (faixas).
+
+Dois graficos. O cronograma e a foto de curto prazo -- os 60 meses que a 3.4
+detalha, mais o balde "Apos 5 anos" que a Task 2 acrescentou ao parser. As faixas
+sao a serie historica de quanto da DPF vence em cada horizonte, com a banda que o
+PAF prometeu para o vincendo em doze meses.
+
+ARMADILHA 1: os dois anos das pontas tem SEIS meses. A 3.4 detalha de jul/26 a
+jun/31, entao a barra de 2026 e jul-dez e a de 2031 e jan-jun. Comparar 833,5 bi com
+os 1.771,9 de 2027 sem saber disso e ler o grafico errado.
+
+ARMADILHA 2: a aba do cronograma e a 3.4; a 3.1 e a de faixas. As duas falam de
+vencimento e ja foram confundidas num rascunho.
+
+ARMADILHA 3: a banda de vincendo em 12 meses acaba em 2022, porque a aba 5.7 do
+anexo de jun/26 termina em "PAF 2022" -- e o referencia/paf_bandas.csv, que alcanca
+2026, guarda seis indicadores e vincendo nao e um deles.
+"""
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+# Os dois anos das pontas do cronograma, que tem seis meses cada.
+ANOS_PARCIAIS = (2026, 2031)
+
+_ORDEM_GRUPOS = ["LFT", "LTN / NTN-F", "NTN-B", "NTN-C", "Demais"]
+
+_CHAVE_COR = {"LFT": "LFT", "LTN / NTN-F": "LTN", "NTN-B": "NTN-B",
+              "NTN-C": "NTN-C", "Demais": "Outros"}
+
+# As tres faixas do meio viram uma so: "De 2 a 5 anos".
+_DE_2_A_5 = ["De 2 a 3 anos", "De 3 a 4 anos", "De 4 a 5 anos"]
+
+ORDEM_FAIXAS = ["At\u00e9 12 meses", "De 1 a 2 anos",
+                "De 2 a 5 anos", "Acima de 5 anos"]
+
+_COR_FAIXA = {"At\u00e9 12 meses": "#c00000",
+              "De 1 a 2 anos": "#ed7d31",
+              "De 2 a 5 anos": "#3d9be9",
+              "Acima de 5 anos": "#1f3864"}
+
+
+def _cronograma():
+    d = pd.read_csv(config.PROCESSED_DIR / "cronograma_vencimentos.csv",
+                    parse_dates=["data_referencia", "mes_vencimento"])
+    if "faixa" not in d.columns:
+        raise LookupError(
+            "cronograma_vencimentos.csv nao tem a coluna 'faixa'. Ela vem da "
+            "Task 2, que acrescentou o balde 'Apos 5 anos' ao parser; sem ela o "
+            "grafico mostra 6.913,8 bi -- 78% do estoque -- como se fosse o todo."
+        )
+    return d
+
+
+def dados_cronograma_anual():
+    """Vencimentos por ano, mais a linha do balde, em R$ milhoes.
+
+    O indice mistura inteiro (os anos) e texto (o balde) de proposito: o balde nao
+    tem ano, e dar um a ele -- 2032, digamos -- seria inventar dado. Quem desenha
+    trata a ultima posicao como categoria.
+    """
+    d = _cronograma()
+    mensal = d[d["faixa"] == "mensal"].copy()
+    mensal["ano"] = mensal["mes_vencimento"].dt.year
+    piv = mensal.pivot_table(index="ano", columns="grupo_titulo",
+                             values="valor_milhoes", aggfunc="sum").fillna(0.0)
+
+    balde = (d[d["faixa"] == "apos_5_anos"]
+             .groupby("grupo_titulo")["valor_milhoes"].sum())
+    piv.loc["Ap\u00f3s 5 anos"] = balde
+
+    return piv.fillna(0.0)[[g for g in _ORDEM_GRUPOS if g in piv.columns]]
+
+
+def dados_cronograma_mensal():
+    """Os 60 meses detalhados, em R$ milhoes. O balde nao entra: ele nao tem mes."""
+    d = _cronograma()
+    mensal = d[d["faixa"] == "mensal"]
+    piv = mensal.pivot_table(index="mes_vencimento", columns="grupo_titulo",
+                             values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    return piv[[g for g in _ORDEM_GRUPOS if g in piv.columns]]
+
+
+def dados_faixas():
+    """Composicao da DPF por horizonte de vencimento, em percentual.
+
+    Quatro faixas: as tres do meio do CSV (2-3, 3-4 e 4-5 anos) viram uma so, porque
+    a leitura util e "vence logo, vence em breve, vence no medio, vence longe".
+    """
+    v = pd.read_csv(config.PROCESSED_DIR / "vencimentos_faixa.csv",
+                    parse_dates=["data"])
+    dpf = v[v["nivel"] == "DPF"]
+    piv = dpf.pivot_table(index="data", columns="faixa",
+                          values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    piv["De 2 a 5 anos"] = piv[_DE_2_A_5].sum(axis=1)
+    piv = piv[ORDEM_FAIXAS]
+    return piv.div(piv.sum(axis=1), axis=0) * 100
+
+
+def banda_vincendo_12m():
+    """Banda do PAF para o vincendo em 12 meses, de 2003 a 2022.
+
+    Vem da aba 5.7 (paf_metas.csv) e nao do referencia/paf_bandas.csv, que guarda
+    seis indicadores e nao inclui este. Onde ha revisao, vale a revisada -- a que
+    estava em vigor no fechamento -- pelo mesmo criterio do modulo paf.
+    """
+    m = pd.read_csv(config.PROCESSED_DIR / "paf_metas.csv")
+    d = m[m["indicador"] == "% Vincendo em 12 meses"]
+    orig = d[d["versao"] == "original"].set_index("ano").sort_index()
+    rev = d[d["versao"] == "revisado"].set_index("ano").sort_index()
+
+    saida = orig[["minimo", "maximo", "realizado"]].copy()
+    for ano in rev.index:
+        saida.loc[ano, "minimo"] = rev.loc[ano, "minimo"]
+        saida.loc[ano, "maximo"] = rev.loc[ano, "maximo"]
+    return saida
+```
+
+- [ ] **Passo 4: escrever as funções de desenho**
+
+```python
+# continuacao de src/tesouro/graficos/vencimentos.py
+
+def desenha_cronograma(anual, mensal, fig):
+    """Painel anual com o balde, e o detalhe mensal embaixo.
+
+    Os dois anos das pontas levam asterisco porque tem seis meses; sem a marca, a
+    barra de 2026 parece um ano fraco em vez de meio ano.
+    """
+    a1, a2 = fig.subplots(2, 1, gridspec_kw={"height_ratios": [1, 1]})
+
+    posicoes = range(len(anual))
+    base = pd.Series(0.0, index=anual.index)
+    for grupo in anual.columns:
+        a1.bar(list(posicoes), anual[grupo] / 1000, bottom=base / 1000, width=0.7,
+               color=estilo.COR[_CHAVE_COR[grupo]], label=grupo)
+        base = base + anual[grupo]
+    for x, total in zip(posicoes, base / 1000):
+        a1.text(x, total + 40, estilo.num_br(total, 0), ha="center", fontsize=9)
+
+    a1.set_xticks(list(posicoes))
+    a1.set_xticklabels([f"{r}*" if r in ANOS_PARCIAIS else str(r)
+                        for r in anual.index])
+    a1.set_ylabel("R$ bilh\u00f5es")
+    a1.set_title("* 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun: a aba 3.4 detalha "
+                 "60 meses a partir da data-base", fontsize=9, loc="left",
+                 color=estilo.COR["neutro"])
+    a1.legend(ncol=len(anual.columns), frameon=False, loc="upper right")
+    a1.grid(axis="y", alpha=0.25)
+
+    base = pd.Series(0.0, index=mensal.index)
+    for grupo in mensal.columns:
+        a2.bar(mensal.index, mensal[grupo] / 1000, bottom=base / 1000, width=22,
+               color=estilo.COR[_CHAVE_COR[grupo]])
+        base = base + mensal[grupo]
+
+    for ano in range(mensal.index.min().year + 1, mensal.index.max().year + 1):
+        a2.axvline(pd.Timestamp(year=ano, month=1, day=1), color="gray",
+                   lw=0.8, ls="--")
+
+    marcas = [d for d in mensal.index if d.month in (1, 4, 7, 10)]
+    a2.set_xticks(marcas)
+    a2.set_xticklabels([estilo.rotulo_mes(d) for d in marcas], fontsize=8)
+    a2.set_ylabel("R$ bilh\u00f5es por m\u00eas")
+    a2.grid(axis="y", alpha=0.25)
+
+
+def desenha_faixas(dados, banda, fig):
+    """Area empilhada de 100% em cima, e o vincendo em 12 meses com a banda embaixo.
+
+    A banda vai no painel de baixo, sozinha: por cima da area de 100% ela e a area
+    disputariam o mesmo espaco e nenhuma das duas seria legivel.
+
+    Onde nao ha banda -- de 2023 em diante -- nada e desenhado. Esticar o ultimo
+    retangulo ate hoje inventaria uma meta que o PAF nao publicou nesta aba.
+    """
+    a1, a2 = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [2, 1]})
+
+    a1.stackplot(dados.index, [dados[f] for f in ORDEM_FAIXAS],
+                 labels=ORDEM_FAIXAS,
+                 colors=[_COR_FAIXA[f] for f in ORDEM_FAIXAS], alpha=0.9)
+    a1.set_ylim(0, 100)
+    a1.set_ylabel("% da DPF")
+    a1.legend(ncol=4, frameon=False, loc="lower center")
+
+    curto = dados["At\u00e9 12 meses"]
+    for ano in range(dados.index.min().year, dados.index.max().year + 1):
+        if ano not in banda.index:
+            continue
+        a2.fill_between([pd.Timestamp(year=ano, month=1, day=1),
+                         pd.Timestamp(year=ano, month=12, day=31)],
+                        banda.loc[ano, "minimo"], banda.loc[ano, "maximo"],
+                        color=estilo.COR["banda"], alpha=0.15, linewidth=0)
+    a2.plot(curto.index, curto, color=_COR_FAIXA["At\u00e9 12 meses"], lw=2.2)
+    a2.annotate(estilo.num_br(curto.iloc[-1], 1),
+                xy=(curto.index[-1], curto.iloc[-1]), xytext=(6, 0),
+                textcoords="offset points", fontsize=9, weight="bold",
+                color=_COR_FAIXA["At\u00e9 12 meses"], va="center")
+    a2.set_ylabel("% vincendo em 12 meses")
+    a2.set_title("banda do PAF publicada na aba 5.7 at\u00e9 2022", fontsize=9,
+                 loc="left", color=estilo.COR["neutro"])
+    estilo.grade_fina(a2, 10, 5)
+    estilo.eixo_anual(a2, a_cada=2)
+```
+
+- [ ] **Passo 5: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_vencimentos.py -v
+```
+
+Esperado: 11 passed.
+
+- [ ] **Passo 6: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- apague a linha `piv.loc["Após 5 anos"] = balde` — o teste do balde deve falhar e o
+  total cair para 6.913,8;
+- deixe o balde entrar no `dados_cronograma_mensal` (tire o filtro
+  `faixa == "mensal"`) — o teste dos 60 meses deve falhar;
+- troque `ANOS_PARCIAIS = (2026, 2031)` por `()` — o teste do asterisco deve falhar;
+- tire o `if ano not in banda.index: continue` do desenho — o teste das 17 faixas
+  deve falhar, porque passaria a desenhar até 2026;
+- tire o filtro `nivel == "DPF"` do `dados_faixas` — a âncora de junho e o começo em
+  2006 devem falhar;
+- troque `_DE_2_A_5` por só `["De 2 a 3 anos"]` — a âncora de 42,2 deve falhar e a
+  soma de 100 também;
+- troque `range(min.year + 1, max.year + 1)` por `range(min.year, max.year + 1)` na
+  divisória — o teste das cinco divisórias deve falhar com seis.
+
+- [ ] **Passo 7: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 356 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/vencimentos.py tests/test_graficos_vencimentos.py
+git commit -m "Adiciona o cronograma de vencimentos e as faixas da DPF"
+```
+
+---
