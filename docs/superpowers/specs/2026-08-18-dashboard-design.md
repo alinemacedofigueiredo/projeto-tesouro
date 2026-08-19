@@ -104,11 +104,10 @@ acontecer em silêncio.
 duplo clique, sem servidor, e continua funcionando se for copiado para outra máquina
 ou mandado por e-mail. Num banco isso vale mais que elegância.
 
-**Limiar medido, não suposto:** o tamanho do arquivo é desconhecido — são 23 SVGs, e
-alguns são densos (o heatmap, os oito painéis de detentores). A primeira tarefa mede.
-**Se passar de 10 MB**, os SVGs saem para arquivos ao lado e o HTML os referencia,
-e a spec registra que a propriedade "um arquivo só" foi trocada por tamanho
-utilizável.
+**Limiar medido, não suposto.** Medido em 19/08/2026: **2,66 MB** com os 25 SVGs
+embutidos, contra o limiar de 10 MB. A propriedade "um arquivo só" fica de pé, e o
+teste `test_o_arquivo_cabe_no_limiar_de_dez_megabytes` trava o limiar. Se algum dia
+passar, os SVGs saem para arquivos ao lado e o HTML os referencia.
 
 ### 4.2 Navegação e período
 
@@ -118,9 +117,11 @@ Botão no topo com **5 anos** e **série completa**. As duas versões ficam embu
 alternam com JavaScript escrito à mão. Nenhuma biblioteca nova — a lista permitida
 é `pandas`, `openpyxl`, `xlrd`, `matplotlib`, `pytest`.
 
-**Sete dos dezesseis aceitam janela.** Os outros são retrato de uma data ou têm
-layout fixo de anos-fechados-mais-dois-meses, herdado das páginas do RMD. Total: 23
-SVGs.
+**Nove dos dezesseis aceitam janela** — os sete principais mais dois candidatos (o
+custo de emissão e a emissão anual por papel), como a tabela da seção 5 marca. Os
+outros são retrato de uma data ou têm layout fixo herdado das páginas do RMD. Total:
+**25 SVGs**. (Uma versão anterior desta seção dizia sete e 23, contando só os
+principais; o número certo é o da tabela, e o teste o deriva do registro.)
 
 ### 4.3 Linha de comando
 

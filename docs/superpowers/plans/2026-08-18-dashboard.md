@@ -255,6 +255,10 @@ COR = {
     "NTN-B": "#674ea7",
     "LFT": "#7f7f7f",
     "NTN-C": "#8c564b",
+    # A NTN-D nao e emitida desde 2002, mas aparece na janela completa do grafico
+    # de leiloes. Sem cor, o desenho levanta KeyError -- e so na janela completa,
+    # que e o pior tipo de defeito: passa nos 12 anos e quebra na serie inteira.
+    "NTN-D": "#c0504d",
     "Outros": "#c9c9c9",
     # detentores, na paleta das paginas do RMD
     "Inst. Financeiras": "#1f3864",
@@ -2285,10 +2289,14 @@ def desenha_cronograma(anual, mensal, fig):
     a1.set_xticklabels([f"{r}*" if r in ANOS_PARCIAIS else str(r)
                         for r in anual.index])
     a1.set_ylabel("R$ bilh\u00f5es")
+    # Folga no topo, e a legenda na esquerda: a barra mais alta e a do balde,
+    # na direita, e sem isso a legenda cobre o rotulo dela. Visto ao olhar a
+    # figura, nao ao ler o codigo.
+    a1.set_ylim(0, (base / 1000).max() * 1.16)
     a1.set_title("* 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun: a aba 3.4 detalha "
                  "60 meses a partir da data-base", fontsize=9, loc="left",
                  color=estilo.COR["neutro"])
-    a1.legend(ncol=len(anual.columns), frameon=False, loc="upper right")
+    a1.legend(ncol=len(anual.columns), frameon=False, loc="upper left")
     a1.grid(axis="y", alpha=0.25)
 
     base = pd.Series(0.0, index=mensal.index)
@@ -3511,12 +3519,14 @@ def test_a_cobertura_dos_anos_fechados_fica_entre_90_e_98(anual):
     assert round(fechados.min(), 1) == 90.5
     assert round(fechados.max(), 1) == 97.3
     assert round(fechados.loc[2024], 1) == 93.0
-    # E nenhum papel entra no desenho sem cor: a NTN-D e a NTN-C sairiam como
-    # coluna de zero se o corte de colunas viesse antes do corte de anos.
+    # E nenhum papel entra no desenho sem cor -- nas DUAS janelas. A de 12 anos
+    # nao tem NTN-D nem NTN-C; a completa alcanca 2000 e tem as duas, e foi assim
+    # que a falta de cor da NTN-D apareceu, no dashboard e nao aqui.
     from tesouro.graficos import estilo
-    for papel in anual.columns:
-        if papel not in ("total_milhoes", "cobertura_pct"):
-            assert papel in estilo.COR, f"sem cor para {papel}"
+    for janela in (anual, leiloes.dados_emissao_anual_papel(anos=100)):
+        for papel in janela.columns:
+            if papel not in ("total_milhoes", "cobertura_pct"):
+                assert papel in estilo.COR, f"sem cor para {papel}"
 
 
 def test_a_nota_de_cobertura_aparece_no_desenho(anual):
@@ -3865,12 +3875,13 @@ não precise de nenhuma aritmética à mão.
 
 1. **O SVG do matplotlib começa com prólogo XML e DOCTYPE.** Embutir isso no meio de
    um HTML é inválido. Tudo antes do primeiro `<svg` sai fora.
-2. **Referências internas do SVG colidem entre figuras.** Um `<clipPath id="p1a2b">`
-   é resolvido pelo navegador para o **primeiro** id daquele nome no documento
-   inteiro. Vinte e cinco SVGs no mesmo HTML, e o recorte de um gráfico pode passar a
-   valer para outro. Os ids do matplotlib são derivados do conteúdo (é o que o
-   `svg.hashsalt` da Task 1 fixa), então na prática não colidem — mas isso é
-   propriedade que se perde em silêncio, e o teste a trava.
+2. **Referências internas do SVG colidem entre figuras — e colidiram.** Um
+   `<clipPath id="p1a2b">` é resolvido pelo navegador para o **primeiro** id daquele
+   nome no documento inteiro. Com os 25 SVGs juntos, **dois trazem o mesmo id de
+   recorte**: os ids do matplotlib vêm do conteúdo, e dois painéis com a mesma caixa
+   geram o mesmo hash. Ali as duas definições eram iguais e o desenho não mudaria,
+   mas isso é coincidência, não propriedade. Por isso `svg_de` prefixa todo id com o
+   nome do gráfico e da janela.
 3. **Reprodutibilidade só existe com o `svg.hashsalt` fixo.** Sem ele, montar duas
    vezes o mesmo dado gera arquivos diferentes e ninguém sabe se o dashboard mudou
    porque o dado mudou. É a razão de a Task 1 existir.
@@ -4134,7 +4145,9 @@ def _fig_participacao(janela):
 
 
 def _fig_por_papel(janela):
-    fig = _figura(4.6)
+    # 3.6 e nao 4.6: cinco roscas numa linha so nao ocupam a altura, e o vazio
+    # entre elas e a legenda ficava maior que as proprias roscas.
+    fig = _figura(3.6)
     detentores.desenha_por_papel(detentores.dados_por_papel(), fig)
     return fig
 
@@ -4360,8 +4373,32 @@ function trocaPeriodo(janela) {
 """
 
 
-def svg_de(figura):
-    """SVG pronto para embutir: sem prologo XML e sem DOCTYPE.
+def _prefixa_ids(svg, prefixo):
+    """Poe um prefixo em todo id do SVG e em toda referencia a ele.
+
+    MEDIDO, nao suposto: com 25 SVGs no mesmo HTML, dois deles trazem o mesmo
+    <clipPath id="pf677ba8d19">. Os ids do matplotlib sao derivados do conteudo, e
+    dois paineis com a mesma caixa de recorte geram o mesmo hash. O navegador
+    resolve url(#id) para o PRIMEIRO id do documento inteiro -- entao o recorte de
+    um grafico passa a valer para o outro.
+
+    Neste caso as duas definicoes eram identicas e o desenho nao mudaria. Mas isso
+    e coincidencia, nao propriedade: basta um par de caixas diferentes com o mesmo
+    hash para um grafico aparecer cortado. Prefixar torna a propriedade verdadeira
+    em vez de deixa-la depender de sorte.
+    """
+    import re
+    limpo = re.sub(r"[^A-Za-z0-9]+", "-", prefixo).strip("-")
+    svg = re.sub(r'id="([^"]+)"', lambda m: 'id="%s-%s"' % (limpo, m.group(1)), svg)
+    svg = re.sub(r"url\(#([^)]+)\)",
+                 lambda m: "url(#%s-%s)" % (limpo, m.group(1)), svg)
+    svg = re.sub(r'(xlink:href|href)="#([^"]+)"',
+                 lambda m: '%s="#%s-%s"' % (m.group(1), limpo, m.group(2)), svg)
+    return svg
+
+
+def svg_de(figura, prefixo=""):
+    """SVG pronto para embutir: sem prologo XML, sem DOCTYPE e com ids proprios.
 
     O matplotlib escreve '<?xml ...?>' e '<!DOCTYPE svg ...>' antes do '<svg'.
     Embutir isso no meio de um HTML e invalido, entao tudo antes do primeiro
@@ -4375,7 +4412,8 @@ def svg_de(figura):
     estilo.salvar_svg(figura, buffer)
     plt.close(figura)
     bruto = buffer.getvalue()
-    return bruto[bruto.index("<svg"):]
+    svg = bruto[bruto.index("<svg"):]
+    return _prefixa_ids(svg, prefixo) if prefixo else svg
 
 
 def _bloco(grafico, recortes):
@@ -4387,7 +4425,7 @@ def _bloco(grafico, recortes):
     for nome, janela in usados:
         visivel = "" if (nome == grafico.padrao or len(usados) == 1) \
             else ' style="display:none"'
-        svg = svg_de(grafico.figura(janela))
+        svg = svg_de(grafico.figura(janela), prefixo=f"{grafico.id}-{nome}")
         partes.append(f'  <div data-grafico="{grafico.id}" '
                       f'data-janela="{nome}"{visivel}>{svg}</div>')
 

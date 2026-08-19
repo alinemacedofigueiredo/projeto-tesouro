@@ -144,10 +144,14 @@ def desenha_cronograma(anual, mensal, fig):
     a1.set_xticklabels([f"{r}*" if r in ANOS_PARCIAIS else str(r)
                         for r in anual.index])
     a1.set_ylabel("R$ bilh\u00f5es")
+    # Folga no topo, e a legenda na esquerda: a barra mais alta e a do balde,
+    # na direita, e sem isso a legenda cobre o rotulo dela. Visto ao olhar a
+    # figura, nao ao ler o codigo.
+    a1.set_ylim(0, (base / 1000).max() * 1.16)
     a1.set_title("* 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun: a aba 3.4 detalha "
                  "60 meses a partir da data-base", fontsize=9, loc="left",
                  color=estilo.COR["neutro"])
-    a1.legend(ncol=len(anual.columns), frameon=False, loc="upper right")
+    a1.legend(ncol=len(anual.columns), frameon=False, loc="upper left")
     a1.grid(axis="y", alpha=0.25)
 
     base = pd.Series(0.0, index=mensal.index)

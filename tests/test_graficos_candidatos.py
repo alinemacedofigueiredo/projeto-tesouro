@@ -120,12 +120,14 @@ def test_a_cobertura_dos_anos_fechados_fica_entre_90_e_98(anual):
     assert round(fechados.min(), 1) == 90.5
     assert round(fechados.max(), 1) == 97.3
     assert round(fechados.loc[2024], 1) == 93.0
-    # E nenhum papel entra no desenho sem cor: a NTN-D e a NTN-C sairiam como
-    # coluna de zero se o corte de colunas viesse antes do corte de anos.
+    # E nenhum papel entra no desenho sem cor -- nas DUAS janelas. A de 12 anos
+    # nao tem NTN-D nem NTN-C; a completa alcanca 2000 e tem as duas, e foi assim
+    # que a falta de cor da NTN-D apareceu, no dashboard e nao aqui.
     from tesouro.graficos import estilo
-    for papel in anual.columns:
-        if papel not in ("total_milhoes", "cobertura_pct"):
-            assert papel in estilo.COR, f"sem cor para {papel}"
+    for janela in (anual, leiloes.dados_emissao_anual_papel(anos=100)):
+        for papel in janela.columns:
+            if papel not in ("total_milhoes", "cobertura_pct"):
+                assert papel in estilo.COR, f"sem cor para {papel}"
 
 
 def test_a_nota_de_cobertura_aparece_no_desenho(anual):

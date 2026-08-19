@@ -30,6 +30,10 @@ COR = {
     "NTN-B": "#674ea7",
     "LFT": "#7f7f7f",
     "NTN-C": "#8c564b",
+    # A NTN-D nao e emitida desde 2002, mas aparece na janela completa do grafico
+    # de leiloes. Sem cor, o desenho levanta KeyError -- e so na janela completa,
+    # que e o pior tipo de defeito: passa nos 12 anos e quebra na serie inteira.
+    "NTN-D": "#c0504d",
     "Outros": "#c9c9c9",
     # detentores, na paleta das paginas do RMD
     "Inst. Financeiras": "#1f3864",
@@ -84,15 +88,22 @@ def salvar_svg(figura, destino, bbox_inches="tight"):
 
 
 def recorta(df, janela):
-    """Ultimos 'janela' anos de um DataFrame indexado por data.
+    """Recorte de um DataFrame indexado por data.
 
-    janela=None devolve a serie inteira. Mora aqui, e nao em cada modulo de
-    grafico, porque nove dos dezesseis graficos aceitam janela e a conta e a
-    mesma em todos.
+    'janela' vem em tres formas:
+      None                       -> a serie inteira
+      um numero de anos          -> os ultimos N anos
+      um par (de, ate)           -> o intervalo pedido na linha de comando
+
+    A terceira existe para que --de/--ate chegue as dez funcoes de dado sem mudar
+    a assinatura de nenhuma delas: todas ja chamam esta funcao.
     """
     import pandas as pd
     if janela is None:
         return df
+    if isinstance(janela, tuple):
+        de, ate = janela
+        return df[(df.index >= de) & (df.index <= ate)]
     return df[df.index >= df.index.max() - pd.DateOffset(years=janela)]
 
 
