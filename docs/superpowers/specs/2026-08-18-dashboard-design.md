@@ -171,13 +171,19 @@ figura, **não dentro do desenho** — assim o texto é selecionável e o SVG fi
 | Custo | custo do estoque contra Selic e IPCA | 4.1/4.2 + `vna.csv` | sim |
 | Reserva | treze meses, no formato do RMD | 6.1 | não |
 | | cinco anos, com a folga sombreada | 6.1 | sim |
-| *Candidatos* | perfil de vencimentos papel a papel, até 2060 | 2.2 | não |
-| | custo de emissão contra o do estoque | 4.2/4.3 | sim |
-| | emissão anual em 100% por papel | leilões | sim |
+| Vencimentos | perfil de vencimentos papel a papel, até 2060 | 2.2 | não |
+| Custo | custo de emissão contra o do estoque | 4.2/4.3 | sim |
+| Funding | emissão anual em 100% por papel — *recolhido* | leilões | sim |
 
-Os três candidatos foram construídos em rascunho, não são os preferidos da dona do
-projeto, e ela mandou guardá-los. Ficam num grupo próprio no fim do índice: "cada um
-escolhe o que olhar" vale de verdade, sem poluir a primeira leitura.
+**O grupo "Candidatos" deixou de existir em 19/08/2026.** Os três entraram nos grupos
+a que pertencem, depois de a dona do projeto ver o dashboard montado. Guardar gráfico
+bom num apêndice chamado "candidato" é uma forma de nunca decidir sobre ele.
+
+O único que ficou **recolhido** foi a emissão anual por papel, e não por ser inferior:
+ele tem a **mesma forma** do gráfico por indexador que vem logo acima, e dois gráficos
+iguais em sequência confundem. O que ele acrescenta é a quebra do prefixado — os 40,3%
+de 2025 se abrem em 33,1% de LTN e 9,2% de NTN-F, que têm prazo médio muito diferente.
+Quem quiser essa leitura abre a setinha.
 
 ### 5.1 Decisões de desenho já tomadas, gráfico a gráfico
 

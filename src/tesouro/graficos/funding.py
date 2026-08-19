@@ -78,6 +78,36 @@ def ultimo_mes_com_emissao():
                     parse_dates=["data"])
     return f["data"].max()
 
+def _rotula_ultimo(ax, serie, cor):
+    """Escreve o valor do ultimo ponto, ao lado dele."""
+    serie = serie.dropna()
+    if serie.empty:
+        return
+    ax.annotate(estilo.num_br(serie.iloc[-1], 1),
+                xy=(serie.index[-1], serie.iloc[-1]), xytext=(7, 0),
+                textcoords="offset points", fontsize=9, weight="bold",
+                color=cor, va="center")
+
+
+def _rotula_extremos(ax, serie, cor):
+    """Escreve o maior, o menor e o ultimo valor da serie.
+
+    Os tres pontos que alguem procura numa serie longa: quanto foi o pior mes, o
+    melhor, e onde estamos. Sem eles a barra so diz "grande" ou "pequena" -- com a
+    escala indo de -302 a +181, isso nao e leitura.
+    """
+    serie = serie.dropna()
+    if serie.empty:
+        return
+    marcados = {serie.idxmax(), serie.idxmin(), serie.index[-1]}
+    for quando in marcados:
+        valor = serie.loc[quando]
+        acima = valor >= 0
+        ax.annotate(estilo.num_br(valor, 1), xy=(quando, valor),
+                    xytext=(0, 6 if acima else -13), textcoords="offset points",
+                    ha="center", fontsize=8.5, weight="bold", color=cor)
+
+
 def desenha_net(dados, fig):
     """Dois paineis: o net do mes com a MM3, e o acumulado de 12 meses.
 
@@ -110,7 +140,17 @@ def desenha_net(dados, fig):
     marcas, rotulos = a1.get_legend_handles_labels()
     a1.legend([verde, vermelho] + marcas, [verde.get_label(), vermelho.get_label()]
               + rotulos, ncol=1, frameon=False, loc="upper left", fontsize=9)
-    a1.grid(axis="y", alpha=0.25)
+
+    # Grade a cada 50 bi com uma linha fraca no meio de cada faixa. Sem ela, a
+    # barra de 143 e a de 156 sao indistinguiveis a olho -- e a escala vai de -302
+    # a +181, entao o erro de leitura chega a dezenas de bilhoes.
+    estilo.grade_fina(a1, 50, 25)
+    # Folga no topo para a legenda e para o rotulo do maior mes nao encostarem na
+    # moldura, e um pouco embaixo pelo mesmo motivo.
+    net = dados["net"] / 1000
+    a1.set_ylim(net.min() * 1.14, net.max() * 1.75)
+    _rotula_extremos(a1, net, "#333333")
+    _rotula_ultimo(a1, dados["mm3"] / 1000, "#1f6feb")
 
     for cond, cor in [(dados["acum12"] >= 0, "#2ca02c"), (dados["acum12"] < 0, "#d62728")]:
         a2.fill_between(dados.index, dados["acum12"] / 1000, 0, where=cond,
@@ -119,7 +159,8 @@ def desenha_net(dados, fig):
     a2.axhline(0, color="gray", lw=0.8)
     a2.set_ylabel("R$ bilh\u00f5es")
     a2.set_title("Net acumulado de 12 meses", fontsize=10)
-    a2.grid(axis="y", alpha=0.25)
+    estilo.grade_fina(a2, 200, 100)
+    _rotula_extremos(a2, dados["acum12"] / 1000, "#333333")
     estilo.eixo_anual(a2)
 
 

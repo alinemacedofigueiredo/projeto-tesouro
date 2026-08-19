@@ -70,6 +70,44 @@ def test_cada_ano_da_emissao_anual_soma_100():
     assert (d[cols].sum(axis=1) - 100).abs().max() < 0.01
 
 
+def test_o_net_leva_rotulo_no_maior_no_menor_e_no_ultimo():
+    # Sem numero escrito, a barra so diz "grande" ou "pequena" -- e a escala vai de
+    # -302 a +181. Tres pontos sao rotulados em cada painel: o pior mes, o melhor e
+    # onde estamos.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    funding.desenha_net(funding.dados_net(janela=5), fig)
+    escritos = [a.get_text() for ax in fig.axes for a in ax.texts]
+    plt.close(fig)
+
+    assert "155,9" in escritos, "o maior net da janela"
+    assert "-302,3" in escritos, "o menor"
+    assert "143,4" in escritos, "o ultimo"
+    assert "115,7" in escritos, "o ultimo ponto da media movel"
+    assert "702,8" in escritos and "-447,0" in escritos, "os extremos do acumulado"
+
+
+def test_o_net_tem_grade_menor_alem_da_maior():
+    # Uma linha a cada 50 bi e outra fraca a cada 25. Com so a de 50, a barra de 143
+    # e a de 156 sao a mesma coisa a olho.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    funding.desenha_net(funding.dados_net(janela=5), fig)
+    a1 = fig.axes[0]
+    maiores = list(a1.get_yticks())
+    menores = list(a1.get_yticks(minor=True))
+    plt.close(fig)
+
+    assert round(maiores[1] - maiores[0], 1) == 50.0
+    # O matplotlib nao repete uma posicao menor onde ja existe marca maior, entao
+    # as menores sozinhas tambem andam de 50 em 50 -- deslocadas. O que prova a
+    # grade fina e a UNIAO das duas, que anda de 25.
+    todas = sorted(set(round(v, 6) for v in maiores + menores))
+    passos = {round(b - a, 1) for a, b in zip(todas, todas[1:])}
+    assert passos == {25.0}, passos
+    assert len(menores) >= len(maiores) - 1
+
+
 def test_a_legenda_nomeia_as_duas_cores_da_barra():
     # A barra e UMA serie so, colorida pelo sinal. Verde e vermelho foram lidos como
     # emissao e resgate na primeira leitura -- por isso as duas cores tem nome na

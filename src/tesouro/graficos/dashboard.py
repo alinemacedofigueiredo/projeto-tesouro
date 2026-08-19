@@ -37,8 +37,11 @@ Grafico = collections.namedtuple(
     "id grupo titulo fonte nota janela padrao figura variantes recolhido")
 Grafico.__new__.__defaults__ = (None, False)
 
+# "Candidatos" deixou de existir em 19/08/2026: os tres que estavam la entraram nos
+# grupos a que pertencem. Guardar grafico bom num apendice chamado "candidato" e uma
+# forma de nunca decidir sobre ele.
 GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
-          "Reserva", "Candidatos"]
+          "Reserva"]
 
 JANELAS = (("5 anos", 5), ("completa", None))
 
@@ -204,6 +207,16 @@ REGISTRO = [
             "emiss\u00e3o, contra 93% a 97% se viesse dos leil\u00f5es. O ano ainda aberto "
             "leva asterisco.",
             True, "5 anos", _fig_emissao_anual),
+    Grafico("emissao_papel", "Funding",
+            "Composi\u00e7\u00e3o anual da emiss\u00e3o, por papel",
+            "leiloes.csv",
+            "A mesma forma do gr\u00e1fico acima, por <b>papel</b> em vez de indexador \u2014 "
+            "e \u00e9 a\u00ed que est\u00e1 o que ele acrescenta: o prefixado de 40,3% em 2025 se "
+            "abre em 33,1% de LTN e 9,2% de NTN-F, que t\u00eam prazo m\u00e9dio muito "
+            "diferente. Vem dos leil\u00f5es, que s\u00e3o exatamente a Oferta P\u00fablica da aba "
+            "1.1 \u2014 conferido ano a ano \u2014 e portanto n\u00e3o incluem Tesouro Direto "
+            "nem emiss\u00e3o direta: 93% a 97% do total emitido.",
+            True, "5 anos", _fig_emissao_papel, None, True),
     Grafico("estoque_composicao", "Estoque",
             "Composi\u00e7\u00e3o da DPF por indexador, com a banda do PAF",
             "aba 2.1 e referencia/paf_bandas.csv",
@@ -270,6 +283,17 @@ REGISTRO = [
             "referencia/paf_bandas.csv (2016 a 2026). Onde h\u00e1 revis\u00e3o, vale a "
             "revisada, que \u00e9 a que estava em vigor no fechamento.",
             False, None, _fig_faixas),
+    Grafico("perfil_completo", "Vencimentos",
+            "Perfil de vencimentos, papel a papel",
+            "aba 2.2",
+            "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
+            "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
+            "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
+            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma. "
+            "<b>Diferente do cronograma, este n\u00e3o inclui cupom:</b> a 2.2 aloca o "
+            "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
+            "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
+            False, None, _fig_perfil_completo),
     Grafico("prazo_medio", "Prazo",
             "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",
             "aba 3.7 e referencia/paf_bandas.csv",
@@ -286,6 +310,12 @@ REGISTRO = [
             "Marque a caixa para inclu\u00ed-la; o eixo se ajusta.",
             True, "5 anos", _fig_custo,
             ("incluir a DPFe", (False, True))),
+    Grafico("custo_emissao", "Custo",
+            "Custo de emiss\u00e3o contra o custo do estoque",
+            "abas 4.2 e 4.3",
+            "DPMFi. Emite-se a 14,20% e carrega-se a 13,19%: a d\u00edvida encarece "
+            "sem que nenhuma decis\u00e3o nova seja tomada.",
+            True, "5 anos", _fig_custo_emissao),
     Grafico("reserva_13m", "Reserva",
             "Reserva de liquidez, treze meses",
             "aba 6.1",
@@ -298,29 +328,6 @@ REGISTRO = [
             "A folga \u00e9 a reserva menos o valor prudencial. Em jan e fev/2015 ela "
             "foi negativa, e esses dois meses aparecem em vermelho.",
             True, "5 anos", _fig_reserva),
-    Grafico("perfil_completo", "Candidatos",
-            "Perfil de vencimentos, papel a papel",
-            "aba 2.2",
-            "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
-            "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
-            "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
-            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma. "
-            "<b>Diferente do cronograma, este n\u00e3o inclui cupom:</b> a 2.2 aloca o "
-            "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
-            "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
-            False, None, _fig_perfil_completo),
-    Grafico("custo_emissao", "Candidatos",
-            "Custo de emiss\u00e3o contra o custo do estoque",
-            "abas 4.2 e 4.3",
-            "DPMFi. Emite-se a 14,20% e carrega-se a 13,19%: a d\u00edvida encarece "
-            "sem que nenhuma decis\u00e3o nova seja tomada.",
-            True, "5 anos", _fig_custo_emissao),
-    Grafico("emissao_papel", "Candidatos",
-            "Composi\u00e7\u00e3o anual da emiss\u00e3o por papel, dos leil\u00f5es",
-            "leiloes.csv",
-            "Recusado como gr\u00e1fico principal: os leil\u00f5es cobrem de 90,5% a 97,3% "
-            "da emiss\u00e3o que o RMD registra, contra 100% da aba 1.2.",
-            True, "5 anos", _fig_emissao_papel),
 ]
 
 _CSS = """

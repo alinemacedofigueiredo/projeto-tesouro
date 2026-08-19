@@ -710,6 +710,44 @@ def test_cada_ano_da_emissao_anual_soma_100():
     assert (d[cols].sum(axis=1) - 100).abs().max() < 0.01
 
 
+def test_o_net_leva_rotulo_no_maior_no_menor_e_no_ultimo():
+    # Sem numero escrito, a barra so diz "grande" ou "pequena" -- e a escala vai de
+    # -302 a +181. Tres pontos sao rotulados em cada painel: o pior mes, o melhor e
+    # onde estamos.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    funding.desenha_net(funding.dados_net(janela=5), fig)
+    escritos = [a.get_text() for ax in fig.axes for a in ax.texts]
+    plt.close(fig)
+
+    assert "155,9" in escritos, "o maior net da janela"
+    assert "-302,3" in escritos, "o menor"
+    assert "143,4" in escritos, "o ultimo"
+    assert "115,7" in escritos, "o ultimo ponto da media movel"
+    assert "702,8" in escritos and "-447,0" in escritos, "os extremos do acumulado"
+
+
+def test_o_net_tem_grade_menor_alem_da_maior():
+    # Uma linha a cada 50 bi e outra fraca a cada 25. Com so a de 50, a barra de 143
+    # e a de 156 sao a mesma coisa a olho.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    funding.desenha_net(funding.dados_net(janela=5), fig)
+    a1 = fig.axes[0]
+    maiores = list(a1.get_yticks())
+    menores = list(a1.get_yticks(minor=True))
+    plt.close(fig)
+
+    assert round(maiores[1] - maiores[0], 1) == 50.0
+    # O matplotlib nao repete uma posicao menor onde ja existe marca maior, entao
+    # as menores sozinhas tambem andam de 50 em 50 -- deslocadas. O que prova a
+    # grade fina e a UNIAO das duas, que anda de 25.
+    todas = sorted(set(round(v, 6) for v in maiores + menores))
+    passos = {round(b - a, 1) for a, b in zip(todas, todas[1:])}
+    assert passos == {25.0}, passos
+    assert len(menores) >= len(maiores) - 1
+
+
 def test_a_legenda_nomeia_as_duas_cores_da_barra():
     # A barra e UMA serie so, colorida pelo sinal. Verde e vermelho foram lidos como
     # emissao e resgate na primeira leitura -- por isso as duas cores tem nome na
@@ -843,6 +881,36 @@ def ultimo_mes_com_emissao():
 ```python
 # continuacao de src/tesouro/graficos/funding.py
 
+def _rotula_ultimo(ax, serie, cor):
+    """Escreve o valor do ultimo ponto, ao lado dele."""
+    serie = serie.dropna()
+    if serie.empty:
+        return
+    ax.annotate(estilo.num_br(serie.iloc[-1], 1),
+                xy=(serie.index[-1], serie.iloc[-1]), xytext=(7, 0),
+                textcoords="offset points", fontsize=9, weight="bold",
+                color=cor, va="center")
+
+
+def _rotula_extremos(ax, serie, cor):
+    """Escreve o maior, o menor e o ultimo valor da serie.
+
+    Os tres pontos que alguem procura numa serie longa: quanto foi o pior mes, o
+    melhor, e onde estamos. Sem eles a barra so diz "grande" ou "pequena" -- com a
+    escala indo de -302 a +181, isso nao e leitura.
+    """
+    serie = serie.dropna()
+    if serie.empty:
+        return
+    marcados = {serie.idxmax(), serie.idxmin(), serie.index[-1]}
+    for quando in marcados:
+        valor = serie.loc[quando]
+        acima = valor >= 0
+        ax.annotate(estilo.num_br(valor, 1), xy=(quando, valor),
+                    xytext=(0, 6 if acima else -13), textcoords="offset points",
+                    ha="center", fontsize=8.5, weight="bold", color=cor)
+
+
 def desenha_net(dados, fig):
     """Dois paineis: o net do mes com a MM3, e o acumulado de 12 meses.
 
@@ -875,7 +943,17 @@ def desenha_net(dados, fig):
     marcas, rotulos = a1.get_legend_handles_labels()
     a1.legend([verde, vermelho] + marcas, [verde.get_label(), vermelho.get_label()]
               + rotulos, ncol=1, frameon=False, loc="upper left", fontsize=9)
-    a1.grid(axis="y", alpha=0.25)
+
+    # Grade a cada 50 bi com uma linha fraca no meio de cada faixa. Sem ela, a
+    # barra de 143 e a de 156 sao indistinguiveis a olho -- e a escala vai de -302
+    # a +181, entao o erro de leitura chega a dezenas de bilhoes.
+    estilo.grade_fina(a1, 50, 25)
+    # Folga no topo para a legenda e para o rotulo do maior mes nao encostarem na
+    # moldura, e um pouco embaixo pelo mesmo motivo.
+    net = dados["net"] / 1000
+    a1.set_ylim(net.min() * 1.14, net.max() * 1.75)
+    _rotula_extremos(a1, net, "#333333")
+    _rotula_ultimo(a1, dados["mm3"] / 1000, "#1f6feb")
 
     for cond, cor in [(dados["acum12"] >= 0, "#2ca02c"), (dados["acum12"] < 0, "#d62728")]:
         a2.fill_between(dados.index, dados["acum12"] / 1000, 0, where=cond,
@@ -884,7 +962,8 @@ def desenha_net(dados, fig):
     a2.axhline(0, color="gray", lw=0.8)
     a2.set_ylabel("R$ bilhões")
     a2.set_title("Net acumulado de 12 meses", fontsize=10)
-    a2.grid(axis="y", alpha=0.25)
+    estilo.grade_fina(a2, 200, 100)
+    _rotula_extremos(a2, dados["acum12"] / 1000, "#333333")
     estilo.eixo_anual(a2)
 
 
@@ -1951,7 +2030,11 @@ def desenha_participacao(dados, variacao, fig):
     estoque subindo e ruido de composicao -- o grupo comprou, mas os outros
     compraram mais -- e ler isso como venda e o erro que o painel em p.p. convida.
     """
-    a1, a2 = fig.subplots(2, 1, gridspec_kw={"height_ratios": [3, 2]})
+    # hspace generoso e titulo em cada painel: colados, a legenda do painel de
+    # baixo era lida como se fosse do de cima -- os dois falam de detentores, e nada
+    # no desenho dizia onde um terminava e o outro comecava.
+    a1, a2 = fig.subplots(2, 1,
+                          gridspec_kw={"height_ratios": [3, 2], "hspace": 0.55})
 
     posicoes = range(len(dados))
     base = [0.0] * len(dados)
@@ -1973,8 +2056,10 @@ def desenha_participacao(dados, variacao, fig):
     a1.set_ylim(0, 100)
     a1.set_yticks([])
     a1.set_ylabel("% do estoque da DPMFi")
+    a1.set_title("Participa\u00e7\u00e3o relativa dos detentores da DPMFi", fontsize=11,
+                 weight="bold", loc="left", pad=26)
     a1.legend(ncol=len(ORDEM_GRUPOS), frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, 1.10), fontsize=9)
+              bbox_to_anchor=(0.5, 1.11), fontsize=9)
     for lado in ("top", "right", "left"):
         a1.spines[lado].set_visible(False)
 
@@ -1998,8 +2083,11 @@ def desenha_participacao(dados, variacao, fig):
     a2.set_xticklabels(list(variacao.index), fontsize=9.5)
     a2.axhline(0, color="gray", lw=0.8)
     a2.set_ylabel("varia\u00e7\u00e3o do estoque, R$ bilh\u00f5es")
-    a2.legend(ncol=3, frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, 1.14), fontsize=9)
+    a2.set_title("Varia\u00e7\u00e3o do estoque dos principais detentores", fontsize=11,
+                 weight="bold", loc="left", pad=26)
+    # A legenda deste painel fica DENTRO dele, e nao no espaco entre os dois: era
+    # ali que ela parecia pertencer ao painel de cima.
+    a2.legend(ncol=3, frameon=False, loc="upper right", fontsize=9)
     a2.grid(axis="y", alpha=0.20)
     for lado in ("top", "right"):
         a2.spines[lado].set_visible(False)
@@ -4434,12 +4522,28 @@ def test_o_registro_tem_os_vinte_graficos():
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
 
 
-def test_os_grupos_saem_na_ordem_com_os_candidatos_por_ultimo():
-    assert dashboard.GRUPOS[-1] == "Candidatos"
-    grupos_usados = [g.grupo for g in dashboard.REGISTRO]
-    # Os tres candidatos ficam juntos no fim: "cada um escolhe o que olhar" vale
-    # de verdade, sem poluir a primeira leitura.
-    assert grupos_usados[-3:] == ["Candidatos"] * 3
+def test_cada_grupo_aparece_uma_vez_so_no_corpo():
+    # O corpo do HTML sai na ordem do REGISTRO, e o indice sai agrupado. Se as duas
+    # ordens divergirem, o leitor clica em "Perfil de vencimentos" no grupo
+    # Vencimentos e cai depois da Reserva. Foi o que aconteceu ao promover os
+    # candidatos para os grupos deles em 19/08/2026.
+    vistos = []
+    for g in dashboard.REGISTRO:
+        if not vistos or vistos[-1] != g.grupo:
+            assert g.grupo not in vistos,                 f"o grupo {g.grupo} aparece em dois trechos do registro"
+            vistos.append(g.grupo)
+    assert vistos == dashboard.GRUPOS
+
+
+def test_nao_ha_mais_grupo_de_candidatos():
+    # Os tres candidatos entraram nos grupos a que pertencem em 19/08/2026. Guardar
+    # grafico bom num apendice chamado "candidato" e uma forma de nunca decidir.
+    assert "Candidatos" not in dashboard.GRUPOS
+    porid = {g.id: g for g in dashboard.REGISTRO}
+    assert porid["perfil_completo"].grupo == "Vencimentos"
+    assert porid["custo_emissao"].grupo == "Custo"
+    assert porid["emissao_papel"].grupo == "Funding"
+    assert all(g.grupo != "Candidatos" for g in dashboard.REGISTRO)
 
 
 def test_a_contagem_de_svgs_sai_do_registro():
@@ -4460,20 +4564,22 @@ def test_as_quatro_quebras_por_papel_ficam_recolhidas():
     # Sao quatro graficos densos que respondem a mesma pergunta do quinto. Abertos,
     # empurram metade do dashboard para baixo da dobra.
     recolhidos = [g.id for g in dashboard.REGISTRO if g.recolhido]
-    assert recolhidos == ["detentores_lft", "detentores_ntnb",
+    assert recolhidos == ["emissao_papel", "detentores_lft", "detentores_ntnb",
                           "detentores_ltn", "detentores_ntnf"]
-    for g in dashboard.REGISTRO:
-        if g.recolhido:
-            assert g.grupo == "Detentores"
+    # A emissao por papel tambem: tem a MESMA FORMA do grafico anterior, e o que ela
+    # acrescenta e a quebra do prefixado em LTN e NTN-F. Aberta, o leitor ve dois
+    # graficos iguais seguidos e nao entende por que.
+    porid = {g.id: g for g in dashboard.REGISTRO}
+    assert porid["emissao_papel"].grupo == "Funding"
 
 
 def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
     # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
     # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
-    assert html.count("<details>") == 4
-    assert html.count("<summary>") == 4
-    for gid in ("detentores_lft", "detentores_ntnb", "detentores_ltn",
-                "detentores_ntnf"):
+    assert html.count("<details>") == 5
+    assert html.count("<summary>") == 5
+    for gid in ("emissao_papel", "detentores_lft", "detentores_ntnb",
+                "detentores_ltn", "detentores_ntnf"):
         assert f'<section id="{gid}" class="recolhida">' in html
         assert f'data-grafico="{gid}"' in html
 
@@ -4689,8 +4795,11 @@ Grafico = collections.namedtuple(
     "id grupo titulo fonte nota janela padrao figura variantes recolhido")
 Grafico.__new__.__defaults__ = (None, False)
 
+# "Candidatos" deixou de existir em 19/08/2026: os tres que estavam la entraram nos
+# grupos a que pertencem. Guardar grafico bom num apendice chamado "candidato" e uma
+# forma de nunca decidir sobre ele.
 GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
-          "Reserva", "Candidatos"]
+          "Reserva"]
 
 JANELAS = (("5 anos", 5), ("completa", None))
 
@@ -4856,6 +4965,16 @@ REGISTRO = [
             "emiss\u00e3o, contra 93% a 97% se viesse dos leil\u00f5es. O ano ainda aberto "
             "leva asterisco.",
             True, "5 anos", _fig_emissao_anual),
+    Grafico("emissao_papel", "Funding",
+            "Composi\u00e7\u00e3o anual da emiss\u00e3o, por papel",
+            "leiloes.csv",
+            "A mesma forma do gr\u00e1fico acima, por <b>papel</b> em vez de indexador — "
+            "e \u00e9 a\u00ed que est\u00e1 o que ele acrescenta: o prefixado de 40,3% em 2025 se "
+            "abre em 33,1% de LTN e 9,2% de NTN-F, que t\u00eam prazo m\u00e9dio muito "
+            "diferente. Vem dos leil\u00f5es, que s\u00e3o exatamente a Oferta P\u00fablica da aba "
+            "1.1 — conferido ano a ano — e portanto n\u00e3o incluem Tesouro Direto "
+            "nem emiss\u00e3o direta: 93% a 97% do total emitido.",
+            True, "5 anos", _fig_emissao_papel, None, True),
     Grafico("estoque_composicao", "Estoque",
             "Composi\u00e7\u00e3o da DPF por indexador, com a banda do PAF",
             "aba 2.1 e referencia/paf_bandas.csv",
@@ -4922,6 +5041,17 @@ REGISTRO = [
             "referencia/paf_bandas.csv (2016 a 2026). Onde h\u00e1 revis\u00e3o, vale a "
             "revisada, que \u00e9 a que estava em vigor no fechamento.",
             False, None, _fig_faixas),
+    Grafico("perfil_completo", "Vencimentos",
+            "Perfil de vencimentos, papel a papel",
+            "aba 2.2",
+            "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
+            "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
+            "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
+            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma. "
+            "<b>Diferente do cronograma, este n\u00e3o inclui cupom:</b> a 2.2 aloca o "
+            "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
+            "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
+            False, None, _fig_perfil_completo),
     Grafico("prazo_medio", "Prazo",
             "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",
             "aba 3.7 e referencia/paf_bandas.csv",
@@ -4938,6 +5068,12 @@ REGISTRO = [
             "Marque a caixa para inclu\u00ed-la; o eixo se ajusta.",
             True, "5 anos", _fig_custo,
             ("incluir a DPFe", (False, True))),
+    Grafico("custo_emissao", "Custo",
+            "Custo de emiss\u00e3o contra o custo do estoque",
+            "abas 4.2 e 4.3",
+            "DPMFi. Emite-se a 14,20% e carrega-se a 13,19%: a d\u00edvida encarece "
+            "sem que nenhuma decis\u00e3o nova seja tomada.",
+            True, "5 anos", _fig_custo_emissao),
     Grafico("reserva_13m", "Reserva",
             "Reserva de liquidez, treze meses",
             "aba 6.1",
@@ -4950,29 +5086,6 @@ REGISTRO = [
             "A folga \u00e9 a reserva menos o valor prudencial. Em jan e fev/2015 ela "
             "foi negativa, e esses dois meses aparecem em vermelho.",
             True, "5 anos", _fig_reserva),
-    Grafico("perfil_completo", "Candidatos",
-            "Perfil de vencimentos, papel a papel",
-            "aba 2.2",
-            "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
-            "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
-            "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
-            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma. "
-            "<b>Diferente do cronograma, este n\u00e3o inclui cupom:</b> a 2.2 aloca o "
-            "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
-            "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
-            False, None, _fig_perfil_completo),
-    Grafico("custo_emissao", "Candidatos",
-            "Custo de emiss\u00e3o contra o custo do estoque",
-            "abas 4.2 e 4.3",
-            "DPMFi. Emite-se a 14,20% e carrega-se a 13,19%: a d\u00edvida encarece "
-            "sem que nenhuma decis\u00e3o nova seja tomada.",
-            True, "5 anos", _fig_custo_emissao),
-    Grafico("emissao_papel", "Candidatos",
-            "Composi\u00e7\u00e3o anual da emiss\u00e3o por papel, dos leil\u00f5es",
-            "leiloes.csv",
-            "Recusado como gr\u00e1fico principal: os leil\u00f5es cobrem de 90,5% a 97,3% "
-            "da emiss\u00e3o que o RMD registra, contra 100% da aba 1.2.",
-            True, "5 anos", _fig_emissao_papel),
 ]
 ```
 

@@ -198,7 +198,11 @@ def desenha_participacao(dados, variacao, fig):
     estoque subindo e ruido de composicao -- o grupo comprou, mas os outros
     compraram mais -- e ler isso como venda e o erro que o painel em p.p. convida.
     """
-    a1, a2 = fig.subplots(2, 1, gridspec_kw={"height_ratios": [3, 2]})
+    # hspace generoso e titulo em cada painel: colados, a legenda do painel de
+    # baixo era lida como se fosse do de cima -- os dois falam de detentores, e nada
+    # no desenho dizia onde um terminava e o outro comecava.
+    a1, a2 = fig.subplots(2, 1,
+                          gridspec_kw={"height_ratios": [3, 2], "hspace": 0.55})
 
     posicoes = range(len(dados))
     base = [0.0] * len(dados)
@@ -220,8 +224,10 @@ def desenha_participacao(dados, variacao, fig):
     a1.set_ylim(0, 100)
     a1.set_yticks([])
     a1.set_ylabel("% do estoque da DPMFi")
+    a1.set_title("Participa\u00e7\u00e3o relativa dos detentores da DPMFi", fontsize=11,
+                 weight="bold", loc="left", pad=26)
     a1.legend(ncol=len(ORDEM_GRUPOS), frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, 1.10), fontsize=9)
+              bbox_to_anchor=(0.5, 1.11), fontsize=9)
     for lado in ("top", "right", "left"):
         a1.spines[lado].set_visible(False)
 
@@ -245,8 +251,11 @@ def desenha_participacao(dados, variacao, fig):
     a2.set_xticklabels(list(variacao.index), fontsize=9.5)
     a2.axhline(0, color="gray", lw=0.8)
     a2.set_ylabel("varia\u00e7\u00e3o do estoque, R$ bilh\u00f5es")
-    a2.legend(ncol=3, frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, 1.14), fontsize=9)
+    a2.set_title("Varia\u00e7\u00e3o do estoque dos principais detentores", fontsize=11,
+                 weight="bold", loc="left", pad=26)
+    # A legenda deste painel fica DENTRO dele, e nao no espaco entre os dois: era
+    # ali que ela parecia pertencer ao painel de cima.
+    a2.legend(ncol=3, frameon=False, loc="upper right", fontsize=9)
     a2.grid(axis="y", alpha=0.20)
     for lado in ("top", "right"):
         a2.spines[lado].set_visible(False)

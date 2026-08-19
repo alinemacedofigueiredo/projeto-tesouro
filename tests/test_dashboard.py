@@ -25,12 +25,28 @@ def test_o_registro_tem_os_vinte_graficos():
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
 
 
-def test_os_grupos_saem_na_ordem_com_os_candidatos_por_ultimo():
-    assert dashboard.GRUPOS[-1] == "Candidatos"
-    grupos_usados = [g.grupo for g in dashboard.REGISTRO]
-    # Os tres candidatos ficam juntos no fim: "cada um escolhe o que olhar" vale
-    # de verdade, sem poluir a primeira leitura.
-    assert grupos_usados[-3:] == ["Candidatos"] * 3
+def test_cada_grupo_aparece_uma_vez_so_no_corpo():
+    # O corpo do HTML sai na ordem do REGISTRO, e o indice sai agrupado. Se as duas
+    # ordens divergirem, o leitor clica em "Perfil de vencimentos" no grupo
+    # Vencimentos e cai depois da Reserva. Foi o que aconteceu ao promover os
+    # candidatos para os grupos deles em 19/08/2026.
+    vistos = []
+    for g in dashboard.REGISTRO:
+        if not vistos or vistos[-1] != g.grupo:
+            assert g.grupo not in vistos,                 f"o grupo {g.grupo} aparece em dois trechos do registro"
+            vistos.append(g.grupo)
+    assert vistos == dashboard.GRUPOS
+
+
+def test_nao_ha_mais_grupo_de_candidatos():
+    # Os tres candidatos entraram nos grupos a que pertencem em 19/08/2026. Guardar
+    # grafico bom num apendice chamado "candidato" e uma forma de nunca decidir.
+    assert "Candidatos" not in dashboard.GRUPOS
+    porid = {g.id: g for g in dashboard.REGISTRO}
+    assert porid["perfil_completo"].grupo == "Vencimentos"
+    assert porid["custo_emissao"].grupo == "Custo"
+    assert porid["emissao_papel"].grupo == "Funding"
+    assert all(g.grupo != "Candidatos" for g in dashboard.REGISTRO)
 
 
 def test_a_contagem_de_svgs_sai_do_registro():
@@ -51,20 +67,22 @@ def test_as_quatro_quebras_por_papel_ficam_recolhidas():
     # Sao quatro graficos densos que respondem a mesma pergunta do quinto. Abertos,
     # empurram metade do dashboard para baixo da dobra.
     recolhidos = [g.id for g in dashboard.REGISTRO if g.recolhido]
-    assert recolhidos == ["detentores_lft", "detentores_ntnb",
+    assert recolhidos == ["emissao_papel", "detentores_lft", "detentores_ntnb",
                           "detentores_ltn", "detentores_ntnf"]
-    for g in dashboard.REGISTRO:
-        if g.recolhido:
-            assert g.grupo == "Detentores"
+    # A emissao por papel tambem: tem a MESMA FORMA do grafico anterior, e o que ela
+    # acrescenta e a quebra do prefixado em LTN e NTN-F. Aberta, o leitor ve dois
+    # graficos iguais seguidos e nao entende por que.
+    porid = {g.id: g for g in dashboard.REGISTRO}
+    assert porid["emissao_papel"].grupo == "Funding"
 
 
 def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
     # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
     # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
-    assert html.count("<details>") == 4
-    assert html.count("<summary>") == 4
-    for gid in ("detentores_lft", "detentores_ntnb", "detentores_ltn",
-                "detentores_ntnf"):
+    assert html.count("<details>") == 5
+    assert html.count("<summary>") == 5
+    for gid in ("emissao_papel", "detentores_lft", "detentores_ntnb",
+                "detentores_ltn", "detentores_ntnf"):
         assert f'<section id="{gid}" class="recolhida">' in html
         assert f'data-grafico="{gid}"' in html
 
