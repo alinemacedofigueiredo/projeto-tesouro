@@ -3,7 +3,7 @@
 > **Para trabalhadores agênticos:** SUB-SKILL OBRIGATÓRIA: use
 > superpowers:subagent-driven-development (recomendado) ou
 > superpowers:executing-plans para implementar tarefa a tarefa. Os passos usam
-> caixinha (`- [ ]`) para acompanhamento.
+> caixinha (`- [x]`) para acompanhamento.
 
 **Objetivo:** um dashboard HTML autocontido com dezesseis gráficos da dívida
 pública federal, gerado a partir dos CSVs que as entregas anteriores produziram.
@@ -115,7 +115,7 @@ Por isso o `savefig` não fica solto: existe `estilo.salvar_svg`, que é o únic
 do projeto que chama `savefig` para SVG. Reprodutibilidade vira propriedade de uma
 função, e não convenção que dez chamadas precisam lembrar.
 
-- [ ] **Passo 1: escrever o teste que falha**
+- [x] **Passo 1: escrever o teste que falha**
 
 ```python
 # tests/test_estilo.py
@@ -197,7 +197,7 @@ def test_as_cores_cobrem_os_indexadores_e_os_papeis():
         assert chave in estilo.COR
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_estilo.py -v
@@ -205,7 +205,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_estilo.py -v
 
 Esperado: FAIL com `ModuleNotFoundError: No module named 'tesouro.graficos'`.
 
-- [ ] **Passo 3: criar o pacote**
+- [x] **Passo 3: criar o pacote**
 
 ```python
 # src/tesouro/graficos/__init__.py
@@ -219,7 +219,7 @@ teste afirma "a composicao de junho de 2026 e 21,0 / 25,9 / 49,3 / 3,7" em vez d
 """
 ```
 
-- [ ] **Passo 4: escrever o estilo**
+- [x] **Passo 4: escrever o estilo**
 
 ```python
 # src/tesouro/graficos/estilo.py
@@ -339,7 +339,7 @@ def grade_fina(ax, maior, menor, eixo="y"):
     ax.grid(axis=eixo, which="minor", alpha=0.12)
 ```
 
-- [ ] **Passo 5: rodar, ver falhar de novo, e entender por que**
+- [x] **Passo 5: rodar, ver falhar de novo, e entender por que**
 
 O teste de ASCII e o de reprodutibilidade ainda falham, e cada um por um motivo:
 
@@ -352,7 +352,7 @@ O teste de ASCII e o de reprodutibilidade ainda falham, e cada um por um motivo:
   e so entao escreva o `salvar_svg`. Ver com o proprio olho qual linha muda vale
   mais do que aceitar a explicacao pronta.
 
-- [ ] **Passo 6: rodar e ver passar**
+- [x] **Passo 6: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_estilo.py -v
@@ -360,7 +360,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_estilo.py -v
 
 Esperado: 6 passed.
 
-- [ ] **Passo 7: rodar a suíte inteira**
+- [x] **Passo 7: rodar a suíte inteira**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -368,7 +368,7 @@ $env:PYTHONPATH="src"; python -m pytest -q
 
 Esperado: 312 passed, 1 skipped.
 
-- [ ] **Passo 8: commit**
+- [x] **Passo 8: commit**
 
 ```bash
 git add src/tesouro/graficos/ tests/test_estilo.py
@@ -408,7 +408,7 @@ para nos 60 meses.
 aba em 40 linhas, então o balde não está lá — e sem esticar a amostra o teste falha
 por motivo errado. É o Passo 3b.
 
-- [ ] **Passo 1: escrever o teste que falha**
+- [x] **Passo 1: escrever o teste que falha**
 
 ```python
 # acrescentar em tests/test_vencimentos.py
@@ -446,7 +446,7 @@ def test_o_total_do_cronograma_bate_com_o_estoque_do_dpmfi():
     assert abs(cr["valor_milhoes"].sum() - ultimo) / ultimo < 0.0001
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_vencimentos.py -k balde -v
@@ -454,7 +454,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_vencimentos.py -k balde -v
 
 Esperado: FAIL com `KeyError: 'faixa'` — a coluna ainda não existe.
 
-- [ ] **Passo 3: ler a aba crua para confirmar as posições**
+- [x] **Passo 3: ler a aba crua para confirmar as posições**
 
 Antes de mexer no parser, confirme onde o balde está. Rode:
 
@@ -466,7 +466,7 @@ Esperado: por volta da linha 73 aparece `['Ap\u00f3s 5 anos', ...]` com os valor
 grupo, e na 74 `['Total', ...]`. **Não confie no número da linha:** localize pelo
 rótulo, porque a planilha muda de tamanho conforme o mês.
 
-- [ ] **Passo 3b: esticar a amostra de teste ate o balde**
+- [x] **Passo 3b: esticar a amostra de teste ate o balde**
 
 Os testes do parser rodam contra `tests/fixtures/rmd_amostra.xlsx`, nao contra o
 anexo real. O gerador corta a aba 3.4 em **40 linhas** e o balde esta na **73**: sem
@@ -481,7 +481,7 @@ explicam os cortes delas. Depois regere:
 python tests/fixtures/gerar_fixtures.py
 ```
 
-- [ ] **Passo 3c: acertar os dois testes que ja existiam**
+- [x] **Passo 3c: acertar os dois testes que ja existiam**
 
 Dois testes do arquivo falam do formato antigo e passam a falhar:
 
@@ -491,7 +491,7 @@ Dois testes do arquivo falam do formato antigo e passam a falhar:
   referencia, e o balde nasce **sem mes**. Filtre por `faixa == "mensal"`, com o
   comentario dizendo por que o balde fica de fora.
 
-- [ ] **Passo 4: alterar o parser**
+- [x] **Passo 4: alterar o parser**
 
 Em `parse_cronograma`, depois de montar as linhas mensais, localize a linha cujo
 rótulo da primeira coluna, sem acento e em minúsculas, comece com `apos 5 anos` e
@@ -558,7 +558,7 @@ def parse_cronograma(xl):
 na mesma ordem — `["LTN / NTN-F", "LFT", "NTN-B", "NTN-C", "Demais"]`. Se o laço
 existente usa outra estrutura, reutilize a dele em vez de criar uma nova.
 
-- [ ] **Passo 5: regerar o CSV e rodar o teste**
+- [x] **Passo 5: regerar o CSV e rodar o teste**
 
 ```
 $env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta
@@ -567,13 +567,13 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_vencimentos.py -v
 
 Esperado: PASS, com o CSV somando 8.920,7 bi.
 
-- [ ] **Passo 6: confirmar que o erro é visível se o rótulo sumir**
+- [x] **Passo 6: confirmar que o erro é visível se o rótulo sumir**
 
 Troque temporariamente `"apos 5 anos"` por `"apos 6 anos"` no parser, rode o
 pipeline, e confirme que ele **falha com a mensagem explicativa** em vez de gerar um
 CSV incompleto em silêncio. Desfaça a alteração.
 
-- [ ] **Passo 7: rodar a suíte inteira**
+- [x] **Passo 7: rodar a suíte inteira**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -581,7 +581,7 @@ $env:PYTHONPATH="src"; python -m pytest -q
 
 Esperado: 314 passed, 1 skipped.
 
-- [ ] **Passo 8: commit**
+- [x] **Passo 8: commit**
 
 ```bash
 git add src/tesouro/parse_rmd/vencimentos.py tests/test_vencimentos.py
@@ -634,7 +634,7 @@ resgate ao longo de 236 meses, e quem desenhou **leu o próprio gráfico errado*
 achando que a linha do net seguia os resgates. Não seguia — o gráfico é que era
 ilegível. Se 236 barras emparelhadas confundem quem as fez, confundem qualquer um.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_funding.py
@@ -719,7 +719,7 @@ def test_o_desenho_do_net_nao_tem_media_de_tres_meses():
     assert not any("MM3" in r for r in rotulos), "a MM3 saiu por decisao da usuaria"
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_funding.py -v
@@ -727,7 +727,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_funding.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'funding'`.
 
-- [ ] **Passo 3: escrever as funções de dado**
+- [x] **Passo 3: escrever as funções de dado**
 
 ```python
 # src/tesouro/graficos/funding.py
@@ -817,7 +817,7 @@ def ultimo_mes_com_emissao():
     return f["data"].max()
 ```
 
-- [ ] **Passo 4: escrever as funções de desenho**
+- [x] **Passo 4: escrever as funções de desenho**
 
 ```python
 # continuacao de src/tesouro/graficos/funding.py
@@ -891,7 +891,7 @@ def desenha_emissao_anual(dados, ax, ano_parcial):
     ax.grid(axis="y", alpha=0.20)
 ```
 
-- [ ] **Passo 5: rodar e ver passar**
+- [x] **Passo 5: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_funding.py -v
@@ -899,7 +899,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_funding.py -v
 
 Esperado: 9 passed.
 
-- [ ] **Passo 6: confirmar que cada asserção tem dentes**
+- [x] **Passo 6: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -911,7 +911,7 @@ falha, e desfaça:
 **Não pule este passo.** Na entrega 2 apareceram seis testes que afirmavam o
 resultado em vez da intenção, e todos passavam com a implementação quebrada.
 
-- [ ] **Passo 7: rodar a suíte inteira e commitar**
+- [x] **Passo 7: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -989,7 +989,7 @@ resolução entre banda original e revisada. Um leitor só, testado uma vez.
    ASCII puro. Esta tarefa fecha isso com um teste que varre o pacote inteiro, em vez
    de conferir arquivo por arquivo à mão.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_estoque.py
@@ -1139,7 +1139,7 @@ def test_o_corte_de_janela_preserva_o_ultimo_ponto():
     assert curto.index.min() >= df.index.max() - pd.DateOffset(years=5)
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/test_estilo.py -v
@@ -1149,7 +1149,7 @@ Esperado: FAIL com `ImportError: cannot import name 'paf'` nos primeiros, e
 `AttributeError: module 'tesouro.graficos.estilo' has no attribute 'recorta'` no
 teste de janela.
 
-- [ ] **Passo 3: subir o corte de janela para o estilo**
+- [x] **Passo 3: subir o corte de janela para o estilo**
 
 Acrescente a `estilo.py`:
 
@@ -1184,7 +1184,7 @@ O mesmo vale para `tests/test_graficos_funding.py`, que também tem
 `src/`, não `tests/`**, mas manter os dois no mesmo padrão evita que alguém copie o
 literal acentuado de volta para o código.
 
-- [ ] **Passo 4: escrever o leitor da banda**
+- [x] **Passo 4: escrever o leitor da banda**
 
 ```python
 # src/tesouro/graficos/paf.py
@@ -1258,7 +1258,7 @@ def bandas(indicador, caminho=None):
     return saida
 ```
 
-- [ ] **Passo 5: escrever o gráfico da composição**
+- [x] **Passo 5: escrever o gráfico da composição**
 
 ```python
 # src/tesouro/graficos/estoque.py
@@ -1363,7 +1363,7 @@ def desenha_composicao(dados, bandas, ax):
               bbox_to_anchor=(0.5, -0.08))
 ```
 
-- [ ] **Passo 6: rodar e ver passar**
+- [x] **Passo 6: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/test_estilo.py -v
@@ -1371,7 +1371,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/tes
 
 Esperado: 9 passed no arquivo do estoque e 8 no do estilo.
 
-- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+- [x] **Passo 7: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -1398,7 +1398,7 @@ falha, e desfaça:
   pega é `test_cada_mes_da_composicao_soma_100`, que olha os 307. Medido ao executar:
   a âncora sozinha não cobre o erro que ela parece cobrir.
 
-- [ ] **Passo 8: rodar a suíte inteira e commitar**
+- [x] **Passo 8: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -1478,7 +1478,7 @@ segundo, quem compra cada papel; o terceiro, o tamanho de cada detentor em reais
    do Governo vai de ~100 bi para 40 e depois a zero, provavelmente mudança de regra.
    Já foi investigada. Não "consertar" com interpolação.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_detentores.py
@@ -1632,7 +1632,7 @@ def test_a_paleta_cobre_os_oito_detentores_da_28(fin):
     assert estilo.COR["Outros Detentores"] != estilo.COR["Outros"]
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_detentores.py -v
@@ -1640,7 +1640,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_detentores.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'detentores'`.
 
-- [ ] **Passo 3: acrescentar as quatro cores**
+- [x] **Passo 3: acrescentar as quatro cores**
 
 Em `estilo.py`, no bloco de detentores:
 
@@ -1660,7 +1660,7 @@ Em `estilo.py`, no bloco de detentores:
     "Outros Detentores": "#bab0ac",
 ```
 
-- [ ] **Passo 4: escrever as funções de dado**
+- [x] **Passo 4: escrever as funções de dado**
 
 ```python
 # src/tesouro/graficos/detentores.py
@@ -1774,7 +1774,7 @@ def ordem_paineis(dados):
     return list(ultimo.index) + ["Tesouro Direto"]
 ```
 
-- [ ] **Passo 5: escrever as funções de desenho**
+- [x] **Passo 5: escrever as funções de desenho**
 
 ```python
 # continuacao de src/tesouro/graficos/detentores.py
@@ -1859,7 +1859,7 @@ def desenha_financeiro(dados, fig):
         estilo.eixo_anual(ax, a_cada=3)
 ```
 
-- [ ] **Passo 6: rodar e ver passar**
+- [x] **Passo 6: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_detentores.py -v
@@ -1867,7 +1867,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_detentores.py -v
 
 Esperado: 11 passed.
 
-- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+- [x] **Passo 7: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -1885,7 +1885,7 @@ falha, e desfaça:
   deve falhar;
 - aponte `CHAVE_COR["Outros"]` para `"Outros"` — o último teste deve falhar.
 
-- [ ] **Passo 8: rodar a suíte inteira e commitar**
+- [x] **Passo 8: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -1963,7 +1963,7 @@ meses.
 5. **A diferença de 16,6 bi contra a aba 2.2** é conhecida e travada por teste na
    Task 10, onde o outro gráfico de vencimentos nasce. Não é para conciliar aqui.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_vencimentos.py
@@ -2122,7 +2122,7 @@ def test_a_banda_nao_e_desenhada_onde_nao_existe():
     assert len(faixas_desenhadas) == 17
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_vencimentos.py -v
@@ -2133,7 +2133,7 @@ Esperado: FAIL com `ImportError: cannot import name 'vencimentos'`.
 **Se falhar com `KeyError: 'faixa'`,** a Task 2 não foi executada nesta cópia do
 repositório. Volte e execute-a: o cronograma sem o balde some com 2.006,9 bi.
 
-- [ ] **Passo 3: escrever as funções de dado**
+- [x] **Passo 3: escrever as funções de dado**
 
 ```python
 # src/tesouro/graficos/vencimentos.py
@@ -2263,7 +2263,7 @@ def banda_vincendo_12m():
     return saida
 ```
 
-- [ ] **Passo 4: escrever as funções de desenho**
+- [x] **Passo 4: escrever as funções de desenho**
 
 ```python
 # continuacao de src/tesouro/graficos/vencimentos.py
@@ -2354,7 +2354,7 @@ def desenha_faixas(dados, banda, fig):
     estilo.eixo_anual(a2, a_cada=2)
 ```
 
-- [ ] **Passo 5: rodar e ver passar**
+- [x] **Passo 5: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_vencimentos.py -v
@@ -2362,7 +2362,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_vencimentos.py -v
 
 Esperado: 11 passed.
 
-- [ ] **Passo 6: confirmar que cada asserção tem dentes**
+- [x] **Passo 6: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -2387,7 +2387,7 @@ falha, e desfaça:
 - troque `range(min.year + 1, max.year + 1)` por `range(min.year, max.year + 1)` na
   divisória — o teste das cinco divisórias deve falhar com seis.
 
-- [ ] **Passo 7: rodar a suíte inteira e commitar**
+- [x] **Passo 7: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -2450,7 +2450,7 @@ das duas ponderada por um estoque que é 96% doméstico.
    repetido (`4.048869` contra os `4.003076` que a aba 3.7 dá). Como nada o lê, o
    erro não vira gráfico errado. Fica registrado para quem for mexer no arquivo.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_prazo.py
@@ -2545,7 +2545,7 @@ def test_nenhuma_serie_fica_fora_do_eixo(dados):
     assert alto >= dados.max().max()
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
@@ -2553,7 +2553,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'prazo'`.
 
-- [ ] **Passo 3: escrever a função de dado**
+- [x] **Passo 3: escrever a função de dado**
 
 ```python
 # src/tesouro/graficos/prazo.py
@@ -2637,7 +2637,7 @@ def desenha_prazo(dados, banda, ax):
               title="banda: meta do PAF para o prazo m\u00e9dio da DPF")
 ```
 
-- [ ] **Passo 4: rodar e ver passar**
+- [x] **Passo 4: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
@@ -2645,7 +2645,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
 
 Esperado: 8 passed.
 
-- [ ] **Passo 5: confirmar que cada asserção tem dentes**
+- [x] **Passo 5: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -2670,7 +2670,7 @@ falha, e desfaça:
   `"realizado" not in b.columns` (este e o da Task 4) devem falhar. É o que impede
   que a planilha digitada volte a alimentar gráfico sem ninguém decidir isso.
 
-- [ ] **Passo 6: rodar a suíte inteira e commitar**
+- [x] **Passo 6: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -2740,7 +2740,7 @@ Bacen; nós não precisamos, e é por isso que esta branch nasceu de `dv01-decay
    enquanto o custo começa em dez/2005. Os cinco primeiros anos ficam **vazios**, não
    zerados: zero seria lido como "a Selic foi a zero".
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_custo.py
@@ -2836,7 +2836,7 @@ def test_so_o_ultimo_ponto_de_cada_linha_leva_rotulo(dados):
     assert escritos == ["12,68", "13,19", "14,78", "4,81"]
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_custo.py -v
@@ -2844,7 +2844,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_custo.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'custo'`.
 
-- [ ] **Passo 3: escrever as funções de dado**
+- [x] **Passo 3: escrever as funções de dado**
 
 ```python
 # src/tesouro/graficos/custo.py
@@ -2959,7 +2959,7 @@ def desenha_custo(dados, ax):
               bbox_to_anchor=(0.5, -0.08))
 ```
 
-- [ ] **Passo 4: rodar e ver passar**
+- [x] **Passo 4: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_custo.py -v
@@ -2967,7 +2967,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_custo.py -v
 
 Esperado: 8 passed.
 
-- [ ] **Passo 5: confirmar que cada asserção tem dentes**
+- [x] **Passo 5: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -2987,7 +2987,7 @@ falha, e desfaça:
 - escreva o rótulo em todos os pontos (tire o `.iloc[-1]`) — o teste dos quatro
   rótulos deve falhar.
 
-- [ ] **Passo 6: rodar a suíte inteira e commitar**
+- [x] **Passo 6: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -3053,7 +3053,7 @@ mostrar, a outra é para saber.
    "completa" ela tem 138 meses enquanto a composição tem 307; alinhar os eixos entre
    gráficos diferentes não faz sentido aqui.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_reserva.py
@@ -3151,7 +3151,7 @@ def test_a_folga_negativa_nao_e_pintada_como_folga(dados):
     assert len(areas) == 2
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_reserva.py -v
@@ -3159,7 +3159,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_reserva.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'reserva'`.
 
-- [ ] **Passo 3: escrever as funções de dado**
+- [x] **Passo 3: escrever as funções de dado**
 
 ```python
 # src/tesouro/graficos/reserva.py
@@ -3277,7 +3277,7 @@ def desenha_reserva(dados, ax):
               loc="upper center", bbox_to_anchor=(0.5, -0.08))
 ```
 
-- [ ] **Passo 4: rodar e ver passar**
+- [x] **Passo 4: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_reserva.py -v
@@ -3285,7 +3285,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_reserva.py -v
 
 Esperado: 8 passed.
 
-- [ ] **Passo 5: confirmar que cada asserção tem dentes**
+- [x] **Passo 5: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -3303,7 +3303,7 @@ falha, e desfaça:
   passando (ainda há duas coleções) mas o desenho volta a mentir. **Este é o caso
   que o teste não pega**, e por isso o passo seguinte existe.
 
-- [ ] **Passo 6: olhar os dois meses de 2015 com o olho**
+- [x] **Passo 6: olhar os dois meses de 2015 com o olho**
 
 O teste conta áreas; ele não sabe qual cor cobre qual mês. Gere a figura da janela
 completa e confira que jan e fev/2015 aparecem em **vermelho**, não em azul:
@@ -3315,7 +3315,7 @@ $env:PYTHONPATH="src"; python -c "import matplotlib; matplotlib.use('Agg'); impo
 Abra `reserva_conferencia.svg`, confirme, e **apague o arquivo**. Ele não entra no
 repositório: o dashboard é quem grava figura, e num lugar só.
 
-- [ ] **Passo 7: rodar a suíte inteira e commitar**
+- [x] **Passo 7: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -3393,7 +3393,7 @@ leitura. Guardar custa pouco; reconstruir depois custa a conversa toda de novo.
    com quantidade e financeiro zerados, e o ano deles é o do vencimento passado: sem
    filtrar, o eixo do perfil começa em 2010 com quatorze anos vazios.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_candidatos.py
@@ -3541,7 +3541,7 @@ def test_a_nota_de_cobertura_aparece_no_desenho(anual):
     assert "93" in textos or "97" in textos
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_candidatos.py -v
@@ -3549,7 +3549,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_candidatos.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'leiloes'`.
 
-- [ ] **Passo 3: o perfil completo, em `vencimentos.py`**
+- [x] **Passo 3: o perfil completo, em `vencimentos.py`**
 
 ```python
 # acrescentar em src/tesouro/graficos/vencimentos.py
@@ -3619,7 +3619,7 @@ def desenha_perfil_completo(dados, ax):
     ax.grid(axis="y", alpha=0.25)
 ```
 
-- [ ] **Passo 4: o custo de emissão, em `custo.py`**
+- [x] **Passo 4: o custo de emissão, em `custo.py`**
 
 ```python
 # acrescentar em src/tesouro/graficos/custo.py
@@ -3673,7 +3673,7 @@ def desenha_custo_emissao(dados, ax):
               bbox_to_anchor=(0.5, -0.08))
 ```
 
-- [ ] **Passo 5: a emissão anual por papel, em `leiloes.py`**
+- [x] **Passo 5: a emissão anual por papel, em `leiloes.py`**
 
 ```python
 # src/tesouro/graficos/leiloes.py
@@ -3782,7 +3782,7 @@ def desenha_emissao_anual_papel(dados, ax, ano_parcial):
     ax.grid(axis="y", alpha=0.20)
 ```
 
-- [ ] **Passo 6: rodar e ver passar**
+- [x] **Passo 6: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_candidatos.py -v
@@ -3790,7 +3790,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_candidatos.py -v
 
 Esperado: 11 passed.
 
-- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+- [x] **Passo 7: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -3809,7 +3809,7 @@ falha, e desfaça:
   asserção está afirmando o resultado em vez da intenção, e é exatamente o defeito
   que custou seis rodadas na entrega 2. Restaure.
 
-- [ ] **Passo 8: rodar a suíte inteira e commitar**
+- [x] **Passo 8: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -3890,7 +3890,7 @@ não precise de nenhuma aritmética à mão.
    como toda função de dado já chama `estilo.recorta`, o recorte por data chega em
    todas de graça.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_dashboard.py
@@ -4029,7 +4029,7 @@ def test_o_arquivo_cabe_no_limiar_de_dez_megabytes(tmp_path):
     )
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_dashboard.py -v
@@ -4037,7 +4037,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_dashboard.py -v
 
 Esperado: FAIL com `ImportError: cannot import name 'dashboard'`.
 
-- [ ] **Passo 3: o recorte por par de datas, em `estilo.py`**
+- [x] **Passo 3: o recorte por par de datas, em `estilo.py`**
 
 Troque `recorta` pela versão que aceita as duas formas:
 
@@ -4062,7 +4062,7 @@ def recorta(df, janela):
     return df[df.index >= df.index.max() - pd.DateOffset(years=janela)]
 ```
 
-- [ ] **Passo 4: o registro**
+- [x] **Passo 4: o registro**
 
 ```python
 # src/tesouro/graficos/dashboard.py
@@ -4322,7 +4322,7 @@ REGISTRO = [
 ]
 ```
 
-- [ ] **Passo 5: a montagem do HTML**
+- [x] **Passo 5: a montagem do HTML**
 
 ```python
 # continuacao de src/tesouro/graficos/dashboard.py
@@ -4484,7 +4484,7 @@ def grava(caminho=None, recortes=None):
     return caminho
 ```
 
-- [ ] **Passo 6: rodar, ver passar, e medir o tamanho**
+- [x] **Passo 6: rodar, ver passar, e medir o tamanho**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_dashboard.py -v
@@ -4503,7 +4503,7 @@ desconhecido". Se passar de 10 MB, o teste já falhou no passo anterior e a deci
 registrada na spec entra em vigor: os SVGs saem para arquivos ao lado, o HTML os
 referencia, e a spec anota que "um arquivo só" foi trocado por tamanho utilizável.
 
-- [ ] **Passo 7: abrir o arquivo e olhar**
+- [x] **Passo 7: abrir o arquivo e olhar**
 
 Nenhum teste desta tarefa olha para o desenho. Abra o HTML no navegador e confira,
 uma vez, com o olho:
@@ -4514,7 +4514,7 @@ uma vez, com o olho:
 - a composição do estoque abre na série completa, e os outros em 5 anos;
 - nenhum gráfico aparece cortado ou com legenda por cima do desenho.
 
-- [ ] **Passo 8: confirmar que cada asserção tem dentes**
+- [x] **Passo 8: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -4534,7 +4534,7 @@ falha, e desfaça:
   `test_o_html_e_reprodutivel` deve falhar. **É a prova de que a Task 1 existe por um
   motivo.**
 
-- [ ] **Passo 9: rodar a suíte inteira e commitar**
+- [x] **Passo 9: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -4595,7 +4595,7 @@ pipeline, e a documentação que diz onde o arquivo aparece.
    dashboard é saída nova e precisa aparecer. Sem isso, quem seguir o README não
    descobre que o arquivo existe.
 
-- [ ] **Passo 1: escrever os testes que falham**
+- [x] **Passo 1: escrever os testes que falham**
 
 ```python
 # tests/test_graficos_cli.py
@@ -4710,7 +4710,7 @@ def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatc
     assert "paf_bandas.csv" in saida
 ```
 
-- [ ] **Passo 2: rodar e ver falhar**
+- [x] **Passo 2: rodar e ver falhar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_cli.py tests/test_pipeline.py -v
@@ -4718,7 +4718,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_cli.py tests/test_pi
 
 Esperado: FAIL com `ModuleNotFoundError: No module named 'tesouro.graficos.__main__'`.
 
-- [ ] **Passo 3: escrever a linha de comando**
+- [x] **Passo 3: escrever a linha de comando**
 
 ```python
 # src/tesouro/graficos/__main__.py
@@ -4797,7 +4797,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Passo 4: pendurar no pipeline**
+- [x] **Passo 4: pendurar no pipeline**
 
 Em `src/tesouro/pipeline.py`, **depois** do bloco das figuras:
 
@@ -4817,7 +4817,7 @@ Em `src/tesouro/pipeline.py`, **depois** do bloco das figuras:
         falhas.append(mensagem)
 ```
 
-- [ ] **Passo 5: documentar**
+- [x] **Passo 5: documentar**
 
 No `README.md`, logo depois do parágrafo que fala dos vinte e dois CSVs:
 
@@ -4850,7 +4850,7 @@ E em `docs/dicionario-de-dados.md`, uma entrada para `dashboard.html`: o que é,
 quais CSVs sai, e a observação de que ele é **derivado** — apagar não perde nada,
 porque o pipeline regenera.
 
-- [ ] **Passo 6: rodar e ver passar**
+- [x] **Passo 6: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_cli.py tests/test_pipeline.py -v
@@ -4859,7 +4859,7 @@ $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_cli.py tests/test_pi
 Esperado: 6 passed no arquivo da linha de comando, e o de pipeline com os dois
 novos passando junto com os que já existiam.
 
-- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+- [x] **Passo 7: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -4877,7 +4877,7 @@ falha, e desfaça:
   da documentação deve falhar. Esse teste existe porque a ordem já foi trocada
   quatro vezes neste projeto, sempre por distração.
 
-- [ ] **Passo 8: rodar tudo de ponta a ponta, de verdade**
+- [x] **Passo 8: rodar tudo de ponta a ponta, de verdade**
 
 Os testes usam stub nas gravações. Uma vez, à mão, rode o pipeline inteiro sem rede
 e confirme que o dashboard sai com o dado de hoje:
@@ -4892,7 +4892,7 @@ Esperado: termina com `concluido.`, sem nenhuma linha `ATENCAO:`, e
 Abra o arquivo e confirme, com o olho, que a composição de jun/2026 mostra
 **21,0 / 25,9 / 49,3 / 3,7** — o mesmo número do teste, agora na tela.
 
-- [ ] **Passo 9: rodar a suíte inteira e commitar**
+- [x] **Passo 9: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
@@ -4911,18 +4911,18 @@ git commit -m "Adiciona a linha de comando do dashboard e o pendura no pipeline"
 
 Depois da Task 12, antes de considerar a entrega pronta:
 
-- [ ] **Rodar a suíte inteira uma última vez** e confirmar **412 passed, 1
+- [x] **Rodar a suíte inteira uma última vez** e confirmar **412 passed, 1
   skipped**. O pulado é o teste do PU contra o `PX_DIRTY_MID`, que aguarda
   autorização para puxar `bbg_precos_*.csv` — ele estava pulado antes desta entrega
   e continua.
-- [ ] **Registrar na spec o tamanho medido do `dashboard.html`** (seção 4.1), no
+- [x] **Registrar na spec o tamanho medido do `dashboard.html`** (seção 4.1), no
   lugar de "o tamanho do arquivo é desconhecido".
-- [ ] **Corrigir a seção 4.2 da spec**: são **nove** gráficos com janela e **25**
+- [x] **Corrigir a seção 4.2 da spec**: são **nove** gráficos com janela e **25**
   SVGs, não sete e 23 (ver a Task 11).
-- [ ] **Usar `superpowers:requesting-code-review`** sobre a branch inteira antes de
+- [x] **Usar `superpowers:requesting-code-review`** sobre a branch inteira antes de
   falar em merge. As entregas anteriores mostraram que a revisão de branch encontra
   o que a revisão tarefa a tarefa não encontra.
-- [ ] **Não mergear sem a dona do projeto pedir.** As branches `dv01-decay` e
+- [x] **Não mergear sem a dona do projeto pedir.** As branches `dv01-decay` e
   `dashboard` ficam separadas até ela decidir — decisão dela, registrada.
 
 **O que fica explicitamente para depois, e não é esquecimento:**
