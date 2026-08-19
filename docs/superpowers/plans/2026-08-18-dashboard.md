@@ -1305,11 +1305,498 @@ que ele cobre mais do que cobre.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 333 passed, 1 skipped.
+Esperado: 334 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_estoque.py tests/test_estilo.py tests/test_graficos_funding.py
 git commit -m "Adiciona a composicao do estoque com a banda do PAF"
+```
+
+---
+
+## Task 5: Detentores — três gráficos das abas 2.7 e 2.8
+
+**Files:**
+- Create: `src/tesouro/graficos/detentores.py`
+- Modify: `src/tesouro/graficos/estilo.py` (quatro cores novas de detentor)
+- Test: `tests/test_graficos_detentores.py`
+
+**Interfaces:**
+- Consumes: `estilo.COR`, `estilo.num_br`, `estilo.recorta`, `estilo.eixo_anual`.
+- Produces:
+  - `JANELAS = {"5 anos": 5, "completa": None}`
+  - `dados_participacao()` -> DataFrame indexado pelos **cinco grupos**, colunas
+    `hoje_pct, ha12m_pct, var_pp, valor_milhoes`.
+  - `desenha_participacao(dados, fig)`
+  - `dados_por_papel()` -> DataFrame indexado por título, uma coluna por detentor,
+    **em percentual do papel**.
+  - `desenha_por_papel(dados, fig)`
+  - `dados_financeiro(janela=None)` -> DataFrame indexado por data, uma coluna por
+    detentor, em R$ milhões.
+  - `ordem_paineis(dados)` -> lista dos oito detentores na ordem dos painéis.
+  - `desenha_financeiro(dados, fig)`
+
+**Fonte:** `detentores.csv` (`data, detentor, valor_milhoes`), aba 2.7, 234 meses de
+jan/2007 a jun/2026; e `detentores_por_titulo.csv` (`data, detentor, titulo,
+valor_milhoes`), aba 2.8, 185 meses de fev/2011 a jun/2026.
+
+**Por que esta tarefa existe.** São os três gráficos de "quem tem a dívida". O
+primeiro responde quanto cada grupo carrega e para onde a participação está indo; o
+segundo, quem compra cada papel; o terceiro, o tamanho de cada detentor em reais, que
+é o que separa "caiu a participação" de "vendeu".
+
+**Decisões tomadas com a usuária que o código deve respeitar:**
+
+- **A participação agrupa os oito detentores da 2.7 em cinco.** Instituições
+  Financeiras, Fundos, Previdência e Não-residentes ficam separados; Tesouro Direto,
+  Governo, Seguradoras e Outros viram **Demais Grupos**, que soma 13,8%.
+- **Rótulo de percentual só nas fatias de 10% ou mais** no gráfico de quem carrega
+  cada papel. Abaixo disso o número não cabe e vira sujeira.
+- **Escala própria em cada painel** do financeiro por detentor: eles diferem em ordem
+  de grandeza (2.833 bi das Instituições Financeiras contra 246 bi do Governo), e uma
+  escala comum achata sete dos oito.
+- **Tesouro Direto por último**, por ordem de importância, mesmo tendo mais
+  financeiro que o Governo.
+- **A divergência de 12 meses contra o slide do RMD fica documentada, não
+  perseguida.** O nosso dado foi verificado contra a célula crua da aba 2.7 e está
+  fiel ao anexo; a origem do número do slide é desconhecida.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **Os nomes da 2.7 carregam o número da nota de rodapé.** O CSV grava
+   `"Instituições Financeiras 1"`, `"Previdência 3"`,
+   `"Não-residentes 4"`. Casar por igualdade com o nome limpo não encontra nada,
+   e o rótulo do gráfico sai com o dígito pendurado.
+2. **As duas abas usam nomes diferentes para o mesmo detentor.** A 2.7 escreve
+   `"Não-residentes 4"` e a 2.8 escreve `"Não-residente"`, no singular e sem
+   nota. Não dá para cruzar as duas por nome, e nenhum dos dois gráficos deve tentar.
+3. **As duas séries não começam juntas:** a 2.7 em jan/2007, a 2.8 em fev/2011.
+   Colocar as duas no mesmo eixo sugere um buraco de quatro anos que não existe.
+4. **`"Outros"` já é chave de cor de papel.** A paleta é um dicionário só, e o
+   detentor "Outros" sobrescreveria o cinza dos papéis se entrasse com o mesmo nome.
+   Ele entra como `"Outros Detentores"`, e o mapa `_CHAVE_COR` resolve.
+5. **A descontinuidade do Governo em 2012 é dado real**, não defeito: a LFT em poder
+   do Governo vai de ~100 bi para 40 e depois a zero, provavelmente mudança de regra.
+   Já foi investigada. Não "consertar" com interpolação.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_detentores.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro.graficos import detentores, estilo
+
+
+# ---------------------------------------------------------------------------
+# Aba 2.7: participacao relativa e variacao
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def part():
+    return detentores.dados_participacao()
+
+
+def test_a_participacao_de_junho_de_2026_bate_com_o_medido(part):
+    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
+    assert round(part.loc["Inst. Financeiras", "hoje_pct"], 1) == 31.8
+    assert round(part.loc["Fundos", "hoje_pct"], 1) == 22.0
+    assert round(part.loc["Previd\u00eancia", "hoje_pct"], 1) == 22.5
+    assert round(part.loc["N\u00e3o-residentes", "hoje_pct"], 1) == 10.0
+    assert round(part.loc["Demais Grupos", "hoje_pct"], 1) == 13.8
+    assert round(part["valor_milhoes"].sum() / 1000, 1) == 8920.7
+
+
+def test_os_cinco_grupos_somam_100(part):
+    assert len(part) == 5
+    assert abs(part["hoje_pct"].sum() - 100) < 1e-9
+    assert abs(part["ha12m_pct"].sum() - 100) < 1e-9
+
+
+def test_a_variacao_de_12_meses_bate_com_o_medido(part):
+    # Em pontos percentuais, contra jun/2025. A Previdencia perdeu 0,57 p.p. e as
+    # Instituicoes Financeiras ganharam 0,46 -- o movimento do ano.
+    assert round(part.loc["Previd\u00eancia", "var_pp"], 2) == -0.57
+    assert round(part.loc["Inst. Financeiras", "var_pp"], 2) == 0.46
+    assert round(part.loc["Fundos", "var_pp"], 2) == -0.14
+    assert round(part.loc["N\u00e3o-residentes", "var_pp"], 2) == 0.11
+    assert round(part.loc["Demais Grupos", "var_pp"], 2) == 0.13
+    # A variacao e redistribuicao: a soma fecha em zero.
+    assert abs(part["var_pp"].sum()) < 1e-9
+
+
+def test_o_rotulo_perde_o_numero_da_nota_de_rodape(part):
+    # O CSV grava "Instituicoes Financeiras 1", com o numero da nota do RMD colado
+    # no nome. Nenhum indice pode carregar digito.
+    for nome in part.index:
+        assert not nome[-1].isdigit(), f"'{nome}' ainda tem o numero da nota"
+
+
+# ---------------------------------------------------------------------------
+# Aba 2.8: quem carrega cada papel
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def papel():
+    return detentores.dados_por_papel()
+
+
+def test_quem_carrega_cada_papel_bate_com_o_medido(papel):
+    # Os quatro fatos que o grafico existe para mostrar: a LFT e de banco e fundo,
+    # a NTN-B e da previdencia, e o estrangeiro esta na ponta prefixada.
+    assert round(papel.loc["LFT", "Inst. Financeiras"], 1) == 36.5
+    assert round(papel.loc["LFT", "Fundos"], 1) == 33.0
+    assert round(papel.loc["NTN-B", "Previd\u00eancia"], 1) == 44.9
+    assert round(papel.loc["NTN-F", "N\u00e3o-residente"], 1) == 41.8
+    assert round(papel.loc["LTN", "N\u00e3o-residente"], 1) == 26.4
+
+
+def test_cada_papel_soma_100_entre_os_detentores(papel):
+    assert sorted(papel.index) == ["LFT", "LTN", "NTN-B", "NTN-F", "OUTROS"]
+    assert (papel.sum(axis=1) - 100).abs().max() < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Aba 2.8: financeiro por detentor, oito paineis
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def fin():
+    return detentores.dados_financeiro()
+
+
+def test_o_financeiro_por_detentor_bate_com_o_medido(fin):
+    u = fin.iloc[-1]
+    assert round(u["Inst. Financeiras"] / 1000, 1) == 2833.5
+    assert round(u["Previd\u00eancia"] / 1000, 1) == 2008.8
+    assert round(u["Fundos"] / 1000, 1) == 1962.6
+    assert round(u["Tesouro Direto"] / 1000, 1) == 262.5
+    assert round(u.sum() / 1000, 1) == 8920.7
+    # A 2.8 comeca em fev/2011, quatro anos depois da 2.7. As duas series nao sao
+    # a mesma coisa e nao vao para o mesmo eixo.
+    assert fin.index.min() == pd.Timestamp("2011-02-28")
+
+
+def test_o_tesouro_direto_fica_por_ultimo_nos_paineis(fin):
+    ordem = detentores.ordem_paineis(fin)
+    assert len(ordem) == 8
+    assert ordem[-1] == "Tesouro Direto"
+    assert ordem[0] == "Inst. Financeiras"
+    # Ordem de tamanho, com o Tesouro Direto forcado para o fim mesmo tendo mais
+    # financeiro que o Governo (262,5 bi contra 245,5).
+    assert ordem[-2] == "Governo"
+
+
+def test_cada_painel_tem_escala_propria(fin):
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 9))
+    detentores.desenha_financeiro(detentores.dados_financeiro(janela=5), fig)
+    topos = [round(ax.get_ylim()[1]) for ax in fig.axes]
+    plt.close(fig)
+    assert len(topos) == 8
+    # Escala comum achataria sete dos oito: o maior detentor tem onze vezes o
+    # menor. Se todos os topos forem iguais, a escala virou comum sem ninguem ver.
+    assert len(set(topos)) >= 6
+
+
+def test_o_rotulo_de_percentual_so_aparece_nas_fatias_de_10_ou_mais(papel):
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 7))
+    detentores.desenha_por_papel(papel, fig)
+    escritos = []
+    for ax in fig.axes:
+        for t in ax.texts:
+            texto = t.get_text().replace("%", "").replace(",", ".")
+            try:
+                escritos.append(float(texto))
+            except ValueError:
+                pass                      # titulo do painel, nao rotulo de fatia
+    plt.close(fig)
+    assert escritos, "nenhum rotulo de percentual foi desenhado"
+    assert min(escritos) >= 10.0
+    # E as fatias grandes tem de estar todas la: cinco papeis, e cada um tem pelo
+    # menos duas fatias de 10% ou mais.
+    assert len(escritos) == sum((papel >= 10).sum())
+
+
+def test_a_paleta_cobre_os_oito_detentores_da_28(fin):
+    for detentor in fin.columns:
+        chave = detentores.CHAVE_COR[detentor]
+        assert chave in estilo.COR, f"sem cor para '{detentor}'"
+    # "Outros" ja e chave de cor de papel: o detentor entra com nome proprio para
+    # nao sobrescrever o cinza dos papeis.
+    assert detentores.CHAVE_COR["Outros"] == "Outros Detentores"
+    assert estilo.COR["Outros Detentores"] != estilo.COR["Outros"]
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_detentores.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'detentores'`.
+
+- [ ] **Passo 3: acrescentar as quatro cores**
+
+Em `estilo.py`, no bloco de detentores:
+
+```python
+    # detentores, na paleta das paginas do RMD
+    "Inst. Financeiras": "#1f3864",
+    "Fundos": "#3d9be9",
+    "Previdencia": "#a6a6a6",
+    "Nao-residente": "#ed7d31",
+    "Demais Grupos": "#70ad47",
+    # os quatro que a aba 2.8 abre e a 2.7 agrupa em "Demais Grupos".
+    # "Outros Detentores" tem nome proprio porque "Outros" ja e a chave do
+    # cinza dos papeis, e a paleta e um dicionario so.
+    "Governo": "#8c6d31",
+    "Seguradoras": "#b07aa1",
+    "Tesouro Direto": "#e15759",
+    "Outros Detentores": "#bab0ac",
+```
+
+- [ ] **Passo 4: escrever as funções de dado**
+
+```python
+# src/tesouro/graficos/detentores.py
+"""Quem carrega a divida: as abas 2.7 e 2.8.
+
+Tres graficos. A participacao relativa de cada grupo e o quanto ela mudou em doze
+meses (2.7); quem compra cada papel (2.8); e o financeiro de cada detentor ao longo
+do tempo, em oito paineis (2.8).
+
+As duas abas NAO se cruzam por nome. A 2.7 grava "Nao-residentes 4", com o numero da
+nota de rodape colado; a 2.8 grava "Nao-residente", singular e sem nota. Alem disso
+a 2.7 comeca em jan/2007 e a 2.8 em fev/2011. Sao duas fontes vizinhas, nao a mesma.
+
+A divergencia de 12 meses contra o slide do RMD e conhecida: o nosso dado foi
+conferido contra a celula crua da aba 2.7 e esta fiel ao anexo, e a origem do numero
+do slide e desconhecida. Documentada, nao perseguida (ver a spec, secao 10).
+"""
+
+import re
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+JANELAS = {"5 anos": 5, "completa": None}
+
+# Aba 2.7, agrupada em cinco: os quatro grandes, e o resto junto.
+ORDEM_GRUPOS = ["Inst. Financeiras", "Fundos", "Previd\u00eancia",
+                "N\u00e3o-residentes", "Demais Grupos"]
+
+_GRUPO_DE = {"Institui\u00e7\u00f5es Financeiras": "Inst. Financeiras",
+             "Fundos de Investimento": "Fundos",
+             "Previd\u00eancia": "Previd\u00eancia",
+             "N\u00e3o-residentes": "N\u00e3o-residentes"}
+
+# Do rotulo que aparece na tela para a chave da paleta, que e ASCII.
+CHAVE_COR = {"Inst. Financeiras": "Inst. Financeiras",
+             "Fundos": "Fundos",
+             "Previd\u00eancia": "Previdencia",
+             "N\u00e3o-residentes": "Nao-residente",
+             "N\u00e3o-residente": "Nao-residente",
+             "Demais Grupos": "Demais Grupos",
+             "Governo": "Governo",
+             "Seguradoras": "Seguradoras",
+             "Tesouro Direto": "Tesouro Direto",
+             "Outros": "Outros Detentores"}
+
+
+def _sem_nota(nome):
+    """'Instituicoes Financeiras 1' -> 'Instituicoes Financeiras'.
+
+    A aba 2.7 cola o numero da nota de rodape no nome do detentor. Sem tirar, o
+    rotulo do grafico sai com o digito e nenhum agrupamento por nome funciona.
+    """
+    return re.sub(r"\s*\d+$", "", str(nome)).strip()
+
+
+def dados_participacao():
+    """Participacao dos cinco grupos hoje e ha doze meses, e a variacao em p.p."""
+    d = pd.read_csv(config.PROCESSED_DIR / "detentores.csv", parse_dates=["data"])
+    d["grupo"] = [_GRUPO_DE.get(_sem_nota(n), "Demais Grupos") for n in d["detentor"]]
+
+    piv = d.pivot_table(index="data", columns="grupo",
+                        values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    share = piv.div(piv.sum(axis=1), axis=0) * 100
+
+    hoje = share.index.max()
+    ha12m = hoje - pd.DateOffset(months=12)
+    if ha12m not in share.index:
+        raise LookupError(
+            f"detentores.csv nao tem o mes de {ha12m.date()}, doze meses antes do "
+            f"ultimo ({hoje.date()}). A variacao de 12 meses e o segundo painel do "
+            f"grafico e nao pode ser calculada contra um mes vizinho em silencio."
+        )
+
+    saida = pd.DataFrame(index=ORDEM_GRUPOS)
+    saida["hoje_pct"] = share.loc[hoje]
+    saida["ha12m_pct"] = share.loc[ha12m]
+    saida["var_pp"] = saida["hoje_pct"] - saida["ha12m_pct"]
+    saida["valor_milhoes"] = piv.loc[hoje]
+    return saida
+
+
+def dados_por_papel():
+    """Participacao de cada detentor dentro de cada papel, em percentual."""
+    d = pd.read_csv(config.PROCESSED_DIR / "detentores_por_titulo.csv",
+                    parse_dates=["data"])
+    u = d[d["data"] == d["data"].max()]
+    piv = u.pivot_table(index="titulo", columns="detentor",
+                        values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    return piv.div(piv.sum(axis=1), axis=0) * 100
+
+
+def dados_financeiro(janela=None):
+    """Financeiro de cada detentor por mes, em R$ milhoes."""
+    d = pd.read_csv(config.PROCESSED_DIR / "detentores_por_titulo.csv",
+                    parse_dates=["data"])
+    piv = d.pivot_table(index="data", columns="detentor",
+                        values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    return estilo.recorta(piv, janela)
+
+
+def ordem_paineis(dados):
+    """Os oito detentores por tamanho, com o Tesouro Direto forcado para o fim.
+
+    Ordem de importancia, decisao da usuaria: o Tesouro Direto e o menor em
+    relevancia para a gestao mesmo tendo mais financeiro que o Governo.
+    """
+    ultimo = dados.iloc[-1].drop("Tesouro Direto").sort_values(ascending=False)
+    return list(ultimo.index) + ["Tesouro Direto"]
+```
+
+- [ ] **Passo 5: escrever as funções de desenho**
+
+```python
+# continuacao de src/tesouro/graficos/detentores.py
+
+def desenha_participacao(dados, fig):
+    """Dois paineis: a participacao de hoje, e a variacao em doze meses."""
+    a1, a2 = fig.subplots(1, 2, gridspec_kw={"width_ratios": [2, 1]})
+
+    y = range(len(dados))
+    a1.barh(list(y), dados["hoje_pct"],
+            color=[estilo.COR[CHAVE_COR[g]] for g in dados.index])
+    for i, (g, v) in enumerate(dados["hoje_pct"].items()):
+        a1.text(v + 0.4, i, estilo.num_br(v, 1) + "%", va="center", fontsize=9.5)
+    a1.set_yticks(list(y))
+    a1.set_yticklabels(list(dados.index))
+    a1.invert_yaxis()
+    a1.set_xlim(0, max(dados["hoje_pct"]) * 1.18)
+    a1.set_xlabel("% do estoque em poder do p\u00fablico")
+    a1.grid(axis="x", alpha=0.20)
+
+    cores = ["#2ca02c" if v >= 0 else "#d62728" for v in dados["var_pp"]]
+    a2.barh(list(y), dados["var_pp"], color=cores, alpha=0.85)
+    for i, v in enumerate(dados["var_pp"]):
+        desloca = 0.02 if v >= 0 else -0.02
+        a2.text(v + desloca, i, estilo.num_br(v, 2), va="center",
+                ha="left" if v >= 0 else "right", fontsize=9)
+    a2.set_yticks(list(y))
+    a2.set_yticklabels([])
+    a2.invert_yaxis()
+    a2.axvline(0, color="gray", lw=0.8)
+    a2.set_xlabel("varia\u00e7\u00e3o em 12 meses (p.p.)")
+    a2.grid(axis="x", alpha=0.20)
+
+
+def desenha_por_papel(dados, fig):
+    """Uma rosca por papel, com rotulo so nas fatias de 10% ou mais.
+
+    Abaixo de 10% o numero nao cabe dentro da fatia e vira sujeira -- decisao da
+    usuaria depois de ver a versao com todos os rotulos.
+    """
+    eixos = fig.subplots(1, len(dados.index))
+    for ax, papel in zip(eixos, dados.index):
+        linha = dados.loc[papel]
+        linha = linha[linha > 0]
+        ax.pie(linha, startangle=90, counterclock=False,
+               colors=[estilo.COR[CHAVE_COR[d]] for d in linha.index],
+               wedgeprops={"width": 0.42, "edgecolor": "white", "linewidth": 0.8},
+               labels=None,
+               autopct=lambda p: estilo.num_br(p, 1) if p >= 10 else "",
+               pctdistance=0.79, textprops={"fontsize": 8.5})
+        ax.set_title(papel, fontsize=11, weight="bold")
+
+    marcas = [plt_patch(estilo.COR[CHAVE_COR[d]], d) for d in dados.columns]
+    fig.legend(handles=marcas, ncol=4, frameon=False, loc="lower center")
+
+
+def plt_patch(cor, rotulo):
+    """Retangulo colorido para a legenda comum das cinco roscas."""
+    from matplotlib.patches import Patch
+    return Patch(facecolor=cor, label=rotulo)
+
+
+def desenha_financeiro(dados, fig):
+    """Oito paineis, cada um com escala propria.
+
+    Escala comum achataria sete dos oito: as Instituicoes Financeiras tem
+    onze vezes o financeiro do Governo. O preco e que os paineis nao sao
+    comparaveis entre si a olho, e por isso cada um leva o valor do ultimo mes
+    escrito.
+    """
+    eixos = fig.subplots(2, 4, sharex=True)
+    for ax, detentor in zip(eixos.ravel(), ordem_paineis(dados)):
+        serie = dados[detentor] / 1000
+        cor = estilo.COR[CHAVE_COR[detentor]]
+        ax.fill_between(serie.index, serie, 0, color=cor, alpha=0.30)
+        ax.plot(serie.index, serie, color=cor, lw=1.8)
+        ax.set_title(detentor, fontsize=10, weight="bold")
+        ax.set_ylim(0, serie.max() * 1.22)
+        ax.text(0.03, 0.90, estilo.num_br(serie.iloc[-1], 0) + " bi",
+                transform=ax.transAxes, fontsize=9.5, color=cor, weight="bold")
+        ax.grid(axis="y", alpha=0.20)
+        estilo.eixo_anual(ax, a_cada=3)
+```
+
+- [ ] **Passo 6: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_detentores.py -v
+```
+
+Esperado: 11 passed.
+
+- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- apague o `_sem_nota` do `dados_participacao` (use `n` cru) — a âncora de junho e o
+  teste do rótulo devem falhar, porque tudo cai em "Demais Grupos";
+- troque `DateOffset(months=12)` por `months=11` — a âncora da variação deve falhar;
+- troque `div(piv.sum(axis=1), axis=0)` por `div(piv.sum().sum())` em
+  `dados_por_papel` — a soma de 100 por papel deve falhar;
+- apague o `.drop("Tesouro Direto")` do `ordem_paineis` — o teste da ordem deve
+  falhar;
+- troque `ax.set_ylim(0, serie.max() * 1.22)` por um topo fixo igual em todos —
+  `test_cada_painel_tem_escala_propria` deve falhar;
+- troque `if p >= 10 else ""` por `if p >= 0 else ""` — o teste do rótulo de 10%
+  deve falhar;
+- aponte `CHAVE_COR["Outros"]` para `"Outros"` — o último teste deve falhar.
+
+- [ ] **Passo 8: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 345 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/ tests/test_graficos_detentores.py
+git commit -m "Adiciona os tres graficos de detentores"
 ```
 
 ---
