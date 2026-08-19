@@ -2272,3 +2272,333 @@ git commit -m "Adiciona o cronograma de vencimentos e as faixas da DPF"
 ```
 
 ---
+
+## Task 7: Prazo médio, com a banda do PAF e uma correção na referência
+
+**Files:**
+- Create: `src/tesouro/graficos/prazo.py`
+- Modify: `referencia/paf_bandas.csv` (**duas linhas**, ver o Passo 5)
+- Modify: `referencia/LEIA-ME.md` (registra a correção)
+- Test: `tests/test_graficos_prazo.py`
+
+**Interfaces:**
+- Consumes: `paf.bandas`, `estilo.COR`, `estilo.num_br`, `estilo.eixo_anual`,
+  `estilo.grade_fina`.
+- Produces:
+  - `dados_prazo()` -> DataFrame indexado por data, colunas `DPF, DPMFi, DPFe`,
+    em anos.
+  - `COM_ROTULO` -> tupla dos dois níveis que levam rótulo no fim da linha.
+  - `desenha_prazo(dados, banda, ax)`
+
+**Fonte:** `prazo_medio_por_titulo.csv`, filtrado nas linhas agregadas (`entidade` e
+`titulo` vazios), 237 observações de dez/2005 a jun/2026; e a banda
+`prazo_medio_anos` de `referencia/paf_bandas.csv`.
+
+**Por que esta tarefa existe.** O prazo médio é o indicador que a banda do PAF
+persegue com mais atenção, e é o mais fácil de ler errado: 4,01 anos parece pouco até
+você ver que a DPFe está em 6,93 e a DPMFi em 3,90, e que o número da DPF é a média
+das duas ponderada por um estoque que é 96% doméstico.
+
+**Decisões tomadas com a usuária que o código deve respeitar:**
+
+- **Rótulo só na DPMFi e na DPFe; a DPF fica como linha de contexto**, mais fina.
+  São os dois números que ela usa; o da DPF é a consequência aritmética dos dois.
+- **A banda é do prazo médio da DPF** — que é justamente a linha de contexto. Por
+  isso a legenda diz de quem é a banda, em vez de deixar o leitor supor que ela vale
+  para a linha mais grossa.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **As linhas agregadas são as que têm `entidade` e `titulo` vazios.** Filtrar só
+   por `nivel == "DPF"` pega também as linhas por título e por entidade, e a média
+   sai errada sem nenhum sinal.
+2. **A série não é mensal no começo.** Vai de dez/2005 direto para nov/2006 e só
+   depois fica mensal — 237 observações em vinte anos e meio, não 247. Qualquer conta
+   que suponha espaçamento constante (média móvel por número de linhas, variação em
+   "12 posições") erra os dois primeiros anos.
+3. **O `referencia/paf_bandas.csv` tem um erro de digitação em 2025**, encontrado ao
+   escrever esta tarefa. Detalhe e correção no Passo 5.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_prazo.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro.graficos import estilo, paf, prazo
+
+
+@pytest.fixture(scope="module")
+def dados():
+    return prazo.dados_prazo()
+
+
+def test_o_prazo_de_junho_de_2026_bate_com_o_medido(dados):
+    u = dados.iloc[-1]
+    assert round(u["DPF"], 2) == 4.01
+    assert round(u["DPMFi"], 2) == 3.90
+    assert round(u["DPFe"], 2) == 6.93
+
+
+def test_as_tres_series_vem_das_linhas_agregadas(dados):
+    # As linhas agregadas sao as que tem entidade e titulo vazios. Filtrar so por
+    # nivel traz tambem as linhas por titulo, e a media sai errada em silencio.
+    assert list(dados.columns) == ["DPF", "DPMFi", "DPFe"]
+    assert dados.notna().all().all()
+    assert len(dados) == 237
+    assert dados.index.min() == pd.Timestamp("2005-12-31")
+    # A serie NAO e mensal no comeco: de dez/2005 ela pula para nov/2006.
+    assert dados.index[1] == pd.Timestamp("2006-11-30")
+
+
+def test_a_dpf_fica_sempre_entre_a_dpmfi_e_a_dpfe(dados):
+    # Verdade estrutural: a DPF e a media ponderada das duas. Se um mes sair do
+    # sanduiche, o filtro pegou linha que nao devia.
+    assert (dados["DPMFi"] <= dados["DPF"]).all()
+    assert (dados["DPF"] <= dados["DPFe"]).all()
+
+
+def test_a_banda_do_prazo_medio_bate_com_o_paf():
+    b = paf.bandas("prazo_medio_anos")
+    assert b.loc[2026, "minimo"] == 3.8
+    assert b.loc[2026, "maximo"] == 4.2
+    assert pd.isna(b.loc[2026, "realizado"])
+
+
+def test_o_realizado_do_prazo_bate_com_o_nosso_dado(dados):
+    # Cruzamento contra fonte independente: o realizado do PAF foi digitado a mao
+    # e a nossa serie sai da aba 3.7 pelo parser. Foi este teste que encontrou o
+    # erro de digitacao de 2025 (ver o Passo 5).
+    b = paf.bandas("prazo_medio_anos")
+    for ano in range(2011, 2026):
+        nosso = dados.loc[pd.Timestamp(f"{ano}-12-31"), "DPF"]
+        assert abs(nosso - b.loc[ano, "realizado"]) < 0.01, f"prazo medio em {ano}"
+
+
+def test_so_a_dpmfi_e_a_dpfe_levam_rotulo(dados):
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    prazo.desenha_prazo(dados, paf.bandas("prazo_medio_anos"), ax)
+    rotulados = [a.get_text() for a in ax.texts]
+    plt.close(fig)
+    assert prazo.COM_ROTULO == ("DPMFi", "DPFe")
+    # Os dois valores de junho, e nada mais: 3,90 e 6,93.
+    assert sorted(rotulados) == ["3,90", "6,93"]
+
+
+def test_a_dpf_e_a_linha_de_contexto(dados):
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    prazo.desenha_prazo(dados, paf.bandas("prazo_medio_anos"), ax)
+    largura = {l.get_label(): l.get_linewidth() for l in ax.lines}
+    plt.close(fig)
+    assert largura["DPF"] < largura["DPMFi"]
+    assert largura["DPF"] < largura["DPFe"]
+
+
+def test_a_banda_e_desenhada_ano_a_ano(dados):
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    prazo.desenha_prazo(dados, paf.bandas("prazo_medio_anos"), ax)
+    faixas = list(ax.collections)
+    plt.close(fig)
+    # De 2005 (inicio da serie) a 2026: o paf_bandas.csv cobre 2003 a 2026 com os
+    # seis indicadores em todos os anos, entao sao 22 faixas.
+    assert len(faixas) == 22
+
+
+def test_nenhuma_serie_fica_fora_do_eixo(dados):
+    # Eixo truncado e a armadilha 7 da spec. Aqui ela apareceria como a DPFe
+    # saindo pela borda de cima sem ninguem notar.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    prazo.desenha_prazo(dados, paf.bandas("prazo_medio_anos"), ax)
+    baixo, alto = ax.get_ylim()
+    plt.close(fig)
+    assert baixo <= dados.min().min()
+    assert alto >= dados.max().max()
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'prazo'`.
+
+- [ ] **Passo 3: escrever a função de dado**
+
+```python
+# src/tesouro/graficos/prazo.py
+"""Prazo medio da divida, por nivel, com a banda do PAF.
+
+Tres linhas: DPF, DPMFi e DPFe. A DPF e a media ponderada das outras duas, e por
+isso fica sempre entre elas -- se algum mes sair do sanduiche, o filtro pegou linha
+que nao devia.
+
+ARMADILHA 1: as linhas agregadas do CSV sao as que tem 'entidade' E 'titulo'
+vazios. Filtrar so por nivel traz tambem uma linha por titulo (LTN, NTN-B, ...) e
+uma por entidade, e a media sai errada sem nenhum sinal.
+
+ARMADILHA 2: a serie nao e mensal no comeco -- vai de dez/2005 direto para nov/2006.
+Sao 237 observacoes em vinte anos e meio, nao 247. Conta que suponha espacamento
+constante erra os dois primeiros anos.
+"""
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+NIVEIS = ["DPF", "DPMFi", "DPFe"]
+
+# So estes dois levam rotulo no fim da linha: sao os numeros que a usuaria usa. O
+# da DPF e consequencia aritmetica dos dois, e fica como contexto.
+COM_ROTULO = ("DPMFi", "DPFe")
+
+_COR = {"DPF": estilo.COR["neutro"],
+        "DPMFi": "#1f6feb",
+        "DPFe": "#ed7d31"}
+
+
+def dados_prazo():
+    """Prazo medio em anos, por nivel e por data."""
+    p = pd.read_csv(config.PROCESSED_DIR / "prazo_medio_por_titulo.csv",
+                    parse_dates=["data"])
+    agregado = p[p["entidade"].isna() & p["titulo"].isna()]
+    piv = agregado.pivot_table(index="data", columns="nivel",
+                               values="prazo_anos", aggfunc="sum")
+    return piv[NIVEIS].dropna(how="all")
+
+
+def desenha_prazo(dados, banda, ax):
+    """As tres linhas, com a banda do PAF da DPF desenhada ano a ano.
+
+    A banda e do prazo medio da DPF -- que e justamente a linha de contexto, a mais
+    fina. A legenda diz isso em vez de deixar o leitor supor que ela vale para a
+    linha mais grossa.
+    """
+    for ano in range(dados.index.min().year, dados.index.max().year + 1):
+        if ano not in banda.index:
+            continue
+        inicio = pd.Timestamp(year=ano, month=1, day=1)
+        fim = pd.Timestamp(year=ano, month=12, day=31)
+        ax.fill_between([inicio, fim], banda.loc[ano, "minimo"],
+                        banda.loc[ano, "maximo"], color=estilo.COR["banda"],
+                        alpha=0.13, linewidth=0, zorder=1)
+        if pd.notna(banda.loc[ano, "minimo_original"]):
+            for nivel in ("minimo_original", "maximo_original"):
+                ax.plot([inicio, fim], [banda.loc[ano, nivel]] * 2,
+                        color=estilo.COR["banda"], lw=0.8, ls=":", zorder=2)
+
+    for nivel in NIVEIS:
+        grossura = 2.6 if nivel in COM_ROTULO else 1.3
+        ax.plot(dados.index, dados[nivel], color=_COR[nivel], lw=grossura,
+                label=nivel, zorder=3)
+        if nivel in COM_ROTULO:
+            ax.annotate(estilo.num_br(dados[nivel].iloc[-1], 2),
+                        xy=(dados.index[-1], dados[nivel].iloc[-1]),
+                        xytext=(6, 0), textcoords="offset points",
+                        fontsize=9.5, weight="bold", color=_COR[nivel],
+                        va="center")
+
+    ax.set_ylabel("anos")
+    ax.set_ylim(0, max(8.0, dados.max().max() * 1.08))
+    estilo.grade_fina(ax, 1, 0.5)
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=3, frameon=False, loc="upper left",
+              title="banda: meta do PAF para o prazo m\u00e9dio da DPF")
+```
+
+- [ ] **Passo 4: rodar e ver o teste do realizado falhar em 2025**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
+```
+
+Esperado: **8 passam e um falha** —
+`test_o_realizado_do_prazo_bate_com_o_nosso_dado`, com
+`AssertionError: prazo medio em 2025`.
+
+Isto **não é defeito do código**. É o teste fazendo o trabalho dele.
+
+- [ ] **Passo 5: corrigir o erro de digitação em `referencia/paf_bandas.csv`**
+
+**O que está errado.** As duas linhas de `prazo_medio_anos` de 2025 — a `original` e
+a `revisado` — trazem `realizado = 4.048869`. Esse é **exatamente o valor de 2024**,
+nas seis casas decimais. A nossa série, lida da aba 3.7 pelo parser, dá **4.003076**
+em 31/12/2025. Todos os outros realizados de 2011 a 2025, nos seis indicadores,
+batem na terceira casa; este é o único que não bate.
+
+**Como confirmar antes de mexer:**
+
+```
+$env:PYTHONPATH="src"; python -c "import pandas as pd; p = pd.read_csv('data/processed/prazo_medio_por_titulo.csv', parse_dates=['data']); a = p[p['entidade'].isna() & p['titulo'].isna()]; d = a[a['nivel'] == 'DPF'].set_index('data')['prazo_anos']; print(d.loc['2024-12-31'], d.loc['2025-12-31'])"
+```
+
+Esperado: `4.048869... 4.003076...` — o valor que está no CSV para 2025 é o de 2024.
+
+**A correção:** nas duas linhas de 2025 (`2025,original,prazo_medio_anos` e
+`2025,revisado,prazo_medio_anos`), trocar `4.048869...` por `4.003076...`. O valor
+tem de ficar igual nas duas versões — o validador exige isso, e com razão: a meta
+muda, o que aconteceu não.
+
+**Antes de commitar, confirme com a dona do projeto.** Esta pasta é diferente de
+`data/`: o que está nela foi digitado à mão, não existe para download, e se for
+apagado não volta. O `LEIA-ME.md` da pasta diz isso na primeira linha. Uma correção
+com evidência ainda é uma correção em dado que é dela.
+
+Depois de confirmada, acrescente ao `referencia/LEIA-ME.md`, na seção do
+`paf_bandas.csv`:
+
+```markdown
+**Correção de 18/08/2026:** o `realizado` de `prazo_medio_anos` em 2025 estava
+`4.048869`, que é o valor de 2024 repetido. O correto é `4.003076`, lido da aba 3.7
+do anexo de junho/26. Encontrado pelo teste que cruza o realizado do PAF contra a
+nossa série (`tests/test_graficos_prazo.py`).
+```
+
+- [ ] **Passo 6: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
+```
+
+Esperado: 9 passed.
+
+- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- tire o `p["titulo"].isna()` do filtro — a âncora de junho e o sanduíche devem
+  falhar, porque entram as linhas por título;
+- troque `COM_ROTULO` por `("DPF",)` — o teste dos rótulos deve falhar;
+- iguale as duas grossuras (`grossura = 2.6` sempre) — o teste da linha de contexto
+  deve falhar;
+- tire o `if ano not in banda.index: continue` — o teste das 21 faixas deve falhar;
+- troque `ax.set_ylim(0, ...)` por `ax.set_ylim(0, 4.5)` — o teste do eixo deve
+  falhar, porque a DPFe em 6,93 sai pela borda;
+- **desfaça a correção do Passo 5** e confirme que o teste do realizado volta a
+  falhar em 2025. É a prova de que a correção está travada por teste e não pode
+  regredir em silêncio.
+
+- [ ] **Passo 8: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 365 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/prazo.py tests/test_graficos_prazo.py referencia/
+git commit -m "Adiciona o prazo medio com banda e corrige o realizado de 2025 no PAF"
+```
+
+---
