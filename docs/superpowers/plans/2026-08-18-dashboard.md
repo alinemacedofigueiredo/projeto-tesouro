@@ -230,8 +230,6 @@ o matplotlib nao da de graca: mes em portugues (a locale do sistema devolve "may
 numero no formato brasileiro, e SVG reprodutivel.
 """
 
-import matplotlib
-
 MES = {1: "jan", 2: "fev", 3: "mar", 4: "abr", 5: "mai", 6: "jun",
        7: "jul", 8: "ago", 9: "set", 10: "out", 11: "nov", 12: "dez"}
 
@@ -279,6 +277,13 @@ def aplicar_estilo():
     os identificadores internos e dois desenhos identicos geram arquivos
     diferentes, tornando impossivel saber se o dashboard mudou porque o dado mudou.
     """
+    # O import mora AQUI, e nao no topo: a spec 3.1 vende que a camada de dado nao
+    # conhece matplotlib, e como toda funcao de dado chama estilo.recorta, o import
+    # no topo fazia `import tesouro.graficos.custo` puxar matplotlib. A propriedade
+    # existia no espirito e nao no mecanismo. O resto do modulo ja adiava os imports
+    # de matplotlib.dates e matplotlib.ticker pelo mesmo motivo.
+    import matplotlib
+
     matplotlib.use("Agg")
     matplotlib.rcParams["svg.hashsalt"] = "tesouro"
     matplotlib.rcParams["figure.dpi"] = 110
@@ -815,6 +820,22 @@ _CHAVE_COR = {"Prefixados": "Prefixado",
               "Demais": "Demais"}
 
 
+def _confere_ordem(colunas, arquivo):
+    """Levanta se a aba passou a gravar um indexador que _ORDEM nao conhece.
+
+    Sem isto o indexador novo sai do grafico em SILENCIO -- a barra empilhada
+    simplesmente encolhe, e nenhuma ancora percebe, porque elas olham os
+    indexadores que continuam la. E o defeito plausivel-e-errado na forma pura.
+    """
+    novos = sorted(set(colunas) - set(_ORDEM))
+    if novos:
+        raise LookupError(
+            f"indexador desconhecido em {arquivo}: {novos}. Sem lugar em _ORDEM e "
+            f"sem cor na paleta, ele sairia do grafico sem ninguem notar. "
+            f"Acrescente-o a _ORDEM e a estilo.COR, ou confirme que deve sair."
+        )
+
+
 def _recorta(df, janela):
     """Ultimos 'janela' anos. janela=None devolve a serie inteira."""
     if janela is None:
@@ -845,14 +866,21 @@ def dados_emissao_indexador(janela=None):
     piv = e.pivot_table(index="data", columns="indexador",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
     piv = piv.loc[:, piv.sum() > 0]
+    _confere_ordem(piv.columns, "funding_por_indexador.csv")
     return _recorta(piv[[c for c in _ORDEM if c in piv.columns]], janela)
 
 
-def dados_emissao_anual(anos=12):
+def dados_emissao_anual(janela=None, anos=12):
     """Composicao da emissao por indexador, ano a ano, em percentual.
 
     'total_milhoes' carrega o tamanho do ano: sem ele, 100% esconde que 2018 foram
     657 bi e 2025 foram 1.841 bi.
+
+    'janela' segue o contrato dos demais graficos: None e a serie inteira, um numero
+    sao os ultimos N anos, e um par (de, ate) e o recorte da linha de comando. Sem
+    isso o --de/--ate era ignorado AQUI e no grafico irmao dos leiloes, e o dashboard
+    saia com dois paineis num periodo diferente dos outros dezenove -- sem nada na
+    figura dizendo isso.
     """
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
@@ -860,7 +888,12 @@ def dados_emissao_anual(anos=12):
     e["ano"] = e["data"].dt.year
     piv = e.pivot_table(index="ano", columns="indexador",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
-    piv = piv[piv.index >= piv.index.max() - anos + 1]
+    if isinstance(janela, tuple):
+        de, ate = janela
+        piv = piv[(piv.index >= de.year) & (piv.index <= ate.year)]
+    else:
+        anos = janela if isinstance(janela, int) else anos
+        piv = piv[piv.index >= piv.index.max() - anos + 1]
     piv = piv.loc[:, piv.sum() > 0]
     total = piv.sum(axis=1)
     saida = (piv.div(total, axis=0) * 100)[[c for c in _ORDEM if c in piv.columns]]
@@ -870,10 +903,16 @@ def dados_emissao_anual(anos=12):
 
 
 def ultimo_mes_com_emissao():
-    """Data do ultimo mes com emissao, para marcar o ano parcial."""
+    """Data do ultimo mes com emissao do DPMFi, para marcar o ano parcial.
+
+    Filtra esfera e operacao, como o nome promete: hoje as quatro combinacoes
+    terminam no mesmo mes, mas basta uma esfera ficar um mes adiante para o
+    asterisco marcar o ano errado.
+    """
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
-    return f["data"].max()
+    e = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")]
+    return e["data"].max()
 ```
 
 - [x] **Passo 4: escrever as funções de desenho**
@@ -902,7 +941,14 @@ def _rotula_extremos(ax, serie, cor):
     serie = serie.dropna()
     if serie.empty:
         return
-    marcados = {serie.idxmax(), serie.idxmin(), serie.index[-1]}
+    # sorted(), e nao o set direto: o hash de datetime e salgado pelo
+    # PYTHONHASHSEED, entao a ordem de iteracao de um set de Timestamp muda a cada
+    # PROCESSO. Duas execucoes do mesmo comando gravavam o mesmo desenho com os
+    # elementos em ordem diferente dentro do SVG -- MD5 diferente, mesmas linhas.
+    #
+    # E o teste de reprodutibilidade nao pegava: ele compara monta() == monta()
+    # dentro do mesmo processo, onde a semente e a mesma.
+    marcados = sorted({serie.idxmax(), serie.idxmin(), serie.index[-1]})
     for quando in marcados:
         valor = serie.loc[quando]
         acima = valor >= 0
@@ -951,7 +997,11 @@ def desenha_net(dados, fig):
     # Folga no topo para a legenda e para o rotulo do maior mes nao encostarem na
     # moldura, e um pouco embaixo pelo mesmo motivo.
     net = dados["net"] / 1000
-    a1.set_ylim(net.min() * 1.14, net.max() * 1.75)
+    # min()/max() com zero: a folga e multiplicativa, e numa janela sem nenhum mes
+    # negativo net.min() * 1.14 fica ACIMA da menor barra -- ela sumiria do grafico
+    # e as demais deixariam de codificar magnitude por nao partirem do zero. E a
+    # armadilha 7 da spec (eixo truncado), reaparecendo pelo lado da folga.
+    a1.set_ylim(min(0.0, net.min() * 1.14), max(0.0, net.max() * 1.75))
     _rotula_extremos(a1, net, "#333333")
     _rotula_ultimo(a1, dados["mm3"] / 1000, "#1f6feb")
 
@@ -1242,6 +1292,31 @@ def test_a_seta_do_pico_aponta_para_dentro_da_faixa_do_cambio():
     assert altura > 70, "a faixa do cambio no pico mora acima de 70%"
 
 
+def test_o_desenho_da_composicao_traz_as_quatro_linhas_e_os_rotulos():
+    # Os dois testes de banda contam artistas da BANDA. Apagando o bloco que desenha
+    # as quatro linhas e escreve os quatro rotulos, os dois continuavam verdes -- o
+    # grafico principal do Estoque podia virar um quadro de bandas vazias sem nada
+    # ficar vermelho. Medido na revisao de 19/08/2026.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
+    estoque.desenha_composicao(dados, bandas, ax)
+    solidas = [l for l in ax.lines if l.get_linestyle() == "-"]
+    nomes = [l.get_label() for l in solidas]
+    rotulos = [texto.get_text() for texto in ax.texts]
+    plt.close(fig)
+
+    assert len(solidas) == 4, "uma linha por indexador que particiona a divida"
+    # A decisao de desenho da spec: "Demais" entra no empilhado e NAO neste.
+    assert "Demais" not in nomes
+    assert set(nomes) == {"Prefixado", "Índice Preços", "Taxa Flutuante",
+                          "Câmbio"}
+    # E a figura carrega as mesmas ancoras que dados_composicao ja tem.
+    for esperado in ("21,0", "25,9", "49,3", "3,7"):
+        assert esperado in rotulos
+
+
 def test_o_desenho_traz_a_banda_de_cada_ano_visivel():
     estilo.aplicar_estilo()
     fig, ax = plt.subplots(figsize=(13, 6))
@@ -1269,22 +1344,56 @@ def test_o_desenho_marca_a_banda_original_dos_anos_revisados():
 ```python
 # acrescentar em tests/test_estilo.py
 
-def test_todo_o_pacote_de_graficos_e_ascii():
-    # A restricao vale para o pacote inteiro, nao so para o estilo. Conferir
-    # arquivo por arquivo a mao nao escala para dez modulos, e o byte acentuado
-    # entra sem ninguem ver.
-    import pathlib
-    from tesouro import graficos
+# Os dezesseis arquivos que ja tinham byte acentuado quando esta branch nasceu, e
+# que vieram das entregas anteriores. Sao DIVIDA CONHECIDA, nao excecao permitida:
+# ficam listados um a um para que a lista so possa encolher, e para que ninguem
+# acrescente o dezessetimo sem editar esta constante e explicar por que.
+#
+# A alternativa -- varrer so src/tesouro/graficos/ -- esconderia a divida em vez de
+# registra-la, e foi ela que deixou dois testes novos entrarem acentuados.
+_DIVIDA_NAO_ASCII = {
+    "src/tesouro/parse_rmd/custo.py",
+    "src/tesouro/parse_rmd/estoque.py",
+    "src/tesouro/parse_rmd/estoque_vencimento.py",
+    "src/tesouro/parse_rmd/funding.py",
+    "src/tesouro/parse_rmd/paf_reserva.py",
+    "src/tesouro/parse_rmd/prazo.py",
+    "tests/test_custo.py",
+    "tests/test_estoque.py",
+    "tests/test_estoque_vencimento.py",
+    "tests/test_funding.py",
+    "tests/test_leitura_rmd.py",
+    "tests/test_nota_de_rodape.py",
+    "tests/test_paf_reserva.py",
+    "tests/test_parse_leiloes.py",
+    "tests/test_prazo.py",
+    "tests/test_vencimentos.py",
+}
 
-    pasta = pathlib.Path(graficos.__file__).parent
-    arquivos = sorted(pasta.glob("*.py"))
-    assert len(arquivos) >= 3
+
+def test_todo_o_projeto_e_ascii():
+    # A restricao vale para o projeto inteiro, nao so para o pacote de graficos --
+    # o varredor antigo olhava so src/tesouro/graficos/, e foi por isso que dois
+    # testes novos entraram acentuados sem nada acusar.
+    from tesouro import config
+
+    arquivos = sorted(config.RAIZ.glob("src/**/*.py")) +         sorted(config.RAIZ.glob("tests/**/*.py"))
+    assert len(arquivos) >= 30, f"so {len(arquivos)} arquivos; a varredura encolheu"
+
+    acentuados = set()
     for arquivo in arquivos:
-        with open(arquivo, "rb") as f:
-            try:
-                f.read().decode("ascii")
-            except UnicodeDecodeError as erro:
-                raise AssertionError(f"{arquivo.name} tem byte nao-ASCII: {erro}")
+        if any(b > 127 for b in arquivo.read_bytes()):
+            acentuados.add(arquivo.relative_to(config.RAIZ).as_posix())
+
+    novos = sorted(acentuados - _DIVIDA_NAO_ASCII)
+    assert not novos, (
+        f"byte nao-ASCII em arquivo que esta branch controla: {novos}. "
+        f"Texto que o usuario le vai por escape Unicode."
+    )
+    # E a divida so pode encolher: quando alguem limpar um dos dezesseis, este
+    # teste avisa para tirar da lista.
+    quitados = sorted(_DIVIDA_NAO_ASCII - acentuados)
+    assert not quitados, f"ja estao ASCII e podem sair de _DIVIDA_NAO_ASCII: {quitados}"
 
 
 def test_o_corte_de_janela_preserva_o_ultimo_ponto():
@@ -2602,6 +2711,27 @@ def test_a_57_perdeu_a_banda_ORIGINAL_de_2020_e_a_referencia_a_guarda():
 
 
 def test_a_banda_nao_e_desenhada_onde_nao_existe():
+    # A guarda `if ano not in banda.index: continue` deixou de ser exercitada quando
+    # a tabela de bandas fechou a lacuna de 2023-2025: com a banda cobrindo
+    # 2003-2026, TODO ano visivel tem banda e a guarda virou codigo morto -- apagar
+    # a linha nao quebrava nada. Medido na revisao de 19/08/2026.
+    #
+    # Aqui a banda e TRUNCADA de proposito. E dado de teste, nao de producao: o que
+    # se exercita e o desenho diante de uma banda que acaba antes da serie, que e
+    # exatamente a situacao de antes de a tabela ser completada -- e a que volta se
+    # alguem acrescentar um ano de dado sem acrescentar a banda dele.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    banda = vencimentos.banda_vincendo_12m()
+    truncada = banda[banda.index <= 2018]
+    vencimentos.desenha_faixas(vencimentos.dados_faixas(), truncada, fig)
+    faixas = list(fig.axes[1].collections)
+    plt.close(fig)
+    # 2006 a 2018: treze anos com banda, e nada desenhado de 2019 em diante.
+    assert len(faixas) == 13
+
+
+def test_a_banda_cobre_todo_ano_visivel_hoje():
     # Depois de 2022 nao ha banda. Um retangulo esticado ate 2026 inventaria meta.
     estilo.aplicar_estilo()
     fig = plt.figure(figsize=(13, 8))
@@ -2912,8 +3042,11 @@ falha, e desfaça:
   fica como declaração de intenção, mas quem lê deve saber que aquela asserção
   protege o **total** de 6.913,8, não o filtro;
 - troque `ANOS_PARCIAIS = (2026, 2031)` por `()` — o teste do asterisco deve falhar;
-- tire o `if ano not in banda.index: continue` do desenho — o teste das 17 faixas
-  deve falhar, porque passaria a desenhar até 2026;
+- tire o `if ano not in banda.index: continue` do desenho —
+  `test_a_banda_nao_e_desenhada_onde_nao_existe` deve falhar. **Esse passo já ficou
+  falso uma vez:** quando a tabela de bandas fechou a lacuna de 2023-2025, todo ano
+  visível passou a ter banda, a guarda virou código morto e apagá-la não quebrava
+  nada. O teste hoje **trunca a banda em 2018** para exercitá-la de propósito;
 - tire o filtro `nivel == "DPF"` do `dados_faixas` — a âncora de junho e o começo em
   2006 devem falhar;
 - troque `_DE_2_A_5` por só `["De 2 a 3 anos"]` — a âncora de 42,2 deve falhar e a
@@ -3128,7 +3261,7 @@ def dados_prazo():
                     parse_dates=["data"])
     agregado = p[p["entidade"].isna() & p["titulo"].isna()]
     piv = agregado.pivot_table(index="data", columns="nivel",
-                               values="prazo_anos", aggfunc="sum")
+                               values="prazo_anos", aggfunc="mean")
     return piv[NIVEIS].dropna(how="all")
 
 
@@ -3193,11 +3326,11 @@ falha, e desfaça:
 - troque `COM_ROTULO` por `("DPF",)` — o teste dos rótulos deve falhar;
 - iguale as duas grossuras (`grossura = 2.6` sempre) — o teste da linha de contexto
   deve falhar;
-- o `if ano not in banda.index: continue` **não tem como ser exercitado aqui**: o
+- o `if ano not in banda.index: continue` **não é exercitado pelo dado de hoje**: o
   `paf_bandas.csv` cobre 2003 a 2026 e a série vai de 2005 a 2026, então todo ano
   visível tem banda. A guarda existe para o dia em que a série passar do fim da
-  planilha. Quem quiser vê-la funcionando, olhe a Task 6, onde a banda acaba em 2022
-  e o teste pega;
+  planilha. Quem quiser vê-la funcionando, olhe a Task 6, onde o teste **trunca a
+  banda em 2018** justamente para exercitá-la — o mesmo tratamento caberia aqui;
 - troque `ax.set_ylim(0, ...)` por `ax.set_ylim(0, 4.5)` — o teste do eixo deve
   falhar, porque a DPFe em 6,93 sai pela borda;
 - devolva a coluna `realizado` no `paf.bandas` — os dois testes que afirmam
@@ -4163,15 +4296,62 @@ def test_os_leiloes_sao_cortados_na_ultima_competencia_do_rmd(anual):
                         parse_dates=["data_leilao"])
     assert bruto["data_leilao"].max() > pd.Timestamp("2026-06-30"), \
         "o teste so vale se o CSV de leiloes for alem do RMD"
-    assert round(anual.loc[2026, "total_milhoes"] / 1000, 1) == 842.6
-    assert anual.loc[2026, "cobertura_pct"] < 100
+    # 822,2 e nao 842,6: o corte e o agrupamento passaram a ser pela LIQUIDACAO,
+    # e os leiloes de junho que liquidam em julho sairam de 2026.
+    assert round(anual.loc[2026, "total_milhoes"] / 1000, 1) == 822.2
+    # E 2026 nao ganha cobertura: seis meses de RMD nao se comparam com doze de
+    # leilao. Ver test_ano_sem_rmd_inteiro_nao_ganha_cobertura.
+    assert pd.isna(anual.loc[2026, "cobertura_pct"])
+
+
+def test_os_leiloes_de_venda_reproduzem_a_oferta_publica_da_aba_11():
+    # O cruzamento que explica a cobertura: os leiloes NAO sao 100% da emissao, mas
+    # sao 100% de um canal dela. De 2011 em diante, "Venda" bate com "Oferta
+    # Publica" da aba 1.1 na casa do bilhao -- duas fontes independentes (o
+    # historico de leiloes e o anexo do RMD) contando a mesma coisa.
+    #
+    # 2016 e nao antes: em 2015 o historico traz 775,0 bi contra 813,7 da aba 1.1,
+    # 38,7 de diferenca. Nao investigado -- o intervalo em que as duas fontes casam
+    # esta afirmado aqui, e o comeco dele e fato sobre o dado, nao escolha.
+    import pandas as pd
+
+    from tesouro import config
+
+    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                    parse_dates=["data_liquidacao"])
+    venda = l[l["tipo_leilao"] == "Venda"].copy()
+    venda["ano"] = venda["data_liquidacao"].dt.year
+    por_leilao = venda.groupby("ano")["financeiro_milhoes"].sum() / 1000
+
+    f = pd.read_csv(config.PROCESSED_DIR / "funding_por_canal.csv",
+                    parse_dates=["data"])
+    e = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")
+          & (f["canal"] == "Oferta Pública")].copy()
+    e["ano"] = e["data"].dt.year
+    do_rmd = e.groupby("ano")["valor_milhoes"].sum() / 1000
+
+    for ano in range(2016, 2026):
+        assert abs(por_leilao[ano] - do_rmd[ano]) < 2.6, (
+            f"{ano}: leiloes {por_leilao[ano]:.1f} x oferta publica {do_rmd[ano]:.1f}")
+
+
+def test_ano_sem_rmd_inteiro_nao_ganha_cobertura():
+    # 2006 tem doze meses de leilao contra dois de RMD (a serie comeca em nov/2006)
+    # e 2026 tem seis. Dividir um pelo outro da 375%, e a nota da figura chegou a
+    # anunciar "54,2% a 375,0%". Ano incompleto fica sem cobertura, e ponto.
+    d = leiloes.dados_emissao_anual_papel(None, anos=100)
+    assert pd.isna(d.loc[2006, "cobertura_pct"])
+    assert pd.isna(d.loc[2026, "cobertura_pct"])
+    assert d["cobertura_pct"].dropna().max() < 98.0
+    # E a emissao por papel de 2006 continua desenhada -- so a cobertura sai.
+    assert d.loc[2006, "total_milhoes"] > 0
 
 
 def test_a_cobertura_dos_anos_fechados_fica_entre_90_e_98(anual):
     # A razao de este grafico ser candidato: a aba 1.2 cobre 100% da emissao e os
     # leiloes nao. Na janela de 12 anos a cobertura vai de 90,5% (2015) a 97,3%
     # (2020) -- a spec fala em "93% a 97%" porque mediu de 2017 em diante.
-    fechados = anual[anual.index < 2026]["cobertura_pct"]
+    fechados = anual[anual.index < 2026]["cobertura_pct"].dropna()
     assert round(fechados.min(), 1) == 90.5
     assert round(fechados.max(), 1) == 97.3
     assert round(fechados.loc[2024], 1) == 93.0
@@ -4281,7 +4461,7 @@ def dados_perfil_completo():
     return piv[piv.sum(axis=1) > 0]
 
 
-def desenha_perfil_completo(dados, ax, excluido=None):
+def desenha_perfil_completo(dados, ax, excluido):
     """Barras empilhadas por ano, do proximo ao ultimo.
 
     O eixo do tempo e categorico e nao continuo: entre 2060 e 2084 ha quatro anos
@@ -4301,8 +4481,10 @@ def desenha_perfil_completo(dados, ax, excluido=None):
 
     # O asterisco: o que ficou de fora tem de estar escrito na figura, nao so na
     # legenda do HTML. Quem copia o grafico para um slide leva a ressalva junto.
-    if excluido is None:
-        excluido = excluido_do_perfil()
+    #
+    # 'excluido' vem por parametro e nao e lido aqui dentro: um `desenha_*` que le
+    # CSV quebra a separacao da spec 3.1 exatamente onde ela importa, e relia o
+    # mesmo arquivo uma segunda vez a cada render.
     ax.set_title(
         "* n\u00e3o considera as NTN-B1 (RendA+ e EducA+), "
         + estilo.num_br(excluido / 1000, 1)
@@ -4395,33 +4577,65 @@ JANELAS = {"5 anos": 5, "completa": None}
 ORDEM_PAPEIS = ["LFT", "LTN", "NTN-B", "NTN-F", "NTN-C", "NTN-D"]
 
 
-def ultima_competencia_do_rmd():
-    """Ultimo mes que o RMD cobre. E onde os leiloes tem de ser cortados."""
+def competencias_do_rmd():
+    """Primeira e ultima competencia do RMD, e quantos meses cada ano dele tem.
+
+    As DUAS pontas importam, e por muito tempo so a direita foi cortada. Os leiloes
+    comecam em 2000 e a emissao do RMD so em nov/2006, entao 2006 saia com cobertura
+    de 375% e a nota escrita DENTRO da figura anunciava "54,2% a 375,0%" na janela
+    completa -- a mesma armadilha do corte da direita, do outro lado.
+    """
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
-    return f["data"].max()
+    e = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")]
+    meses = e.groupby(e["data"].dt.year)["data"].nunique()
+    return e["data"].min(), e["data"].max(), meses
 
 
-def dados_emissao_anual_papel(anos=12):
+def ultima_competencia_do_rmd():
+    """Ultimo mes que o RMD cobre."""
+    return competencias_do_rmd()[1]
+
+
+def dados_emissao_anual_papel(janela=None, anos=12):
     """Composicao da emissao por papel, ano a ano, em percentual.
 
     'total_milhoes' e o tamanho do ano; 'cobertura_pct' e quanto os leiloes
-    representam da emissao que o RMD registra no mesmo ano -- o numero que fez a
-    usuaria preferir o grafico por indexador.
+    representam da emissao que o RMD registra no mesmo ano.
+
+    Tres decisoes que so aparecem no numero:
+
+      - o corte e o agrupamento sao pela LIQUIDACAO, nao pela data do leilao. E
+        assim que o RMD conta: um leilao de 30/jun liquida em julho e entra em
+        julho la. Medido: agrupando pelo leilao, 2026 fecha 18,6 bi acima da aba
+        1.1; pela liquidacao, 1,7 abaixo;
+      - o recorte e pelas DUAS pontas da competencia do RMD;
+      - 'cobertura_pct' fica VAZIA em ano que o RMD nao cobre inteiro. Comparar doze
+        meses de leilao com dois de RMD da 375%, e 375% nao significa nada.
+
+    'janela' segue o contrato dos demais: None, um numero de anos, ou o par
+    (de, ate) do --de/--ate.
     """
-    corte = ultima_competencia_do_rmd()
+    primeira, corte, meses_do_rmd = competencias_do_rmd()
 
     l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_leilao"])
-    venda = l[(l["tipo_leilao"] == "Venda") & (l["data_leilao"] <= corte)].copy()
-    venda["ano"] = venda["data_leilao"].dt.year
+                    parse_dates=["data_leilao", "data_liquidacao"])
+    venda = l[(l["tipo_leilao"] == "Venda")
+              & (l["data_liquidacao"] >= primeira)
+              & (l["data_liquidacao"] <= corte)].copy()
+    venda["ano"] = venda["data_liquidacao"].dt.year
     piv = venda.pivot_table(index="ano", columns="titulo",
                             values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
     # O corte de colunas vem DEPOIS do corte de anos, e a ordem importa: a NTN-D
     # nao e emitida desde 2002 e a NTN-C desde 2006. Filtrando antes, as duas
     # sobrevivem como colunas de zero dentro da janela mostrada -- e o desenho
     # quebra procurando cor para um papel que a paleta nao tem.
-    piv = piv[piv.index >= piv.index.max() - anos + 1]
+    if isinstance(janela, tuple):
+        de, ate = janela
+        piv = piv[(piv.index >= de.year) & (piv.index <= ate.year)]
+    else:
+        anos = janela if isinstance(janela, int) else anos
+        piv = piv[piv.index >= piv.index.max() - anos + 1]
     piv = piv.loc[:, piv.sum() > 0]
 
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
@@ -4435,6 +4649,8 @@ def dados_emissao_anual_papel(anos=12):
                                             if p in piv.columns]].copy()
     saida["total_milhoes"] = total
     saida["cobertura_pct"] = total / do_rmd.reindex(total.index) * 100
+    incompletos = meses_do_rmd.reindex(saida.index).fillna(0) < 12
+    saida.loc[incompletos, "cobertura_pct"] = float("nan")
     return saida
 
 
@@ -4588,6 +4804,7 @@ não precise de nenhuma aritmética à mão.
 
 ```python
 # tests/test_dashboard.py
+import collections
 import re
 
 import matplotlib
@@ -4596,6 +4813,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
+from tesouro import config
 from tesouro.graficos import custo, dashboard, estilo
 
 
@@ -4763,18 +4981,65 @@ def test_toda_referencia_interna_do_svg_resolve_para_um_id_unico(html):
     # url(#p1a2b) e resolvido pelo navegador para o PRIMEIRO id daquele nome no
     # documento inteiro. Com 25 SVGs juntos, o recorte de um grafico pode passar a
     # valer para outro.
+    # As DUAS familias de referencia, e nao so url(): as url() sao ~111 (recortes)
+    # e as href="#" sao ~2.100 (os <use> de glifo que o matplotlib emite com
+    # svg.fonttype='path'). A versao anterior olhava so as url(), entao apagar a
+    # regex de href do _prefixa_ids deixava o teste VERDE com o texto de 36 dos 37
+    # SVGs pendurado em id inexistente. Medido na revisao de 19/08/2026.
     referencias = set(re.findall(r"url\(#([^)]+)\)", html))
-    assert referencias, "nenhuma referencia interna; o teste perdeu sentido"
-    ids = re.findall(r'id="([^"]+)"', html)
+    referencias |= set(re.findall(r'(?:xlink:href|href)="#([^"]+)"', html))
+    assert len(referencias) > 1000, \
+        f"so {len(referencias)} referencias; o teste perdeu de vista as de glifo"
+
+    contagem = collections.Counter(re.findall(r'id="([^"]+)"', html))
     for referencia in referencias:
-        assert ids.count(referencia) == 1, \
-            f"o id '{referencia}' aparece {ids.count(referencia)} vezes"
+        assert contagem[referencia] == 1, \
+            f"o id '{referencia}' aparece {contagem[referencia]} vezes"
 
 
 def test_o_html_e_reprodutivel():
     # Sem o svg.hashsalt fixo da Task 1, duas montagens do mesmo dado geram
     # arquivos diferentes e ninguem sabe se o dashboard mudou porque o dado mudou.
     assert dashboard.monta() == dashboard.monta()
+
+
+def test_o_html_e_reprodutivel_entre_processos(tmp_path):
+    # O teste acima compara duas montagens no MESMO processo, onde a semente de hash
+    # e a mesma -- e por isso ele passava contra uma implementacao quebrada:
+    # funding._rotula_extremos percorria um SET de Timestamp, cuja ordem de iteracao
+    # depende do PYTHONHASHSEED. Duas execucoes do comando davam MD5 diferente com
+    # as MESMAS 149.169 linhas, so trocadas de lugar. Medido em 19/08/2026.
+    #
+    # Este roda em dois subprocessos com sementes diferentes, que e o unico jeito de
+    # a propriedade ser afirmada de verdade.
+    #
+    # O filho grava em ARQUIVO com utf-8 explicito, e nao no stdout: o dashboard tem
+    # o sinal de menos tipografico (U+2212) que o matplotlib escreve nos eixos, e o
+    # stdout do Windows sai em cp1252 -- o filho morria com UnicodeEncodeError e o
+    # teste falhava por motivo nenhum.
+    import os
+    import subprocess
+    import sys
+
+    saidas = []
+    for semente in ("0", "12345"):
+        destino = tmp_path / f"dash_{semente}.html"
+        codigo = (
+            "import pathlib; from tesouro.graficos import dashboard; "
+            f"pathlib.Path(r'{destino}').write_text(dashboard.monta(), "
+            "encoding='utf-8')"
+        )
+        ambiente = dict(os.environ, PYTHONPATH="src", PYTHONHASHSEED=semente)
+        r = subprocess.run([sys.executable, "-c", codigo], capture_output=True,
+                           text=True, env=ambiente, cwd=str(config.RAIZ))
+        assert r.returncode == 0, r.stderr[-800:]
+        saidas.append(destino.read_text(encoding="utf-8"))
+
+    assert saidas[0] == saidas[1], (
+        "o HTML mudou entre processos com PYTHONHASHSEED diferente: alguma ordem de "
+        "iteracao depende do hash. Procure set ou dict de objeto nao-str sendo "
+        "percorrido para desenhar."
+    )
 
 
 def test_cada_figura_leva_a_legenda_com_a_aba_de_origem(html):
@@ -4843,7 +5108,17 @@ def recorta(df, janela):
         return df
     if isinstance(janela, tuple):
         de, ate = janela
-        return df[(df.index >= de) & (df.index <= ate)]
+        recorte = df[(df.index >= de) & (df.index <= ate)]
+        # Recorte vazio falhava la na frente, dentro do matplotlib, com "Axis limits
+        # cannot be NaN or Inf" e outras tres mensagens que nao dizem o que houve.
+        # Uma guarda aqui conserta os quatorze graficos de uma vez.
+        if recorte.empty:
+            raise LookupError(
+                f"o recorte de {de.date()} a {ate.date()} nao pega nenhum mes da "
+                f"serie, que vai de {df.index.min().date()} a "
+                f"{df.index.max().date()}"
+            )
+        return recorte
     return df[df.index >= df.index.max() - pd.DateOffset(years=janela)]
 ```
 
@@ -4863,7 +5138,7 @@ e continua funcionando copiado para outra maquina ou mandado por e-mail -- num b
 isso vale mais que elegancia. O limiar de 10 MB e medido por teste; se estourar, os
 SVGs saem para arquivos ao lado.
 
-Nove dos dezesseis aceitam janela, entao sao 25 SVGs. (A spec diz sete e 23 no
+Quatorze dos vinte e um aceitam janela e um aceita variante, entao sao 37 SVGs. (A spec diz sete e 23 no
 texto, mas a tabela da secao 5 marca nove; a tabela e que esta certa.)
 """
 
@@ -4919,9 +5194,10 @@ def _fig_emissao_indexador(janela):
 
 def _fig_emissao_anual(janela):
     # Este grafico conta ANOS, nao recorta datas: a janela de 5 anos vira cinco
-    # barras, e a completa vira a serie inteira.
-    anos = janela if isinstance(janela, int) else 100
-    dados = funding.dados_emissao_anual(anos=anos)
+    # barras, e a completa vira a serie inteira. A funcao de dado resolve as tres
+    # formas de janela, inclusive o par (de, ate) do --de/--ate -- que antes caia
+    # no ramo "completa" e deixava este painel num periodo diferente dos demais.
+    dados = funding.dados_emissao_anual(janela, anos=100)
     fig = _figura()
     funding.desenha_emissao_anual(dados, fig.subplots(),
                                  funding.ultimo_mes_com_emissao().year)
@@ -5027,7 +5303,8 @@ def _fig_reserva(janela):
 def _fig_perfil_completo(janela):
     fig = _figura(6.6)
     vencimentos.desenha_perfil_completo(vencimentos.dados_perfil_completo(),
-                                        fig.subplots())
+                                        fig.subplots(),
+                                        vencimentos.excluido_do_perfil())
     return fig
 
 
@@ -5039,8 +5316,7 @@ def _fig_custo_emissao(janela):
 
 
 def _fig_emissao_papel(janela):
-    anos = janela if isinstance(janela, int) else 100
-    dados = leiloes.dados_emissao_anual_papel(anos=anos)
+    dados = leiloes.dados_emissao_anual_papel(janela, anos=100)
     fig = _figura()
     leiloes.desenha_emissao_anual_papel(
         dados, fig.subplots(), leiloes.ultima_competencia_do_rmd().year)
@@ -5051,8 +5327,10 @@ REGISTRO = [
     Grafico("funding_net", "Funding",
             "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
             "aba 1.1",
-            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. Sem m\u00e9dia de 3 meses, "
-            "por decis\u00e3o de quem l\u00ea. Cobre 100% do DPMFi.",
+            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. A barra \u00e9 <b>uma s\u00e9rie "
+            "s\u00f3</b>, colorida pelo sinal — verde quando emitiu mais do que resgatou, "
+            "vermelho no contr\u00e1rio — e n\u00e3o emiss\u00e3o contra resgate. A linha \u00e9 a "
+            "m\u00e9dia m\u00f3vel de 3 meses. Cobre 100% do DPMFi.",
             True, "5 anos", _fig_net),
     Grafico("funding_indexador", "Funding",
             "Emiss\u00e3o do DPMFi por indexador, mensal",
@@ -5314,7 +5592,6 @@ def _prefixa_ids(svg, prefixo):
     hash para um grafico aparecer cortado. Prefixar torna a propriedade verdadeira
     em vez de deixa-la depender de sorte.
     """
-    import re
     limpo = re.sub(r"[^A-Za-z0-9]+", "-", prefixo).strip("-")
     svg = re.sub(r'id="([^"]+)"', lambda m: 'id="%s-%s"' % (limpo, m.group(1)), svg)
     svg = re.sub(r"url\(#([^)]+)\)",

@@ -35,7 +35,7 @@ def dados_prazo():
                     parse_dates=["data"])
     agregado = p[p["entidade"].isna() & p["titulo"].isna()]
     piv = agregado.pivot_table(index="data", columns="nivel",
-                               values="prazo_anos", aggfunc="sum")
+                               values="prazo_anos", aggfunc="mean")
     return piv[NIVEIS].dropna(how="all")
 
 

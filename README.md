@@ -37,7 +37,7 @@ as fórmulas de cálculo estão em `docs/convencoes-dv.md`.
 
 ### O dashboard
 
-Os dezesseis gráficos da dívida num arquivo HTML autocontido, que abre com
+Os vinte e um gráficos da dívida num arquivo HTML autocontido, que abre com
 duplo clique e continua funcionando copiado para outra máquina ou mandado
 por e-mail.
 
@@ -49,7 +49,7 @@ bash:
 
     PYTHONPATH=src python -m tesouro.graficos
 
-Grava `data/processed/dashboard.html` (2,7 MB) com duas janelas — 5 anos e
+Grava `data/processed/dashboard.html` (4,9 MB) com duas janelas — 5 anos e
 série completa — e um botão no topo que alterna entre elas. Para um
 recorte específico, com o botão suprimido porque só existe uma janela:
 

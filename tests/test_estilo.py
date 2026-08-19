@@ -75,22 +75,56 @@ def test_as_cores_cobrem_os_indexadores_e_os_papeis():
     for chave in ("LTN", "NTN-F", "NTN-B", "LFT"):
         assert chave in estilo.COR
 
-def test_todo_o_pacote_de_graficos_e_ascii():
-    # A restricao vale para o pacote inteiro, nao so para o estilo. Conferir
-    # arquivo por arquivo a mao nao escala para dez modulos, e o byte acentuado
-    # entra sem ninguem ver.
-    import pathlib
-    from tesouro import graficos
+# Os dezesseis arquivos que ja tinham byte acentuado quando esta branch nasceu, e
+# que vieram das entregas anteriores. Sao DIVIDA CONHECIDA, nao excecao permitida:
+# ficam listados um a um para que a lista so possa encolher, e para que ninguem
+# acrescente o dezessetimo sem editar esta constante e explicar por que.
+#
+# A alternativa -- varrer so src/tesouro/graficos/ -- esconderia a divida em vez de
+# registra-la, e foi ela que deixou dois testes novos entrarem acentuados.
+_DIVIDA_NAO_ASCII = {
+    "src/tesouro/parse_rmd/custo.py",
+    "src/tesouro/parse_rmd/estoque.py",
+    "src/tesouro/parse_rmd/estoque_vencimento.py",
+    "src/tesouro/parse_rmd/funding.py",
+    "src/tesouro/parse_rmd/paf_reserva.py",
+    "src/tesouro/parse_rmd/prazo.py",
+    "tests/test_custo.py",
+    "tests/test_estoque.py",
+    "tests/test_estoque_vencimento.py",
+    "tests/test_funding.py",
+    "tests/test_leitura_rmd.py",
+    "tests/test_nota_de_rodape.py",
+    "tests/test_paf_reserva.py",
+    "tests/test_parse_leiloes.py",
+    "tests/test_prazo.py",
+    "tests/test_vencimentos.py",
+}
 
-    pasta = pathlib.Path(graficos.__file__).parent
-    arquivos = sorted(pasta.glob("*.py"))
-    assert len(arquivos) >= 3
+
+def test_todo_o_projeto_e_ascii():
+    # A restricao vale para o projeto inteiro, nao so para o pacote de graficos --
+    # o varredor antigo olhava so src/tesouro/graficos/, e foi por isso que dois
+    # testes novos entraram acentuados sem nada acusar.
+    from tesouro import config
+
+    arquivos = sorted(config.RAIZ.glob("src/**/*.py")) +         sorted(config.RAIZ.glob("tests/**/*.py"))
+    assert len(arquivos) >= 30, f"so {len(arquivos)} arquivos; a varredura encolheu"
+
+    acentuados = set()
     for arquivo in arquivos:
-        with open(arquivo, "rb") as f:
-            try:
-                f.read().decode("ascii")
-            except UnicodeDecodeError as erro:
-                raise AssertionError(f"{arquivo.name} tem byte nao-ASCII: {erro}")
+        if any(b > 127 for b in arquivo.read_bytes()):
+            acentuados.add(arquivo.relative_to(config.RAIZ).as_posix())
+
+    novos = sorted(acentuados - _DIVIDA_NAO_ASCII)
+    assert not novos, (
+        f"byte nao-ASCII em arquivo que esta branch controla: {novos}. "
+        f"Texto que o usuario le vai por escape Unicode."
+    )
+    # E a divida so pode encolher: quando alguem limpar um dos dezesseis, este
+    # teste avisa para tirar da lista.
+    quitados = sorted(_DIVIDA_NAO_ASCII - acentuados)
+    assert not quitados, f"ja estao ASCII e podem sair de _DIVIDA_NAO_ASCII: {quitados}"
 
 
 def test_o_corte_de_janela_preserva_o_ultimo_ponto():

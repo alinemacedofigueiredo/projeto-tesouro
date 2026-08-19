@@ -1,3 +1,4 @@
+import collections
 import re
 
 import matplotlib
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
+from tesouro import config
 from tesouro.graficos import custo, dashboard, estilo
 
 
@@ -173,18 +175,65 @@ def test_toda_referencia_interna_do_svg_resolve_para_um_id_unico(html):
     # url(#p1a2b) e resolvido pelo navegador para o PRIMEIRO id daquele nome no
     # documento inteiro. Com 25 SVGs juntos, o recorte de um grafico pode passar a
     # valer para outro.
+    # As DUAS familias de referencia, e nao so url(): as url() sao ~111 (recortes)
+    # e as href="#" sao ~2.100 (os <use> de glifo que o matplotlib emite com
+    # svg.fonttype='path'). A versao anterior olhava so as url(), entao apagar a
+    # regex de href do _prefixa_ids deixava o teste VERDE com o texto de 36 dos 37
+    # SVGs pendurado em id inexistente. Medido na revisao de 19/08/2026.
     referencias = set(re.findall(r"url\(#([^)]+)\)", html))
-    assert referencias, "nenhuma referencia interna; o teste perdeu sentido"
-    ids = re.findall(r'id="([^"]+)"', html)
+    referencias |= set(re.findall(r'(?:xlink:href|href)="#([^"]+)"', html))
+    assert len(referencias) > 1000, \
+        f"so {len(referencias)} referencias; o teste perdeu de vista as de glifo"
+
+    contagem = collections.Counter(re.findall(r'id="([^"]+)"', html))
     for referencia in referencias:
-        assert ids.count(referencia) == 1, \
-            f"o id '{referencia}' aparece {ids.count(referencia)} vezes"
+        assert contagem[referencia] == 1, \
+            f"o id '{referencia}' aparece {contagem[referencia]} vezes"
 
 
 def test_o_html_e_reprodutivel():
     # Sem o svg.hashsalt fixo da Task 1, duas montagens do mesmo dado geram
     # arquivos diferentes e ninguem sabe se o dashboard mudou porque o dado mudou.
     assert dashboard.monta() == dashboard.monta()
+
+
+def test_o_html_e_reprodutivel_entre_processos(tmp_path):
+    # O teste acima compara duas montagens no MESMO processo, onde a semente de hash
+    # e a mesma -- e por isso ele passava contra uma implementacao quebrada:
+    # funding._rotula_extremos percorria um SET de Timestamp, cuja ordem de iteracao
+    # depende do PYTHONHASHSEED. Duas execucoes do comando davam MD5 diferente com
+    # as MESMAS 149.169 linhas, so trocadas de lugar. Medido em 19/08/2026.
+    #
+    # Este roda em dois subprocessos com sementes diferentes, que e o unico jeito de
+    # a propriedade ser afirmada de verdade.
+    #
+    # O filho grava em ARQUIVO com utf-8 explicito, e nao no stdout: o dashboard tem
+    # o sinal de menos tipografico (U+2212) que o matplotlib escreve nos eixos, e o
+    # stdout do Windows sai em cp1252 -- o filho morria com UnicodeEncodeError e o
+    # teste falhava por motivo nenhum.
+    import os
+    import subprocess
+    import sys
+
+    saidas = []
+    for semente in ("0", "12345"):
+        destino = tmp_path / f"dash_{semente}.html"
+        codigo = (
+            "import pathlib; from tesouro.graficos import dashboard; "
+            f"pathlib.Path(r'{destino}').write_text(dashboard.monta(), "
+            "encoding='utf-8')"
+        )
+        ambiente = dict(os.environ, PYTHONPATH="src", PYTHONHASHSEED=semente)
+        r = subprocess.run([sys.executable, "-c", codigo], capture_output=True,
+                           text=True, env=ambiente, cwd=str(config.RAIZ))
+        assert r.returncode == 0, r.stderr[-800:]
+        saidas.append(destino.read_text(encoding="utf-8"))
+
+    assert saidas[0] == saidas[1], (
+        "o HTML mudou entre processos com PYTHONHASHSEED diferente: alguma ordem de "
+        "iteracao depende do hash. Procure set ou dict de objeto nao-str sendo "
+        "percorrido para desenhar."
+    )
 
 
 def test_cada_figura_leva_a_legenda_com_a_aba_de_origem(html):

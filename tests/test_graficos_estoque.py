@@ -130,6 +130,31 @@ def test_a_seta_do_pico_aponta_para_dentro_da_faixa_do_cambio():
     assert altura > 70, "a faixa do cambio no pico mora acima de 70%"
 
 
+def test_o_desenho_da_composicao_traz_as_quatro_linhas_e_os_rotulos():
+    # Os dois testes de banda contam artistas da BANDA. Apagando o bloco que desenha
+    # as quatro linhas e escreve os quatro rotulos, os dois continuavam verdes -- o
+    # grafico principal do Estoque podia virar um quadro de bandas vazias sem nada
+    # ficar vermelho. Medido na revisao de 19/08/2026.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
+    estoque.desenha_composicao(dados, bandas, ax)
+    solidas = [l for l in ax.lines if l.get_linestyle() == "-"]
+    nomes = [l.get_label() for l in solidas]
+    rotulos = [texto.get_text() for texto in ax.texts]
+    plt.close(fig)
+
+    assert len(solidas) == 4, "uma linha por indexador que particiona a divida"
+    # A decisao de desenho da spec: "Demais" entra no empilhado e NAO neste.
+    assert "Demais" not in nomes
+    assert set(nomes) == {"Prefixado", "\u00cdndice Pre\u00e7os", "Taxa Flutuante",
+                          "C\u00e2mbio"}
+    # E a figura carrega as mesmas ancoras que dados_composicao ja tem.
+    for esperado in ("21,0", "25,9", "49,3", "3,7"):
+        assert esperado in rotulos
+
+
 def test_o_desenho_traz_a_banda_de_cada_ano_visivel():
     estilo.aplicar_estilo()
     fig, ax = plt.subplots(figsize=(13, 6))

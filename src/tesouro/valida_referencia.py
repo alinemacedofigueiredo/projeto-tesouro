@@ -53,14 +53,26 @@ _COLUNAS = ["ano", "versao", "indicador", "minimo", "maximo", "realizado"]
 # Faixas de plausibilidade por indicador. Largas de proposito: pegam erro de
 # digitacao (21 virando 210, ou percentual escrito como fracao) sem opinar sobre
 # politica de divida.
+# O PISO DE 1,0 NOS PERCENTUAIS E A GUARDA CONTRA FRACAO, e nao excesso de zelo.
+# A conta dos pontos medios (adiante) so cobre os quatro que particionam a divida,
+# e cobre mal: escrever cambio_pct como 0,03/0,07 em vez de 3/7 derruba a soma de
+# 101,0 para 96,05, que continua dentro da janela de 90 a 110. O vincendo_12m_pct
+# nao entra naquela conta de jeito nenhum -- e ele e a UNICA fonte da banda de 2023
+# a 2026, entao um 0,18 ali desenharia a banda em 0,2% sem nada reclamar.
+#
+# Medido em todos os *_pct do arquivo (minimo, maximo e realizado): o menor valor
+# real e 3,0, o cambio de 2012. Um piso de 1,0 derruba qualquer fracao e nao encosta
+# em nenhuma linha existente.
 _FAIXA = {
     "estoque_bilhoes": (100.0, 100000.0),
     "prazo_medio_anos": (1.0, 15.0),
-    "prefixado_pct": (0.0, 100.0),
-    "indice_precos_pct": (0.0, 100.0),
-    "taxa_flutuante_pct": (0.0, 100.0),
-    "cambio_pct": (0.0, 100.0),
-    "vincendo_12m_pct": (0.0, 100.0),
+    "prefixado_pct": (1.0, 100.0),
+    "indice_precos_pct": (1.0, 100.0),
+    "taxa_flutuante_pct": (1.0, 100.0),
+    "cambio_pct": (1.0, 100.0),
+    # A serie real do vincendo vai de 15 a 29. O teto de 60 pega o digito trocado
+    # (81 em vez de 18) que o piso sozinho deixaria passar.
+    "vincendo_12m_pct": (1.0, 60.0),
 }
 
 
@@ -135,10 +147,16 @@ def conferir_paf(caminho=None):
             )
 
     # Um ano so pode ter 'revisado' se tiver 'original' -- a revisao substitui algo.
-    for ano, g in df.groupby("ano"):
+    #
+    # Por (ano, INDICADOR), e nao so por ano: com o setimo indicador sendo opcional,
+    # um ano pode ter 'original' para os seis obrigatorios e so 'revisado' para o
+    # vincendo. O agrupamento por ano nao veria isso, e paf.bandas quebraria com um
+    # KeyError cru no lugar da mensagem explicativa que o modulo se propoe a dar.
+    for (ano, indicador), g in df.groupby(["ano", "indicador"]):
         versoes = set(g["versao"])
         if "revisado" in versoes and "original" not in versoes:
-            erros.append(f"  {ano}: tem banda revisada sem a original correspondente")
+            erros.append(f"  {ano}/{indicador}: tem banda revisada sem a original "
+                         f"correspondente")
 
     # O realizado, quando existe, tem de ser igual nas duas versoes do mesmo ano:
     # a meta muda, o que aconteceu nao.

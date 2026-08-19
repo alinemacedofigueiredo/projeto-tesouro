@@ -245,6 +245,27 @@ def test_a_57_perdeu_a_banda_ORIGINAL_de_2020_e_a_referencia_a_guarda():
 
 
 def test_a_banda_nao_e_desenhada_onde_nao_existe():
+    # A guarda `if ano not in banda.index: continue` deixou de ser exercitada quando
+    # a tabela de bandas fechou a lacuna de 2023-2025: com a banda cobrindo
+    # 2003-2026, TODO ano visivel tem banda e a guarda virou codigo morto -- apagar
+    # a linha nao quebrava nada. Medido na revisao de 19/08/2026.
+    #
+    # Aqui a banda e TRUNCADA de proposito. E dado de teste, nao de producao: o que
+    # se exercita e o desenho diante de uma banda que acaba antes da serie, que e
+    # exatamente a situacao de antes de a tabela ser completada -- e a que volta se
+    # alguem acrescentar um ano de dado sem acrescentar a banda dele.
+    estilo.aplicar_estilo()
+    fig = plt.figure(figsize=(13, 8))
+    banda = vencimentos.banda_vincendo_12m()
+    truncada = banda[banda.index <= 2018]
+    vencimentos.desenha_faixas(vencimentos.dados_faixas(), truncada, fig)
+    faixas = list(fig.axes[1].collections)
+    plt.close(fig)
+    # 2006 a 2018: treze anos com banda, e nada desenhado de 2019 em diante.
+    assert len(faixas) == 13
+
+
+def test_a_banda_cobre_todo_ano_visivel_hoje():
     # Depois de 2022 nao ha banda. Um retangulo esticado ate 2026 inventaria meta.
     estilo.aplicar_estilo()
     fig = plt.figure(figsize=(13, 8))

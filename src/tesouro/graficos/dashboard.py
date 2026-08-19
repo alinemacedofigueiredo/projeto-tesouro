@@ -10,7 +10,7 @@ e continua funcionando copiado para outra maquina ou mandado por e-mail -- num b
 isso vale mais que elegancia. O limiar de 10 MB e medido por teste; se estourar, os
 SVGs saem para arquivos ao lado.
 
-Nove dos dezesseis aceitam janela, entao sao 25 SVGs. (A spec diz sete e 23 no
+Quatorze dos vinte e um aceitam janela e um aceita variante, entao sao 37 SVGs. (A spec diz sete e 23 no
 texto, mas a tabela da secao 5 marca nove; a tabela e que esta certa.)
 """
 
@@ -66,9 +66,10 @@ def _fig_emissao_indexador(janela):
 
 def _fig_emissao_anual(janela):
     # Este grafico conta ANOS, nao recorta datas: a janela de 5 anos vira cinco
-    # barras, e a completa vira a serie inteira.
-    anos = janela if isinstance(janela, int) else 100
-    dados = funding.dados_emissao_anual(anos=anos)
+    # barras, e a completa vira a serie inteira. A funcao de dado resolve as tres
+    # formas de janela, inclusive o par (de, ate) do --de/--ate -- que antes caia
+    # no ramo "completa" e deixava este painel num periodo diferente dos demais.
+    dados = funding.dados_emissao_anual(janela, anos=100)
     fig = _figura()
     funding.desenha_emissao_anual(dados, fig.subplots(),
                                  funding.ultimo_mes_com_emissao().year)
@@ -174,7 +175,8 @@ def _fig_reserva(janela):
 def _fig_perfil_completo(janela):
     fig = _figura(6.6)
     vencimentos.desenha_perfil_completo(vencimentos.dados_perfil_completo(),
-                                        fig.subplots())
+                                        fig.subplots(),
+                                        vencimentos.excluido_do_perfil())
     return fig
 
 
@@ -186,8 +188,7 @@ def _fig_custo_emissao(janela):
 
 
 def _fig_emissao_papel(janela):
-    anos = janela if isinstance(janela, int) else 100
-    dados = leiloes.dados_emissao_anual_papel(anos=anos)
+    dados = leiloes.dados_emissao_anual_papel(janela, anos=100)
     fig = _figura()
     leiloes.desenha_emissao_anual_papel(
         dados, fig.subplots(), leiloes.ultima_competencia_do_rmd().year)
@@ -198,8 +199,10 @@ REGISTRO = [
     Grafico("funding_net", "Funding",
             "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
             "aba 1.1",
-            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. Sem m\u00e9dia de 3 meses, "
-            "por decis\u00e3o de quem l\u00ea. Cobre 100% do DPMFi.",
+            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. A barra \u00e9 <b>uma s\u00e9rie "
+            "s\u00f3</b>, colorida pelo sinal \u2014 verde quando emitiu mais do que resgatou, "
+            "vermelho no contr\u00e1rio \u2014 e n\u00e3o emiss\u00e3o contra resgate. A linha \u00e9 a "
+            "m\u00e9dia m\u00f3vel de 3 meses. Cobre 100% do DPMFi.",
             True, "5 anos", _fig_net),
     Grafico("funding_indexador", "Funding",
             "Emiss\u00e3o do DPMFi por indexador, mensal",
@@ -455,7 +458,6 @@ def _prefixa_ids(svg, prefixo):
     hash para um grafico aparecer cortado. Prefixar torna a propriedade verdadeira
     em vez de deixa-la depender de sorte.
     """
-    import re
     limpo = re.sub(r"[^A-Za-z0-9]+", "-", prefixo).strip("-")
     svg = re.sub(r'id="([^"]+)"', lambda m: 'id="%s-%s"' % (limpo, m.group(1)), svg)
     svg = re.sub(r"url\(#([^)]+)\)",

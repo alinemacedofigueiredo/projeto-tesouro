@@ -104,8 +104,9 @@ acontecer em silêncio.
 duplo clique, sem servidor, e continua funcionando se for copiado para outra máquina
 ou mandado por e-mail. Num banco isso vale mais que elegância.
 
-**Limiar medido, não suposto.** Medido em 19/08/2026: **2,66 MB** com os 25 SVGs
-embutidos, contra o limiar de 10 MB. A propriedade "um arquivo só" fica de pé, e o
+**Limiar medido, não suposto.** Medido em 19/08/2026: **4,9 MB** com os 37 SVGs
+embutidos, contra o limiar de 10 MB. (Eram 2,66 MB com 25 SVGs antes de a
+participação virar dois painéis e de entrarem as quatro quebras por papel.) A propriedade "um arquivo só" fica de pé, e o
 teste `test_o_arquivo_cabe_no_limiar_de_dez_megabytes` trava o limiar. Se algum dia
 passar, os SVGs saem para arquivos ao lado e o HTML os referencia.
 
@@ -157,7 +158,7 @@ figura, **não dentro do desenho** — assim o texto é selecionável e o SVG fi
 
 | grupo | gráfico | fonte | janela? |
 |---|---|---|---|
-| Funding | net do DPMFi com MM12 e acumulado de 12m | 1.1 | sim |
+| Funding | net do DPMFi com média móvel de 3 meses e acumulado de 12m | 1.1 | sim |
 | | emissão por indexador, mensal em reais | 1.2 | sim |
 | | emissão anual em 100% por indexador | 1.2 | sim |
 | Estoque | composição por indexador com banda do PAF | 2.1 + PAF | sim |
@@ -190,8 +191,13 @@ Quem quiser essa leitura abre a setinha.
 
 Cada uma destas saiu de uma rodada de crítica sobre um rascunho:
 
-- **Funding:** sem média móvel de 3 meses; só o net do mês e a MM12. O painel de
-  acumulado de 12 meses usa preenchimento contínuo nos cruzamentos do zero.
+- **Funding:** o net do mês em barra colorida **pelo sinal** — verde positivo,
+  vermelho negativo, uma série só — e a **média móvel de 3 meses** por cima. A de 12
+  meses foi o primeiro desenho e alisava demais, escondendo o giro trimestral; a
+  troca é de 19/08/2026. As duas cores entram na legenda com nome próprio, porque
+  verde-contra-vermelho foi lido como emissão-contra-resgate na primeira leitura.
+  O painel de acumulado de 12 meses usa preenchimento contínuo nos cruzamentos do
+  zero. O eixo é ancorado no zero e leva rótulo no maior mês, no menor e no último.
 - **Emissão anual em 100%:** por **indexador**, não por papel. A versão por papel
   existe (dos leilões) mas foi recusada: por indexador a cobertura é 100% do RMD,
   contra 93% a 97% dos leilões. O total emitido vai como rótulo acima da barra, e o
@@ -311,7 +317,7 @@ mergeado no `master`, então a alteração vem com teste próprio.
 **Âncoras de valor nas funções de dado.** Cada uma ganha um teste com número medido:
 composição em jun/26 de 21,0 / 25,9 / 49,3 / 3,7; reserva de 1.346 contra prudencial
 de 783 com índice 8,33; custo do DPF em 12,68 com Selic em 14,78 e IPCA em 4,81;
-funding com net de +143,4 e MM12 de +27,7; detentores em 31,8 / 22,0 / 22,5 / 10,0 /
+funding com net de +143,4 e média móvel de 3 meses de +115,7; detentores em 31,8 / 22,0 / 22,5 / 10,0 /
 13,8; prazo médio de 4,01 na DPF, 3,90 na DPMFi e 6,93 na DPFe; vencimentos da DPF em
 20,1 / 14,1 / 42,2 / 23,6.
 

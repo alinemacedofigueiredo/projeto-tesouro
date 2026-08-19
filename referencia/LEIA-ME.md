@@ -7,7 +7,7 @@ download, e é versionado no git de propósito. Se você apagar, não volta.
 
 ---
 
-## Os dois arquivos desta pasta
+## Os três arquivos desta pasta
 
 | arquivo | o que é |
 |---|---|
@@ -23,7 +23,8 @@ O PAF (Plano Anual de Financiamento) define, para cada ano, uma faixa de mínimo
 máximo para os indicadores da dívida. É contra essas faixas que os gráficos de
 composição e de prazo médio comparam o realizado.
 
-Cobre **2003 a 2026**, com 193 linhas.
+Cobre **2003 a 2026**, com 209 linhas — 192 dos seis indicadores obrigatórios
+e 17 do sétimo, opcional.
 
 ### As colunas
 
@@ -31,7 +32,7 @@ Cobre **2003 a 2026**, com 193 linhas.
 |---|---|
 | `ano` | o ano a que a meta se refere |
 | `versao` | `original` ou `revisado` (ver abaixo) |
-| `indicador` | um dos seis nomes fixos, listados adiante |
+| `indicador` | um dos sete nomes fixos, listados adiante — seis obrigatórios e um opcional |
 | `minimo` | piso da banda |
 | `maximo` | teto da banda |
 | `realizado` | o que de fato aconteceu no fechamento do ano |
@@ -108,8 +109,14 @@ seria lido como "a composição foi a zero".
 ## Como acrescentar o PAF do ano que vem
 
 1. Abra o `paf_bandas.csv` no Excel. Ele abre como planilha normal.
-2. Acrescente **seis linhas** para o ano novo, uma por indicador, com `versao`
+2. Acrescente **sete linhas** para o ano novo, uma por indicador, com `versao`
    igual a `original` e a coluna `realizado` vazia.
+
+   São sete e não seis: o `vincendo_12m_pct` é opcional para o validador — ele é
+   opcional porque a aba 5.7 do RMD cobre 2003 a 2022 — mas de 2023 em diante
+   **este arquivo é a única fonte dele**. Esquecer a sétima linha passa no
+   validador e produz um ano sem banda no gráfico de composição por horizonte, em
+   silêncio.
 3. Salve **como CSV**, não como `.xlsx`. O Excel vai avisar que o formato tem
    limitações; pode confirmar.
 4. Rode a verificação:

@@ -5,8 +5,6 @@ o matplotlib nao da de graca: mes em portugues (a locale do sistema devolve "may
 numero no formato brasileiro, e SVG reprodutivel.
 """
 
-import matplotlib
-
 MES = {1: "jan", 2: "fev", 3: "mar", 4: "abr", 5: "mai", 6: "jun",
        7: "jul", 8: "ago", 9: "set", 10: "out", 11: "nov", 12: "dez"}
 
@@ -61,6 +59,13 @@ def aplicar_estilo():
     os identificadores internos e dois desenhos identicos geram arquivos
     diferentes, tornando impossivel saber se o dashboard mudou porque o dado mudou.
     """
+    # O import mora AQUI, e nao no topo: a spec 3.1 vende que a camada de dado nao
+    # conhece matplotlib, e como toda funcao de dado chama estilo.recorta, o import
+    # no topo fazia `import tesouro.graficos.custo` puxar matplotlib. A propriedade
+    # existia no espirito e nao no mecanismo. O resto do modulo ja adiava os imports
+    # de matplotlib.dates e matplotlib.ticker pelo mesmo motivo.
+    import matplotlib
+
     matplotlib.use("Agg")
     matplotlib.rcParams["svg.hashsalt"] = "tesouro"
     matplotlib.rcParams["figure.dpi"] = 110
@@ -103,7 +108,17 @@ def recorta(df, janela):
         return df
     if isinstance(janela, tuple):
         de, ate = janela
-        return df[(df.index >= de) & (df.index <= ate)]
+        recorte = df[(df.index >= de) & (df.index <= ate)]
+        # Recorte vazio falhava la na frente, dentro do matplotlib, com "Axis limits
+        # cannot be NaN or Inf" e outras tres mensagens que nao dizem o que houve.
+        # Uma guarda aqui conserta os quatorze graficos de uma vez.
+        if recorte.empty:
+            raise LookupError(
+                f"o recorte de {de.date()} a {ate.date()} nao pega nenhum mes da "
+                f"serie, que vai de {df.index.min().date()} a "
+                f"{df.index.max().date()}"
+            )
+        return recorte
     return df[df.index >= df.index.max() - pd.DateOffset(years=janela)]
 
 

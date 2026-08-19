@@ -318,7 +318,7 @@ def dados_perfil_completo():
     return piv[piv.sum(axis=1) > 0]
 
 
-def desenha_perfil_completo(dados, ax, excluido=None):
+def desenha_perfil_completo(dados, ax, excluido):
     """Barras empilhadas por ano, do proximo ao ultimo.
 
     O eixo do tempo e categorico e nao continuo: entre 2060 e 2084 ha quatro anos
@@ -338,8 +338,10 @@ def desenha_perfil_completo(dados, ax, excluido=None):
 
     # O asterisco: o que ficou de fora tem de estar escrito na figura, nao so na
     # legenda do HTML. Quem copia o grafico para um slide leva a ressalva junto.
-    if excluido is None:
-        excluido = excluido_do_perfil()
+    #
+    # 'excluido' vem por parametro e nao e lido aqui dentro: um `desenha_*` que le
+    # CSV quebra a separacao da spec 3.1 exatamente onde ela importa, e relia o
+    # mesmo arquivo uma segunda vez a cada render.
     ax.set_title(
         "* n\u00e3o considera as NTN-B1 (RendA+ e EducA+), "
         + estilo.num_br(excluido / 1000, 1)

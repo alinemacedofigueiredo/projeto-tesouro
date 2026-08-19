@@ -75,15 +75,15 @@ def test_a_participacao_diverge_pouco_nos_anos_de_2020_a_2024(
     assert round(piores["Fundos"], 2) == 0.58
     # Os dois que quase nao se movem sao os mesmos dois do painel de variacao em
     # que a base de doze meses tambem quase nao se move.
-    assert piores["Previdência"] < 0.06
-    assert piores["Não-residentes"] < 0.06
+    assert piores["Previd\u00eancia"] < 0.06
+    assert piores["N\u00e3o-residentes"] < 0.06
 
 
 def test_a_variacao_no_ano_e_no_mes_batem_na_casa_decimal(pagina, nossa_variacao):
     # Os dois horizontes curtos batem para os quatro grupos. Isso prova que jun/26,
     # mai/26 e dez/25 sao identicos nas duas fontes.
     var = pagina[pagina["painel"] == "variacao"]
-    for horizonte in ("no ano", "no mês"):
+    for horizonte in ("no ano", "no m\u00eas"):
         for _, linha in var[var["coluna"] == horizonte].iterrows():
             nosso = nossa_variacao.loc[linha["grupo"], horizonte]
             assert abs(nosso - linha["valor"]) < 0.15, \
@@ -106,8 +106,8 @@ def test_so_a_variacao_de_12_meses_diverge_e_so_em_tres_grupos(
     diferencas = {g: nossa_variacao.loc[g, "em 12 meses"] - doze[g]
                   for g in doze.index}
 
-    assert abs(diferencas["Não-residentes"]) < 0.15, "este bate"
+    assert abs(diferencas["N\u00e3o-residentes"]) < 0.15, "este bate"
     assert round(diferencas["Inst. Financeiras"], 1) == 41.8
     assert round(diferencas["Fundos"], 1) == 125.6
-    assert round(diferencas["Previdência"], 1) == -154.1
+    assert round(diferencas["Previd\u00eancia"], 1) == -154.1
     assert round(sum(diferencas.values()), 1) == 13.4

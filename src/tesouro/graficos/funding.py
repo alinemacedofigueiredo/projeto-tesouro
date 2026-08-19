@@ -25,6 +25,22 @@ _CHAVE_COR = {"Prefixados": "Prefixado",
               "Demais": "Demais"}
 
 
+def _confere_ordem(colunas, arquivo):
+    """Levanta se a aba passou a gravar um indexador que _ORDEM nao conhece.
+
+    Sem isto o indexador novo sai do grafico em SILENCIO -- a barra empilhada
+    simplesmente encolhe, e nenhuma ancora percebe, porque elas olham os
+    indexadores que continuam la. E o defeito plausivel-e-errado na forma pura.
+    """
+    novos = sorted(set(colunas) - set(_ORDEM))
+    if novos:
+        raise LookupError(
+            f"indexador desconhecido em {arquivo}: {novos}. Sem lugar em _ORDEM e "
+            f"sem cor na paleta, ele sairia do grafico sem ninguem notar. "
+            f"Acrescente-o a _ORDEM e a estilo.COR, ou confirme que deve sair."
+        )
+
+
 def dados_net(janela=None):
     """Emissao, resgate e net do DPMFi por mes, em R$ milhoes."""
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_canal.csv",
@@ -48,14 +64,21 @@ def dados_emissao_indexador(janela=None):
     piv = e.pivot_table(index="data", columns="indexador",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
     piv = piv.loc[:, piv.sum() > 0]
+    _confere_ordem(piv.columns, "funding_por_indexador.csv")
     return estilo.recorta(piv[[c for c in _ORDEM if c in piv.columns]], janela)
 
 
-def dados_emissao_anual(anos=12):
+def dados_emissao_anual(janela=None, anos=12):
     """Composicao da emissao por indexador, ano a ano, em percentual.
 
     'total_milhoes' carrega o tamanho do ano: sem ele, 100% esconde que 2018 foram
     657 bi e 2025 foram 1.841 bi.
+
+    'janela' segue o contrato dos demais graficos: None e a serie inteira, um numero
+    sao os ultimos N anos, e um par (de, ate) e o recorte da linha de comando. Sem
+    isso o --de/--ate era ignorado AQUI e no grafico irmao dos leiloes, e o dashboard
+    saia com dois paineis num periodo diferente dos outros dezenove -- sem nada na
+    figura dizendo isso.
     """
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
@@ -63,7 +86,12 @@ def dados_emissao_anual(anos=12):
     e["ano"] = e["data"].dt.year
     piv = e.pivot_table(index="ano", columns="indexador",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
-    piv = piv[piv.index >= piv.index.max() - anos + 1]
+    if isinstance(janela, tuple):
+        de, ate = janela
+        piv = piv[(piv.index >= de.year) & (piv.index <= ate.year)]
+    else:
+        anos = janela if isinstance(janela, int) else anos
+        piv = piv[piv.index >= piv.index.max() - anos + 1]
     piv = piv.loc[:, piv.sum() > 0]
     total = piv.sum(axis=1)
     saida = (piv.div(total, axis=0) * 100)[[c for c in _ORDEM if c in piv.columns]]
@@ -73,10 +101,16 @@ def dados_emissao_anual(anos=12):
 
 
 def ultimo_mes_com_emissao():
-    """Data do ultimo mes com emissao, para marcar o ano parcial."""
+    """Data do ultimo mes com emissao do DPMFi, para marcar o ano parcial.
+
+    Filtra esfera e operacao, como o nome promete: hoje as quatro combinacoes
+    terminam no mesmo mes, mas basta uma esfera ficar um mes adiante para o
+    asterisco marcar o ano errado.
+    """
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
-    return f["data"].max()
+    e = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")]
+    return e["data"].max()
 
 def _rotula_ultimo(ax, serie, cor):
     """Escreve o valor do ultimo ponto, ao lado dele."""
@@ -99,7 +133,14 @@ def _rotula_extremos(ax, serie, cor):
     serie = serie.dropna()
     if serie.empty:
         return
-    marcados = {serie.idxmax(), serie.idxmin(), serie.index[-1]}
+    # sorted(), e nao o set direto: o hash de datetime e salgado pelo
+    # PYTHONHASHSEED, entao a ordem de iteracao de um set de Timestamp muda a cada
+    # PROCESSO. Duas execucoes do mesmo comando gravavam o mesmo desenho com os
+    # elementos em ordem diferente dentro do SVG -- MD5 diferente, mesmas linhas.
+    #
+    # E o teste de reprodutibilidade nao pegava: ele compara monta() == monta()
+    # dentro do mesmo processo, onde a semente e a mesma.
+    marcados = sorted({serie.idxmax(), serie.idxmin(), serie.index[-1]})
     for quando in marcados:
         valor = serie.loc[quando]
         acima = valor >= 0
@@ -148,7 +189,11 @@ def desenha_net(dados, fig):
     # Folga no topo para a legenda e para o rotulo do maior mes nao encostarem na
     # moldura, e um pouco embaixo pelo mesmo motivo.
     net = dados["net"] / 1000
-    a1.set_ylim(net.min() * 1.14, net.max() * 1.75)
+    # min()/max() com zero: a folga e multiplicativa, e numa janela sem nenhum mes
+    # negativo net.min() * 1.14 fica ACIMA da menor barra -- ela sumiria do grafico
+    # e as demais deixariam de codificar magnitude por nao partirem do zero. E a
+    # armadilha 7 da spec (eixo truncado), reaparecendo pelo lado da folga.
+    a1.set_ylim(min(0.0, net.min() * 1.14), max(0.0, net.max() * 1.75))
     _rotula_extremos(a1, net, "#333333")
     _rotula_ultimo(a1, dados["mm3"] / 1000, "#1f6feb")
 

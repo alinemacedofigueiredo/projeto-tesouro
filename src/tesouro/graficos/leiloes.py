@@ -22,33 +22,65 @@ JANELAS = {"5 anos": 5, "completa": None}
 ORDEM_PAPEIS = ["LFT", "LTN", "NTN-B", "NTN-F", "NTN-C", "NTN-D"]
 
 
-def ultima_competencia_do_rmd():
-    """Ultimo mes que o RMD cobre. E onde os leiloes tem de ser cortados."""
+def competencias_do_rmd():
+    """Primeira e ultima competencia do RMD, e quantos meses cada ano dele tem.
+
+    As DUAS pontas importam, e por muito tempo so a direita foi cortada. Os leiloes
+    comecam em 2000 e a emissao do RMD so em nov/2006, entao 2006 saia com cobertura
+    de 375% e a nota escrita DENTRO da figura anunciava "54,2% a 375,0%" na janela
+    completa -- a mesma armadilha do corte da direita, do outro lado.
+    """
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
-    return f["data"].max()
+    e = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")]
+    meses = e.groupby(e["data"].dt.year)["data"].nunique()
+    return e["data"].min(), e["data"].max(), meses
 
 
-def dados_emissao_anual_papel(anos=12):
+def ultima_competencia_do_rmd():
+    """Ultimo mes que o RMD cobre."""
+    return competencias_do_rmd()[1]
+
+
+def dados_emissao_anual_papel(janela=None, anos=12):
     """Composicao da emissao por papel, ano a ano, em percentual.
 
     'total_milhoes' e o tamanho do ano; 'cobertura_pct' e quanto os leiloes
-    representam da emissao que o RMD registra no mesmo ano -- o numero que fez a
-    usuaria preferir o grafico por indexador.
+    representam da emissao que o RMD registra no mesmo ano.
+
+    Tres decisoes que so aparecem no numero:
+
+      - o corte e o agrupamento sao pela LIQUIDACAO, nao pela data do leilao. E
+        assim que o RMD conta: um leilao de 30/jun liquida em julho e entra em
+        julho la. Medido: agrupando pelo leilao, 2026 fecha 18,6 bi acima da aba
+        1.1; pela liquidacao, 1,7 abaixo;
+      - o recorte e pelas DUAS pontas da competencia do RMD;
+      - 'cobertura_pct' fica VAZIA em ano que o RMD nao cobre inteiro. Comparar doze
+        meses de leilao com dois de RMD da 375%, e 375% nao significa nada.
+
+    'janela' segue o contrato dos demais: None, um numero de anos, ou o par
+    (de, ate) do --de/--ate.
     """
-    corte = ultima_competencia_do_rmd()
+    primeira, corte, meses_do_rmd = competencias_do_rmd()
 
     l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_leilao"])
-    venda = l[(l["tipo_leilao"] == "Venda") & (l["data_leilao"] <= corte)].copy()
-    venda["ano"] = venda["data_leilao"].dt.year
+                    parse_dates=["data_leilao", "data_liquidacao"])
+    venda = l[(l["tipo_leilao"] == "Venda")
+              & (l["data_liquidacao"] >= primeira)
+              & (l["data_liquidacao"] <= corte)].copy()
+    venda["ano"] = venda["data_liquidacao"].dt.year
     piv = venda.pivot_table(index="ano", columns="titulo",
                             values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
     # O corte de colunas vem DEPOIS do corte de anos, e a ordem importa: a NTN-D
     # nao e emitida desde 2002 e a NTN-C desde 2006. Filtrando antes, as duas
     # sobrevivem como colunas de zero dentro da janela mostrada -- e o desenho
     # quebra procurando cor para um papel que a paleta nao tem.
-    piv = piv[piv.index >= piv.index.max() - anos + 1]
+    if isinstance(janela, tuple):
+        de, ate = janela
+        piv = piv[(piv.index >= de.year) & (piv.index <= ate.year)]
+    else:
+        anos = janela if isinstance(janela, int) else anos
+        piv = piv[piv.index >= piv.index.max() - anos + 1]
     piv = piv.loc[:, piv.sum() > 0]
 
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
@@ -62,6 +94,8 @@ def dados_emissao_anual_papel(anos=12):
                                             if p in piv.columns]].copy()
     saida["total_milhoes"] = total
     saida["cobertura_pct"] = total / do_rmd.reindex(total.index) * 100
+    incompletos = meses_do_rmd.reindex(saida.index).fillna(0) < 12
+    saida.loc[incompletos, "cobertura_pct"] = float("nan")
     return saida
 
 

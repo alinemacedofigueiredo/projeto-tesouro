@@ -175,15 +175,62 @@ def test_os_leiloes_sao_cortados_na_ultima_competencia_do_rmd(anual):
                         parse_dates=["data_leilao"])
     assert bruto["data_leilao"].max() > pd.Timestamp("2026-06-30"), \
         "o teste so vale se o CSV de leiloes for alem do RMD"
-    assert round(anual.loc[2026, "total_milhoes"] / 1000, 1) == 842.6
-    assert anual.loc[2026, "cobertura_pct"] < 100
+    # 822,2 e nao 842,6: o corte e o agrupamento passaram a ser pela LIQUIDACAO,
+    # e os leiloes de junho que liquidam em julho sairam de 2026.
+    assert round(anual.loc[2026, "total_milhoes"] / 1000, 1) == 822.2
+    # E 2026 nao ganha cobertura: seis meses de RMD nao se comparam com doze de
+    # leilao. Ver test_ano_sem_rmd_inteiro_nao_ganha_cobertura.
+    assert pd.isna(anual.loc[2026, "cobertura_pct"])
+
+
+def test_os_leiloes_de_venda_reproduzem_a_oferta_publica_da_aba_11():
+    # O cruzamento que explica a cobertura: os leiloes NAO sao 100% da emissao, mas
+    # sao 100% de um canal dela. De 2011 em diante, "Venda" bate com "Oferta
+    # Publica" da aba 1.1 na casa do bilhao -- duas fontes independentes (o
+    # historico de leiloes e o anexo do RMD) contando a mesma coisa.
+    #
+    # 2016 e nao antes: em 2015 o historico traz 775,0 bi contra 813,7 da aba 1.1,
+    # 38,7 de diferenca. Nao investigado -- o intervalo em que as duas fontes casam
+    # esta afirmado aqui, e o comeco dele e fato sobre o dado, nao escolha.
+    import pandas as pd
+
+    from tesouro import config
+
+    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                    parse_dates=["data_liquidacao"])
+    venda = l[l["tipo_leilao"] == "Venda"].copy()
+    venda["ano"] = venda["data_liquidacao"].dt.year
+    por_leilao = venda.groupby("ano")["financeiro_milhoes"].sum() / 1000
+
+    f = pd.read_csv(config.PROCESSED_DIR / "funding_por_canal.csv",
+                    parse_dates=["data"])
+    e = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")
+          & (f["canal"] == "Oferta P\u00fablica")].copy()
+    e["ano"] = e["data"].dt.year
+    do_rmd = e.groupby("ano")["valor_milhoes"].sum() / 1000
+
+    for ano in range(2016, 2026):
+        assert abs(por_leilao[ano] - do_rmd[ano]) < 2.6, (
+            f"{ano}: leiloes {por_leilao[ano]:.1f} x oferta publica {do_rmd[ano]:.1f}")
+
+
+def test_ano_sem_rmd_inteiro_nao_ganha_cobertura():
+    # 2006 tem doze meses de leilao contra dois de RMD (a serie comeca em nov/2006)
+    # e 2026 tem seis. Dividir um pelo outro da 375%, e a nota da figura chegou a
+    # anunciar "54,2% a 375,0%". Ano incompleto fica sem cobertura, e ponto.
+    d = leiloes.dados_emissao_anual_papel(None, anos=100)
+    assert pd.isna(d.loc[2006, "cobertura_pct"])
+    assert pd.isna(d.loc[2026, "cobertura_pct"])
+    assert d["cobertura_pct"].dropna().max() < 98.0
+    # E a emissao por papel de 2006 continua desenhada -- so a cobertura sai.
+    assert d.loc[2006, "total_milhoes"] > 0
 
 
 def test_a_cobertura_dos_anos_fechados_fica_entre_90_e_98(anual):
     # A razao de este grafico ser candidato: a aba 1.2 cobre 100% da emissao e os
     # leiloes nao. Na janela de 12 anos a cobertura vai de 90,5% (2015) a 97,3%
     # (2020) -- a spec fala em "93% a 97%" porque mediu de 2017 em diante.
-    fechados = anual[anual.index < 2026]["cobertura_pct"]
+    fechados = anual[anual.index < 2026]["cobertura_pct"].dropna()
     assert round(fechados.min(), 1) == 90.5
     assert round(fechados.max(), 1) == 97.3
     assert round(fechados.loc[2024], 1) == 93.0

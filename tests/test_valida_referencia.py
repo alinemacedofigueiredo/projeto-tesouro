@@ -76,7 +76,13 @@ def test_pega_realizado_zerado_no_ano_aberto(bom, tmp_path):
     # Zero nao e "ainda nao fechou": seria "a composicao foi a zero".
     bom.loc[bom["ano"] == 2026, "realizado"] = 0
     erros = _conferir(bom, tmp_path)
+    # A mensagem especifica, e nao um "assert erros" pelado: zerar SO os quatro
+    # percentuais nao produz erro nenhum -- o validador nao tem checagem de
+    # "composicao zerada", e o teste passava por causa do estoque (0 < 100) e do
+    # prazo (0 < 1) caindo na faixa de plausibilidade. Nomear a mensagem deixa
+    # claro o que esta protegido de verdade.
     assert erros
+    assert any("fora da faixa" in e for e in erros), erros
 
 
 def test_pega_realizado_diferente_entre_original_e_revisado(bom, tmp_path):
@@ -154,8 +160,8 @@ def test_a_transcricao_cobre_2016_a_2026_com_as_seis_revisoes(conferencia):
     # O rotulo guarda o mes da revisao, que o paf_bandas.csv nao tem espaco para
     # carregar -- e a unica informacao que so existe aqui.
     assert set(conferencia[conferencia["versao"] == "revisado"]["rotulo"]) == {
-        "out/16 (revisão)", "set/18 (revisão)", "ago/20 (revisão)",
-        "mai/21 (revisão)", "dez/24 (revisão)", "set/25 (revisão)",
+        "out/16 (revis\u00e3o)", "set/18 (revis\u00e3o)", "ago/20 (revis\u00e3o)",
+        "mai/21 (revis\u00e3o)", "dez/24 (revis\u00e3o)", "set/25 (revis\u00e3o)",
     }
 
 
