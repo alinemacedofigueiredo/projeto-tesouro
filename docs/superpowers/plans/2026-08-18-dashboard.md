@@ -660,9 +660,12 @@ def test_o_net_do_ultimo_mes_bate_com_o_medido(net):
     assert round(u["net"] / 1000, 1) == 143.4
 
 
-def test_a_mm12_e_o_acumulado_batem_com_o_medido(net):
+def test_a_mm3_e_o_acumulado_batem_com_o_medido(net):
+    # A media movel e de TRES meses, por decisao da usuaria em 19/08/2026: a de doze
+    # alisava demais e escondia o giro trimestral. A de doze dava 27,7.
     u = net.iloc[-1]
-    assert round(u["mm12"] / 1000, 1) == 27.7
+    assert round(u["mm3"] / 1000, 1) == 115.7
+    assert "mm12" not in net.columns
     assert round(u["acum12"] / 1000, 1) == 332.3
 
 
@@ -707,16 +710,32 @@ def test_cada_ano_da_emissao_anual_soma_100():
     assert (d[cols].sum(axis=1) - 100).abs().max() < 0.01
 
 
-def test_o_desenho_do_net_nao_tem_media_de_tres_meses():
+def test_a_legenda_nomeia_as_duas_cores_da_barra():
+    # A barra e UMA serie so, colorida pelo sinal. Verde e vermelho foram lidos como
+    # emissao e resgate na primeira leitura -- por isso as duas cores tem nome na
+    # legenda, em vez de uma entrada dizendo so "net do mes".
     estilo.aplicar_estilo()
     fig = plt.figure(figsize=(13, 8))
     funding.desenha_net(funding.dados_net(janela=5), fig)
+    # Le a legenda DESENHADA, e nao os artistas registrados no eixo: as duas cores
+    # entram como Patch construido a mao, que nao aparece em
+    # get_legend_handles_labels(). Ler o que foi registrado em vez do que foi
+    # desenhado deixaria o teste passar com a legenda vazia.
     rotulos = []
     for ax in fig.axes:
-        rotulos += ax.get_legend_handles_labels()[1]
+        legenda = ax.get_legend()
+        if legenda is not None:
+            rotulos += [texto.get_text() for texto in legenda.get_texts()]
     plt.close(fig)
-    assert any("MM12" in r for r in rotulos)
-    assert not any("MM3" in r for r in rotulos), "a MM3 saiu por decisao da usuaria"
+
+    positivo = [r for r in rotulos if "positivo" in r]
+    negativo = [r for r in rotulos if "negativo" in r]
+    assert len(positivo) == 1 and len(negativo) == 1
+    assert "emitiu mais" in positivo[0]
+    assert "resgatou mais" in negativo[0]
+    # E a media movel desenhada e a de 3 meses.
+    assert any("3 meses" in r for r in rotulos)
+    assert not any("12" in r and "média" in r for r in rotulos)
 ```
 
 - [x] **Passo 2: rodar e ver falhar**
@@ -773,7 +792,9 @@ def dados_net(janela=None):
          .groupby(["data", "operacao"])["valor_milhoes"].sum()
          .unstack())
     d["net"] = d["emissao"] - d["resgate"]
-    d["mm12"] = d["net"].rolling(12).mean()
+    # Media movel de TRES meses: a de doze alisava demais e escondia o giro
+    # trimestral, que e o horizonte em que a decisao de emissao e tomada.
+    d["mm3"] = d["net"].rolling(3).mean()
     d["acum12"] = d["net"].rolling(12).sum()
     return _recorta(d, janela)
 
@@ -823,20 +844,37 @@ def ultimo_mes_com_emissao():
 # continuacao de src/tesouro/graficos/funding.py
 
 def desenha_net(dados, fig):
-    """Dois paineis: o net do mes com a MM12, e o acumulado de 12 meses.
+    """Dois paineis: o net do mes com a MM3, e o acumulado de 12 meses.
 
-    Sem media movel de 3 meses, por decisao da usuaria. O preenchimento de baixo usa
-    interpolate=True porque sem isso aparecem falhas nos cruzamentos do zero.
+    A BARRA E UMA SERIE SO. Verde e vermelho sao o sinal do MESMO numero -- o net do
+    mes -- e nao emissao contra resgate. A distincao importa porque quem olha le
+    duas cores como duas categorias: foi o que aconteceu na primeira leitura. Por
+    isso as duas cores entram na legenda com nome proprio, em vez de uma entrada so
+    dizendo "net do mes".
+
+    Emissao e resgate lado a lado ao longo de 236 meses foi construido e recusado:
+    ficou ilegivel a ponto de quem desenhou ler o proprio grafico errado.
+
+    O preenchimento de baixo usa interpolate=True porque sem isso aparecem falhas
+    nos cruzamentos do zero.
     """
+    import matplotlib.patches as mpatches
+
     a1, a2 = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [2, 1]})
 
     cores = ["#2ca02c" if v >= 0 else "#d62728" for v in dados["net"]]
-    a1.bar(dados.index, dados["net"] / 1000, width=18, color=cores, alpha=0.45,
-           label="net do mês")
-    a1.plot(dados.index, dados["mm12"] / 1000, color="#1f6feb", lw=2.8, label="MM12")
+    a1.bar(dados.index, dados["net"] / 1000, width=18, color=cores, alpha=0.45)
+    verde = mpatches.Patch(color="#2ca02c", alpha=0.45,
+                           label="net do mês, positivo (emitiu mais do que resgatou)")
+    vermelho = mpatches.Patch(color="#d62728", alpha=0.45,
+                              label="net do mês, negativo (resgatou mais do que emitiu)")
+    a1.plot(dados.index, dados["mm3"] / 1000, color="#1f6feb", lw=2.8,
+            label="média móvel de 3 meses")
     a1.axhline(0, color="gray", lw=0.8)
     a1.set_ylabel("R$ bilhões por mês")
-    a1.legend(ncol=2, frameon=False, loc="upper left")
+    marcas, rotulos = a1.get_legend_handles_labels()
+    a1.legend([verde, vermelho] + marcas, [verde.get_label(), vermelho.get_label()]
+              + rotulos, ncol=1, frameon=False, loc="upper left", fontsize=9)
     a1.grid(axis="y", alpha=0.25)
 
     for cond, cor in [(dados["acum12"] >= 0, "#2ca02c"), (dados["acum12"] < 0, "#d62728")]:
@@ -2106,6 +2144,51 @@ def test_o_desenho_do_mensal_divide_a_virada_do_ano():
     assert len(divisorias) == 5
 
 
+def test_o_cronograma_inclui_cupom_e_o_perfil_nao():
+    # A dona do projeto apontou isto em 19/08/2026, contra o que estava escrito. A
+    # prova esta em tres papeis com regras diferentes de cupom:
+    #
+    #   LFT   -- nao paga cupom: a 3.4 e a 2.2 batem na casa decimal;
+    #   NTN-F -- paga em jan e jul: a 3.4 traz 33,2 bi a mais em jul/26;
+    #   NTN-B -- a 3.4 traz 25,8 bi em nov/26, mes em que NENHUMA NTN-B vence.
+    import pandas as pd
+
+    from tesouro import config
+
+    cr = pd.read_csv(config.PROCESSED_DIR / "cronograma_vencimentos.csv",
+                     parse_dates=["mes_vencimento"])
+    mensal = cr[cr["faixa"] == "mensal"]
+    por_grupo = mensal.pivot_table(index="mes_vencimento", columns="grupo_titulo",
+                                   values="valor_milhoes", aggfunc="sum") / 1000
+
+    bruto = vencimentos._perfil_bruto()
+    ev = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                     parse_dates=["data", "vencimento"])
+    u = ev[(ev["data"] == ev["data"].max()) & (ev["financeiro_milhoes"] > 0)]
+    vence = u.groupby([u["vencimento"].dt.to_period("M"), "titulo"])[
+        "financeiro_milhoes"].sum() / 1000
+
+    def venceu(periodo, titulos):
+        return sum(vence.get((periodo, t), 0.0) for t in titulos)
+
+    nov26 = pd.Period("2026-11", "M")
+    assert round(por_grupo.loc["2026-11-30", "NTN-B"], 1) == 25.8
+    assert venceu(nov26, ["NTN-B", "NTN-B Principal"]) == 0.0
+
+    jul26 = pd.Period("2026-07", "M")
+    assert round(por_grupo.loc["2026-07-31", "LTN / NTN-F"]
+                 - venceu(jul26, ["LTN", "NTN-F"]), 1) == 33.2
+
+    set26 = pd.Period("2026-09", "M")
+    assert round(por_grupo.loc["2026-09-30", "LFT"]
+                 - venceu(set26, ["LFT", "LFT-TD1 Reserva"]), 1) == 0.0
+
+    # E mesmo incluindo cupom a 3.4 soma o estoque, porque cada fluxo esta a preco
+    # de curva: nao ha caixa nominal projetado, e nenhuma premissa de inflacao.
+    assert round(cr["valor_milhoes"].sum() / 1000, 1) == 8920.7
+    assert round(bruto.sum().sum() / 1000, 1) == 8904.1
+
+
 def test_a_banda_do_vincendo_vem_das_duas_fontes():
     # 2022 so existe na aba 5.7; 2026 so existe no arquivo de referencia. As duas
     # tem de aparecer, ou uma das fontes nao esta sendo lida.
@@ -2213,6 +2296,16 @@ os 1.771,9 de 2027 sem saber disso e ler o grafico errado.
 
 ARMADILHA 2: a aba do cronograma e a 3.4; a 3.1 e a de faixas. As duas falam de
 vencimento e ja foram confundidas num rascunho.
+
+ARMADILHA 2b: A 3.4 INCLUI CUPOM, a 2.2 nao. Isso foi afirmado ao contrario ate a
+dona do projeto apontar que ha "vencimentos pequenos em todo cupom de B". Medido:
+em nov/26 a 3.4 traz 25,8 bi de NTN-B e nenhuma NTN-B vence naquele mes; em jul/26 a
+coluna LTN/NTN-F traz 33,2 bi a mais do que vence, que e cupom de NTN-F; e a LFT,
+que nao paga cupom, bate na casa decimal com a 2.2 em todo mes.
+
+Nenhuma das duas exige premissa de inflacao: os valores da 3.4 sao cada fluxo
+avaliado pelo preco da curva na data-base, e nao caixa nominal projetado -- e por
+isso que a soma dos fluxos da exatamente o estoque, 8.920,7.
 
 ARMADILHA 3: a banda de vincendo em 12 meses vem de DUAS fontes. A aba 5.7 do anexo
 de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv cobre 2016 a 2026 pelo
@@ -3315,6 +3408,11 @@ _COR_RESERVA = "#1f3864"
 _COR_PRUDENCIAL = "#a6a6a6"
 _COR_INDICE = "#ed7d31"
 
+# O nome completo da coluna na aba 6.1 e "Valor Prudencial (3 meses)". O "(3 meses)"
+# se perdeu no nome da coluna do nosso CSV, e sem ele o numero fica sem definicao:
+# 783 bi so quer dizer alguma coisa sabendo que sao tres meses de vencimento.
+ROTULO_PRUDENCIAL = "valor prudencial (3 meses)"
+
 
 def dados_reserva(janela=None):
     """Reserva, valor prudencial, folga e indice de liquidez, mes a mes."""
@@ -3340,7 +3438,19 @@ def desenha_treze_meses(dados, ax):
     ax.bar([p - largura / 2 for p in posicoes], dados["reserva"] / 1000,
            width=largura, color=_COR_RESERVA, label="reserva de liquidez")
     ax.bar([p + largura / 2 for p in posicoes], dados["prudencial"] / 1000,
-           width=largura, color=_COR_PRUDENCIAL, label="valor prudencial")
+           width=largura, color=_COR_PRUDENCIAL, label=ROTULO_PRUDENCIAL)
+
+    # Rotulo em cada barra: sao treze meses e duas series, e o formato do RMD e de
+    # apresentacao -- quem olha o slide quer ler o numero, nao estima-lo pela altura.
+    for p, (_, linha) in zip(posicoes, dados.iterrows()):
+        ax.annotate(estilo.num_br(linha["reserva"] / 1000, 0),
+                    xy=(p - largura / 2, linha["reserva"] / 1000),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha="center", fontsize=7.5, color=_COR_RESERVA, weight="bold")
+        ax.annotate(estilo.num_br(linha["prudencial"] / 1000, 0),
+                    xy=(p + largura / 2, linha["prudencial"] / 1000),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha="center", fontsize=7.5, color="#6f6f6f")
 
     ax.set_xticks(list(posicoes))
     ax.set_xticklabels([estilo.rotulo_mes(d) for d in dados.index], fontsize=9)
@@ -3351,6 +3461,10 @@ def desenha_treze_meses(dados, ax):
     direita = ax.twinx()
     direita.plot(list(posicoes), dados["indice"], color=_COR_INDICE, lw=2.4,
                  marker="o", ms=4, label="\u00edndice de liquidez")
+    for p, valor in zip(posicoes, dados["indice"]):
+        direita.annotate(estilo.num_br(valor, 2), xy=(p, valor), xytext=(0, 7),
+                         textcoords="offset points", ha="center", fontsize=7.5,
+                         color=_COR_INDICE, weight="bold")
     direita.set_ylabel("meses de vencimento cobertos")
     # Comeca em zero SEMPRE: comecar no minimo da serie exagera a variacao.
     direita.set_ylim(0, dados["indice"].max() * 1.35)
@@ -3370,7 +3484,7 @@ def desenha_reserva(dados, ax):
     ax.plot(dados.index, dados["reserva"] / 1000, color=_COR_RESERVA, lw=2.4,
             label="reserva de liquidez")
     ax.plot(dados.index, dados["prudencial"] / 1000, color=_COR_PRUDENCIAL,
-            lw=1.6, label="valor prudencial")
+            lw=1.6, label=ROTULO_PRUDENCIAL)
 
     ax.fill_between(dados.index, dados["reserva"] / 1000,
                     dados["prudencial"] / 1000,
@@ -4544,10 +4658,13 @@ REGISTRO = [
             "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
             True, "5 anos", _fig_financeiro_detentor),
     Grafico("vencimentos_cronograma", "Vencimentos",
-            "Cronograma de vencimentos, com o balde da cauda",
+            "Cronograma de vencimentos",
             "aba 3.4",
             "Os 60 meses que a aba detalha (6.913,8 bi) mais o balde 'Ap\u00f3s 5 "
-            "anos' (2.006,9 bi). 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun.",
+            "anos' (2.006,9 bi). 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun. "
+            "<b>Inclui cupom:</b> a aba traz principal E juros, cada fluxo avaliado "
+            "pelo pre\u00e7o da curva na data-base. \u00c9 por isso que h\u00e1 NTN-B em "
+            "nov/26 e fev/27, meses em que nenhuma NTN-B vence.",
             False, None, _fig_cronograma),
     Grafico("vencimentos_faixas", "Vencimentos",
             "Composi\u00e7\u00e3o da DPF por horizonte, com a banda do PAF",
@@ -4590,7 +4707,10 @@ REGISTRO = [
             "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
             "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
             "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
-            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma.",
+            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma. "
+            "<b>Diferente do cronograma, este n\u00e3o inclui cupom:</b> a 2.2 aloca o "
+            "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
+            "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
             False, None, _fig_perfil_completo),
     Grafico("custo_emissao", "Candidatos",
             "Custo de emiss\u00e3o contra o custo do estoque",

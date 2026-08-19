@@ -137,6 +137,51 @@ def test_o_desenho_do_mensal_divide_a_virada_do_ano():
     assert len(divisorias) == 5
 
 
+def test_o_cronograma_inclui_cupom_e_o_perfil_nao():
+    # A dona do projeto apontou isto em 19/08/2026, contra o que estava escrito. A
+    # prova esta em tres papeis com regras diferentes de cupom:
+    #
+    #   LFT   -- nao paga cupom: a 3.4 e a 2.2 batem na casa decimal;
+    #   NTN-F -- paga em jan e jul: a 3.4 traz 33,2 bi a mais em jul/26;
+    #   NTN-B -- a 3.4 traz 25,8 bi em nov/26, mes em que NENHUMA NTN-B vence.
+    import pandas as pd
+
+    from tesouro import config
+
+    cr = pd.read_csv(config.PROCESSED_DIR / "cronograma_vencimentos.csv",
+                     parse_dates=["mes_vencimento"])
+    mensal = cr[cr["faixa"] == "mensal"]
+    por_grupo = mensal.pivot_table(index="mes_vencimento", columns="grupo_titulo",
+                                   values="valor_milhoes", aggfunc="sum") / 1000
+
+    bruto = vencimentos._perfil_bruto()
+    ev = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                     parse_dates=["data", "vencimento"])
+    u = ev[(ev["data"] == ev["data"].max()) & (ev["financeiro_milhoes"] > 0)]
+    vence = u.groupby([u["vencimento"].dt.to_period("M"), "titulo"])[
+        "financeiro_milhoes"].sum() / 1000
+
+    def venceu(periodo, titulos):
+        return sum(vence.get((periodo, t), 0.0) for t in titulos)
+
+    nov26 = pd.Period("2026-11", "M")
+    assert round(por_grupo.loc["2026-11-30", "NTN-B"], 1) == 25.8
+    assert venceu(nov26, ["NTN-B", "NTN-B Principal"]) == 0.0
+
+    jul26 = pd.Period("2026-07", "M")
+    assert round(por_grupo.loc["2026-07-31", "LTN / NTN-F"]
+                 - venceu(jul26, ["LTN", "NTN-F"]), 1) == 33.2
+
+    set26 = pd.Period("2026-09", "M")
+    assert round(por_grupo.loc["2026-09-30", "LFT"]
+                 - venceu(set26, ["LFT", "LFT-TD1 Reserva"]), 1) == 0.0
+
+    # E mesmo incluindo cupom a 3.4 soma o estoque, porque cada fluxo esta a preco
+    # de curva: nao ha caixa nominal projetado, e nenhuma premissa de inflacao.
+    assert round(cr["valor_milhoes"].sum() / 1000, 1) == 8920.7
+    assert round(bruto.sum().sum() / 1000, 1) == 8904.1
+
+
 def test_a_banda_do_vincendo_vem_das_duas_fontes():
     # 2022 so existe na aba 5.7; 2026 so existe no arquivo de referencia. As duas
     # tem de aparecer, ou uma das fontes nao esta sendo lida.

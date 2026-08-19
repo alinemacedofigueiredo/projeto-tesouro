@@ -203,10 +203,13 @@ REGISTRO = [
             "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
             True, "5 anos", _fig_financeiro_detentor),
     Grafico("vencimentos_cronograma", "Vencimentos",
-            "Cronograma de vencimentos, com o balde da cauda",
+            "Cronograma de vencimentos",
             "aba 3.4",
             "Os 60 meses que a aba detalha (6.913,8 bi) mais o balde 'Ap\u00f3s 5 "
-            "anos' (2.006,9 bi). 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun.",
+            "anos' (2.006,9 bi). 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun. "
+            "<b>Inclui cupom:</b> a aba traz principal E juros, cada fluxo avaliado "
+            "pelo pre\u00e7o da curva na data-base. \u00c9 por isso que h\u00e1 NTN-B em "
+            "nov/26 e fev/27, meses em que nenhuma NTN-B vence.",
             False, None, _fig_cronograma),
     Grafico("vencimentos_faixas", "Vencimentos",
             "Composi\u00e7\u00e3o da DPF por horizonte, com a banda do PAF",
@@ -249,7 +252,10 @@ REGISTRO = [
             "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
             "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
             "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
-            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma.",
+            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma. "
+            "<b>Diferente do cronograma, este n\u00e3o inclui cupom:</b> a 2.2 aloca o "
+            "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
+            "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
             False, None, _fig_perfil_completo),
     Grafico("custo_emissao", "Candidatos",
             "Custo de emiss\u00e3o contra o custo do estoque",

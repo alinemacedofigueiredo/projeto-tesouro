@@ -25,6 +25,11 @@ _COR_RESERVA = "#1f3864"
 _COR_PRUDENCIAL = "#a6a6a6"
 _COR_INDICE = "#ed7d31"
 
+# O nome completo da coluna na aba 6.1 e "Valor Prudencial (3 meses)". O "(3 meses)"
+# se perdeu no nome da coluna do nosso CSV, e sem ele o numero fica sem definicao:
+# 783 bi so quer dizer alguma coisa sabendo que sao tres meses de vencimento.
+ROTULO_PRUDENCIAL = "valor prudencial (3 meses)"
+
 
 def dados_reserva(janela=None):
     """Reserva, valor prudencial, folga e indice de liquidez, mes a mes."""
@@ -50,7 +55,19 @@ def desenha_treze_meses(dados, ax):
     ax.bar([p - largura / 2 for p in posicoes], dados["reserva"] / 1000,
            width=largura, color=_COR_RESERVA, label="reserva de liquidez")
     ax.bar([p + largura / 2 for p in posicoes], dados["prudencial"] / 1000,
-           width=largura, color=_COR_PRUDENCIAL, label="valor prudencial")
+           width=largura, color=_COR_PRUDENCIAL, label=ROTULO_PRUDENCIAL)
+
+    # Rotulo em cada barra: sao treze meses e duas series, e o formato do RMD e de
+    # apresentacao -- quem olha o slide quer ler o numero, nao estima-lo pela altura.
+    for p, (_, linha) in zip(posicoes, dados.iterrows()):
+        ax.annotate(estilo.num_br(linha["reserva"] / 1000, 0),
+                    xy=(p - largura / 2, linha["reserva"] / 1000),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha="center", fontsize=7.5, color=_COR_RESERVA, weight="bold")
+        ax.annotate(estilo.num_br(linha["prudencial"] / 1000, 0),
+                    xy=(p + largura / 2, linha["prudencial"] / 1000),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha="center", fontsize=7.5, color="#6f6f6f")
 
     ax.set_xticks(list(posicoes))
     ax.set_xticklabels([estilo.rotulo_mes(d) for d in dados.index], fontsize=9)
@@ -61,6 +78,10 @@ def desenha_treze_meses(dados, ax):
     direita = ax.twinx()
     direita.plot(list(posicoes), dados["indice"], color=_COR_INDICE, lw=2.4,
                  marker="o", ms=4, label="\u00edndice de liquidez")
+    for p, valor in zip(posicoes, dados["indice"]):
+        direita.annotate(estilo.num_br(valor, 2), xy=(p, valor), xytext=(0, 7),
+                         textcoords="offset points", ha="center", fontsize=7.5,
+                         color=_COR_INDICE, weight="bold")
     direita.set_ylabel("meses de vencimento cobertos")
     # Comeca em zero SEMPRE: comecar no minimo da serie exagera a variacao.
     direita.set_ylim(0, dados["indice"].max() * 1.35)
@@ -80,7 +101,7 @@ def desenha_reserva(dados, ax):
     ax.plot(dados.index, dados["reserva"] / 1000, color=_COR_RESERVA, lw=2.4,
             label="reserva de liquidez")
     ax.plot(dados.index, dados["prudencial"] / 1000, color=_COR_PRUDENCIAL,
-            lw=1.6, label="valor prudencial")
+            lw=1.6, label=ROTULO_PRUDENCIAL)
 
     ax.fill_between(dados.index, dados["reserva"] / 1000,
                     dados["prudencial"] / 1000,

@@ -12,6 +12,16 @@ os 1.771,9 de 2027 sem saber disso e ler o grafico errado.
 ARMADILHA 2: a aba do cronograma e a 3.4; a 3.1 e a de faixas. As duas falam de
 vencimento e ja foram confundidas num rascunho.
 
+ARMADILHA 2b: A 3.4 INCLUI CUPOM, a 2.2 nao. Isso foi afirmado ao contrario ate a
+dona do projeto apontar que ha "vencimentos pequenos em todo cupom de B". Medido:
+em nov/26 a 3.4 traz 25,8 bi de NTN-B e nenhuma NTN-B vence naquele mes; em jul/26 a
+coluna LTN/NTN-F traz 33,2 bi a mais do que vence, que e cupom de NTN-F; e a LFT,
+que nao paga cupom, bate na casa decimal com a 2.2 em todo mes.
+
+Nenhuma das duas exige premissa de inflacao: os valores da 3.4 sao cada fluxo
+avaliado pelo preco da curva na data-base, e nao caixa nominal projetado -- e por
+isso que a soma dos fluxos da exatamente o estoque, 8.920,7.
+
 ARMADILHA 3: a banda de vincendo em 12 meses vem de DUAS fontes. A aba 5.7 do anexo
 de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv cobre 2016 a 2026 pelo
 indicador vincendo_12m_pct. As duas se sobrepoem em sete anos e dao a mesma banda

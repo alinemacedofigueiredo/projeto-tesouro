@@ -33,7 +33,9 @@ def dados_net(janela=None):
          .groupby(["data", "operacao"])["valor_milhoes"].sum()
          .unstack())
     d["net"] = d["emissao"] - d["resgate"]
-    d["mm12"] = d["net"].rolling(12).mean()
+    # Media movel de TRES meses: a de doze alisava demais e escondia o giro
+    # trimestral, que e o horizonte em que a decisao de emissao e tomada.
+    d["mm3"] = d["net"].rolling(3).mean()
     d["acum12"] = d["net"].rolling(12).sum()
     return estilo.recorta(d, janela)
 
@@ -77,20 +79,37 @@ def ultimo_mes_com_emissao():
     return f["data"].max()
 
 def desenha_net(dados, fig):
-    """Dois paineis: o net do mes com a MM12, e o acumulado de 12 meses.
+    """Dois paineis: o net do mes com a MM3, e o acumulado de 12 meses.
 
-    Sem media movel de 3 meses, por decisao da usuaria. O preenchimento de baixo usa
-    interpolate=True porque sem isso aparecem falhas nos cruzamentos do zero.
+    A BARRA E UMA SERIE SO. Verde e vermelho sao o sinal do MESMO numero -- o net do
+    mes -- e nao emissao contra resgate. A distincao importa porque quem olha le
+    duas cores como duas categorias: foi o que aconteceu na primeira leitura. Por
+    isso as duas cores entram na legenda com nome proprio, em vez de uma entrada so
+    dizendo "net do mes".
+
+    Emissao e resgate lado a lado ao longo de 236 meses foi construido e recusado:
+    ficou ilegivel a ponto de quem desenhou ler o proprio grafico errado.
+
+    O preenchimento de baixo usa interpolate=True porque sem isso aparecem falhas
+    nos cruzamentos do zero.
     """
+    import matplotlib.patches as mpatches
+
     a1, a2 = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [2, 1]})
 
     cores = ["#2ca02c" if v >= 0 else "#d62728" for v in dados["net"]]
-    a1.bar(dados.index, dados["net"] / 1000, width=18, color=cores, alpha=0.45,
-           label="net do m\u00eas")
-    a1.plot(dados.index, dados["mm12"] / 1000, color="#1f6feb", lw=2.8, label="MM12")
+    a1.bar(dados.index, dados["net"] / 1000, width=18, color=cores, alpha=0.45)
+    verde = mpatches.Patch(color="#2ca02c", alpha=0.45,
+                           label="net do m\u00eas, positivo (emitiu mais do que resgatou)")
+    vermelho = mpatches.Patch(color="#d62728", alpha=0.45,
+                              label="net do m\u00eas, negativo (resgatou mais do que emitiu)")
+    a1.plot(dados.index, dados["mm3"] / 1000, color="#1f6feb", lw=2.8,
+            label="m\u00e9dia m\u00f3vel de 3 meses")
     a1.axhline(0, color="gray", lw=0.8)
     a1.set_ylabel("R$ bilh\u00f5es por m\u00eas")
-    a1.legend(ncol=2, frameon=False, loc="upper left")
+    marcas, rotulos = a1.get_legend_handles_labels()
+    a1.legend([verde, vermelho] + marcas, [verde.get_label(), vermelho.get_label()]
+              + rotulos, ncol=1, frameon=False, loc="upper left", fontsize=9)
     a1.grid(axis="y", alpha=0.25)
 
     for cond, cor in [(dados["acum12"] >= 0, "#2ca02c"), (dados["acum12"] < 0, "#d62728")]:
