@@ -82,17 +82,53 @@ def test_cronograma_usa_data_de_referencia_e_nao_data(xl):
     # E retrato, nao serie: carrega a data de fechamento do RMD.
     df = vencimentos.parse_cronograma(xl)
     assert list(df.columns) == [
-        "data_referencia", "mes_vencimento", "grupo_titulo", "valor_milhoes"
+        "data_referencia", "mes_vencimento", "grupo_titulo", "valor_milhoes",
+        "faixa",
     ]
     assert df["data_referencia"].nunique() == 1
     assert df["data_referencia"].iloc[0] == datetime.date(2026, 6, 30)
 
 
 def test_cronograma_olha_para_frente(xl):
+    # So as linhas mensais tem mes: o balde "Apos 5 anos" agrega tudo o que vence
+    # depois dos 60 meses detalhados, e por isso nasce sem mes_vencimento.
     df = vencimentos.parse_cronograma(xl)
-    assert (df["mes_vencimento"] > df["data_referencia"]).all()
+    mensal = df[df["faixa"] == "mensal"]
+    assert (mensal["mes_vencimento"] > mensal["data_referencia"]).all()
 
 
 def test_cronograma_nao_grava_o_percentual_derivado(xl):
     df = vencimentos.parse_cronograma(xl)
     assert "PART %" not in set(df["grupo_titulo"].unique())
+
+
+def test_cronograma_traz_o_balde_de_apos_5_anos():
+    # A aba 3.4 detalha 60 meses e joga o resto num balde unico. Sem ele, o CSV
+    # soma 78% do estoque e quem usa nao percebe.
+    import pandas as pd
+    from tesouro import config
+
+    d = pd.read_csv(config.PROCESSED_DIR / "cronograma_vencimentos.csv")
+
+    detalhado = d[d["faixa"] == "mensal"]
+    balde = d[d["faixa"] == "apos_5_anos"]
+
+    assert len(balde) > 0, "o balde 'Apos 5 anos' nao foi capturado"
+    assert balde["mes_vencimento"].isna().all(),         "o balde nao tem mes; ele agrega tudo depois de 5 anos"
+
+    assert round(detalhado["valor_milhoes"].sum() / 1000, 1) == 6913.8
+    assert round(balde["valor_milhoes"].sum() / 1000, 1) == 2006.9
+    assert round(d["valor_milhoes"].sum() / 1000, 1) == 8920.7
+
+
+def test_o_total_do_cronograma_bate_com_o_estoque_do_dpmfi():
+    # Cruzamento contra fonte independente: a aba 3.4 e a 2.7 sao interpretadas
+    # por parsers diferentes e tem de dar o mesmo estoque.
+    import pandas as pd
+    from tesouro import config
+
+    cr = pd.read_csv(config.PROCESSED_DIR / "cronograma_vencimentos.csv")
+    det = pd.read_csv(config.PROCESSED_DIR / "detentores.csv", parse_dates=["data"])
+    ultimo = det[det["data"] == det["data"].max()]["valor_milhoes"].sum()
+
+    assert abs(cr["valor_milhoes"].sum() - ultimo) / ultimo < 0.0001

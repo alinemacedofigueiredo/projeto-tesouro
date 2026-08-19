@@ -108,8 +108,40 @@ def _linha_do_cabecalho(bruto):
     raise LookupError("aba 3.4: cabecalho com 'Data de Vencimento' nao encontrado")
 
 
+def _sem_acento(texto):
+    """Compara rotulo do RMD sem depender de acentuacao."""
+    import unicodedata
+    normal = unicodedata.normalize("NFKD", str(texto))
+    return "".join(c for c in normal if not unicodedata.combining(c)).strip().lower()
+
+
+def _linha_do_balde(bruto):
+    """Acha a linha 'Apos 5 anos', pelo rotulo e nunca pela posicao.
+
+    A aba muda de tamanho conforme o mes -- os 60 meses detalhados andam, e as
+    linhas de resumo andam junto. Procurar pela posicao funcionaria neste anexo e
+    leria a linha errada no proximo.
+    """
+    for indice in range(len(bruto)):
+        if _sem_acento(bruto.iloc[indice, 0]).startswith("apos 5 anos"):
+            return indice
+    raise LookupError(
+        "aba 3.4: linha 'Apos 5 anos' nao encontrada. Ela existe desde que "
+        "acompanhamos a aba, e sem ela o CSV soma so os 60 meses detalhados, "
+        "cerca de 78% do estoque. Confira se o layout da aba mudou."
+    )
+
+
 def parse_cronograma(xl):
-    """Aba 3.4 -- cronograma de vencimentos da DPMFi (retrato)."""
+    """Aba 3.4 -- cronograma de vencimentos da DPMFi (retrato).
+
+    A aba detalha 60 meses e joga tudo o que vence depois num balde unico, "Apos 5
+    anos". As duas coisas entram no CSV, separadas pela coluna 'faixa': sem o balde
+    o arquivo soma 78% do estoque, e quem somar nao percebe.
+
+    A linha do balde nasce sem mes_vencimento -- ela nao tem mes, e dar um a ela
+    seria inventar dado.
+    """
     bruto = aba(xl, "3.4")
     referencia = _data_de_fechamento(bruto)
     linha_cabecalho = _linha_do_cabecalho(bruto)
@@ -131,12 +163,18 @@ def parse_cronograma(xl):
             continue
         for coluna, grupo in grupos.items():
             valor = para_milhoes(limpar_nulo(bruto.iloc[indice, coluna]), "milhoes")
-            registros.append((referencia, mes, grupo, valor))
+            registros.append((referencia, mes, grupo, valor, "mensal"))
+
+    linha_balde = _linha_do_balde(bruto)
+    for coluna, grupo in grupos.items():
+        valor = para_milhoes(limpar_nulo(bruto.iloc[linha_balde, coluna]), "milhoes")
+        registros.append((referencia, None, grupo, valor, "apos_5_anos"))
 
     return pd.DataFrame(
         registros,
-        columns=["data_referencia", "mes_vencimento", "grupo_titulo", "valor_milhoes"],
-    ).sort_values(["mes_vencimento", "grupo_titulo"]).reset_index(drop=True)
+        columns=["data_referencia", "mes_vencimento", "grupo_titulo",
+                 "valor_milhoes", "faixa"],
+    ).sort_values(["faixa", "mes_vencimento", "grupo_titulo"]).reset_index(drop=True)
 
 
 def gravar(xl):
