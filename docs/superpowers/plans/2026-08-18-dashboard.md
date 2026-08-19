@@ -85,17 +85,24 @@ Copiadas da spec. Valem para toda tarefa deste plano.
 **Interfaces:**
 - Consumes: nada.
 - Produces: `MES`, `MES_LONGO`, `COR`, `num_br(v, casas=1)`, `rotulo_mes(d)`,
-  `aplicar_estilo()`, `eixo_anual(ax, a_cada=1)`, `grade_fina(ax, maior, menor)`.
+  `aplicar_estilo()`, `salvar_svg(fig, destino)`, `eixo_anual(ax, a_cada=1)`,
+  `grade_fina(ax, maior, menor)`.
 
 **Por que esta tarefa existe.** Três coisas que, se não forem resolvidas agora,
 aparecem espalhadas por dezesseis gráficos: o mês em português (o matplotlib usa a
 locale do sistema e sai "may" em vez de "mai"), o número no formato brasileiro, e a
 reprodutibilidade do SVG.
 
-**A armadilha da reprodutibilidade:** o matplotlib gera identificadores aleatórios
-dentro do SVG. Sem fixar `svg.hashsalt`, duas execuções com o mesmo dado produzem
-arquivos diferentes, e ninguém consegue saber se o dashboard mudou porque o dado
-mudou. É uma linha, e sem ela o teste de reprodutibilidade da Task 11 é impossível.
+**A armadilha da reprodutibilidade tem duas metades, e a segunda só apareceu ao
+executar.** A primeira é conhecida: o matplotlib gera identificadores aleatórios
+dentro do SVG, e `svg.hashsalt` os fixa. A segunda é invisível — mesmo com o salt
+fixo, ele escreve a **data de criação** em `<dc:date>` com precisão de
+microssegundo, e dois desenhos do mesmo dado diferem naquela linha, no meio do
+cabeçalho RDF. Sai passando `metadata={"Date": None}` no `savefig`.
+
+Por isso o `savefig` não fica solto: existe `estilo.salvar_svg`, que é o único lugar
+do projeto que chama `savefig` para SVG. Reprodutibilidade vira propriedade de uma
+função, e não convenção que dez chamadas precisam lembrar.
 
 - [ ] **Passo 1: escrever o teste que falha**
 
@@ -135,11 +142,34 @@ def test_o_svg_e_reprodutivel():
         buf = io.StringIO()
         fig, ax = plt.subplots()
         ax.plot([1, 2, 3], [4, 5, 6])
-        fig.savefig(buf, format="svg")
+        estilo.salvar_svg(fig, buf)
         plt.close(fig)
         return buf.getvalue()
 
     assert desenha() == desenha()
+
+
+def test_o_savefig_cru_nao_e_reprodutivel_e_por_isso_o_helper_existe():
+    # O hashsalt sozinho nao basta: o matplotlib escreve a data de criacao em
+    # <dc:date> com precisao de microssegundo. Este teste guarda o motivo de
+    # salvar_svg existir -- se um dia o matplotlib parar de escrever a data, ele
+    # falha e alguem descobre que o helper virou desnecessario.
+    estilo.aplicar_estilo()
+
+    def desenha(com_helper):
+        buf = io.StringIO()
+        fig, ax = plt.subplots()
+        ax.plot([1, 2, 3], [4, 5, 6])
+        if com_helper:
+            estilo.salvar_svg(fig, buf)
+        else:
+            fig.savefig(buf, format="svg", bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+
+    cru = desenha(False)
+    assert "<dc:date>" in cru
+    assert "<dc:date>" not in desenha(True)
 
 
 def test_o_modulo_e_ascii_puro():
@@ -241,6 +271,25 @@ def aplicar_estilo():
     matplotlib.rcParams["font.size"] = 10
 
 
+def salvar_svg(figura, destino, bbox_inches="tight"):
+    """Grava a figura em SVG de forma REPRODUTIVEL.
+
+    Duas coisas fazem o SVG do matplotlib mudar entre execucoes com o mesmo dado.
+    A primeira sao os identificadores internos, que o svg.hashsalt de
+    aplicar_estilo() fixa. A segunda e a data de criacao, que ele escreve em
+    <dc:date> com precisao de microssegundo -- e essa so sai passando
+    metadata={"Date": None} no savefig.
+
+    O helper existe porque a segunda parte e invisivel: com o hashsalt fixo e sem
+    isto, dois desenhos do mesmo dado diferem em UMA linha, no meio do cabecalho
+    RDF, e quem comparar dois dashboards vai achar que o dado mudou. Aqui
+    reprodutibilidade e propriedade de uma funcao, nao convencao que todo mundo
+    precisa lembrar em cada savefig.
+    """
+    figura.savefig(destino, format="svg", bbox_inches=bbox_inches,
+                   metadata={"Date": None})
+
+
 def num_br(valor, casas=1):
     """Numero no formato brasileiro: ponto de milhar, virgula decimal."""
     texto = f"{valor:,.{casas}f}"
@@ -275,23 +324,36 @@ def grade_fina(ax, maior, menor, eixo="y"):
     ax.grid(axis=eixo, which="minor", alpha=0.12)
 ```
 
-- [ ] **Passo 5: rodar e ver passar**
+- [ ] **Passo 5: rodar, ver falhar de novo, e entender por que**
+
+O teste de ASCII e o de reprodutibilidade ainda falham, e cada um por um motivo:
+
+- **`test_o_modulo_e_ascii_puro`:** os meses por extenso tem acento. Troque por
+  escape Unicode. Cuidado: escrever `\u00e7` a mao num editor que
+  interpreta escapes grava o byte acentuado de volta. Confira com
+  `python -c "open('src/tesouro/graficos/estilo.py','rb').read().decode('ascii')"`.
+- **`test_o_svg_e_reprodutivel`:** e a segunda metade da armadilha. Rode o diff
+  entre dois desenhos e confirme que a unica linha diferente e o `<dc:date>` --
+  e so entao escreva o `salvar_svg`. Ver com o proprio olho qual linha muda vale
+  mais do que aceitar a explicacao pronta.
+
+- [ ] **Passo 6: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_estilo.py -v
 ```
 
-Esperado: 5 passed.
+Esperado: 6 passed.
 
-- [ ] **Passo 6: rodar a suíte inteira**
+- [ ] **Passo 7: rodar a suíte inteira**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 311 passed, 1 skipped.
+Esperado: 312 passed, 1 skipped.
 
-- [ ] **Passo 7: commit**
+- [ ] **Passo 8: commit**
 
 ```bash
 git add src/tesouro/graficos/ tests/test_estilo.py
@@ -472,7 +534,7 @@ CSV incompleto em silêncio. Desfaça a alteração.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 313 passed, 1 skipped.
+Esperado: 314 passed, 1 skipped.
 
 - [ ] **Passo 8: commit**
 
@@ -810,7 +872,7 @@ resultado em vez da intenção, e todos passavam com a implementação quebrada.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 322 passed, 1 skipped.
+Esperado: 323 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/funding.py tests/test_graficos_funding.py
@@ -1293,7 +1355,7 @@ que ele cobre mais do que cobre.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 333 passed, 1 skipped.
+Esperado: 334 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_estoque.py tests/test_estilo.py tests/test_graficos_funding.py
@@ -1780,7 +1842,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 344 passed, 1 skipped.
+Esperado: 345 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_detentores.py
@@ -2256,7 +2318,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 355 passed, 1 skipped.
+Esperado: 356 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/vencimentos.py tests/test_graficos_vencimentos.py
@@ -2531,7 +2593,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 363 passed, 1 skipped.
+Esperado: 364 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/prazo.py tests/test_graficos_prazo.py
@@ -2848,7 +2910,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 371 passed, 1 skipped.
+Esperado: 372 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/custo.py tests/test_graficos_custo.py
@@ -3176,7 +3238,7 @@ repositório: o dashboard é quem grava figura, e num lugar só.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 379 passed, 1 skipped.
+Esperado: 380 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/reserva.py tests/test_graficos_reserva.py
@@ -3651,7 +3713,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 390 passed, 1 skipped.
+Esperado: 391 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_candidatos.py
@@ -4212,9 +4274,13 @@ def svg_de(figura):
     O matplotlib escreve '<?xml ...?>' e '<!DOCTYPE svg ...>' antes do '<svg'.
     Embutir isso no meio de um HTML e invalido, entao tudo antes do primeiro
     '<svg' sai fora.
+
+    A gravacao passa por estilo.salvar_svg, que e o unico lugar do projeto que
+    chama savefig para SVG: e la que a data de criacao e suprimida, sem o que o
+    teste de reprodutibilidade do dashboard nao passa.
     """
     buffer = io.StringIO()
-    figura.savefig(buffer, format="svg", bbox_inches="tight")
+    estilo.salvar_svg(figura, buffer)
     plt.close(figura)
     bruto = buffer.getvalue()
     return bruto[bruto.index("<svg"):]
@@ -4344,7 +4410,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 403 passed, 1 skipped.
+Esperado: 404 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_dashboard.py
@@ -4699,7 +4765,7 @@ Abra o arquivo e confirme, com o olho, que a composição de jun/2026 mostra
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 411 passed, 1 skipped.
+Esperado: 412 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/ tests/ README.md docs/dicionario-de-dados.md
@@ -4712,7 +4778,7 @@ git commit -m "Adiciona a linha de comando do dashboard e o pendura no pipeline"
 
 Depois da Task 12, antes de considerar a entrega pronta:
 
-- [ ] **Rodar a suíte inteira uma última vez** e confirmar **411 passed, 1
+- [ ] **Rodar a suíte inteira uma última vez** e confirmar **412 passed, 1
   skipped**. O pulado é o teste do PU contra o `PX_DIRTY_MID`, que aguarda
   autorização para puxar `bbg_precos_*.csv` — ele estava pulado antes desta entrega
   e continua.
