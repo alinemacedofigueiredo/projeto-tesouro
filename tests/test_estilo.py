@@ -75,7 +75,6 @@ def test_as_cores_cobrem_os_indexadores_e_os_papeis():
     for chave in ("LTN", "NTN-F", "NTN-B", "LFT"):
         assert chave in estilo.COR
 
-
 def test_todo_o_pacote_de_graficos_e_ascii():
     # A restricao vale para o pacote inteiro, nao so para o estilo. Conferir
     # arquivo por arquivo a mao nao escala para dez modulos, e o byte acentuado

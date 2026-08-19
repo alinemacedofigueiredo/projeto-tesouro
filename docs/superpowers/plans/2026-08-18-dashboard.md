@@ -35,6 +35,16 @@ Copiadas da spec. Valem para toda tarefa deste plano.
   diretório de trabalho.
 - **Guardas de pandas:** `pd.isna(...)` e nunca `is None` numa coluna numérica;
   `r["isin"]` e nunca `r.isin`, que resolve para o método `Series.isin`.
+- **Ao gravar `.py` por script, use `newline="
+"` explícito** e construa o escape
+  Unicode em tempo de execução (`chr(92) + "u%04x" % ord(c)`). Sem o primeiro, o
+  Windows traduz `
+` para `
+` e a leitura seguinte dobra todas as linhas em
+  branco; sem o segundo, a camada que grava interpreta o `ç` de volta para o
+  byte acentuado. **As duas coisas aconteceram** ao executar as tarefas 1 a 5. O
+  caminho seguro é gerar os arquivos a partir dos blocos deste plano, que é o que
+  `scratchpad/gera_do_plano.py` faz.
 - **Instrução de linha de comando vem em PowerShell primeiro e bash depois**,
   seguindo `docs/como-baixar.md:6-12`. Sintaxe bash sozinha falha na primeira linha
   no shell da usuária, e isso já quebrou quatro vezes neste projeto.
@@ -1354,7 +1364,7 @@ def desenha_composicao(dados, bandas, ax):
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/test_estilo.py -v
 ```
 
-Esperado: 9 passed no arquivo do estoque e 7 no do estilo.
+Esperado: 9 passed no arquivo do estoque e 8 no do estilo.
 
 - [ ] **Passo 7: confirmar que cada asserção tem dentes**
 
