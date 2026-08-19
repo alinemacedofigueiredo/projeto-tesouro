@@ -14,12 +14,12 @@ def html():
     return dashboard.monta()
 
 
-def test_o_registro_tem_os_vinte_graficos():
-    # Eram dezesseis; as quatro quebras por papel entraram em 19/08/2026, recolhidas
-    # atras de uma setinha.
-    assert len(dashboard.REGISTRO) == 20
+def test_o_registro_tem_os_vinte_e_um_graficos():
+    # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
+    # atras de uma setinha, e a composicao empilhada em 100%.
+    assert len(dashboard.REGISTRO) == 21
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 20, "id repetido no registro"
+    assert len(set(ids)) == 21, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -55,12 +55,12 @@ def test_a_contagem_de_svgs_sai_do_registro():
     # teste passar depois de alguem esquecer de gravar uma versao.
     com_janela = [g for g in dashboard.REGISTRO if g.janela]
     com_variante = [g for g in dashboard.REGISTRO if g.variantes]
-    assert len(com_janela) == 13
+    assert len(com_janela) == 14
     assert len(com_variante) == 1
 
     total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
                 for g in dashboard.REGISTRO)
-    assert total == 35
+    assert total == 37
 
 
 def test_as_quatro_quebras_por_papel_ficam_recolhidas():
@@ -143,12 +143,14 @@ def test_o_eixo_do_custo_muda_quando_a_dpfe_entra():
     assert limites[True][1] > 62.6
 
 
-def test_a_composicao_do_estoque_abre_na_serie_completa():
+def test_os_dois_graficos_de_composicao_abrem_na_serie_completa():
+    # Os dois contam a queda do cambio, e ela nao existe numa janela de cinco anos.
     porid = {g.id: g for g in dashboard.REGISTRO}
     assert porid["estoque_composicao"].padrao == "completa"
+    assert porid["estoque_composicao_100"].padrao == "completa"
     # E os demais que aceitam janela abrem em 5 anos.
-    outros = [g for g in dashboard.REGISTRO
-              if g.janela and g.id != "estoque_composicao"]
+    na_completa = {"estoque_composicao", "estoque_composicao_100"}
+    outros = [g for g in dashboard.REGISTRO if g.janela and g.id not in na_completa]
     assert all(g.padrao == "5 anos" for g in outros)
 
 

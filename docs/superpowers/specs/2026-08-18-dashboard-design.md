@@ -161,6 +161,7 @@ figura, **não dentro do desenho** — assim o texto é selecionável e o SVG fi
 | | emissão por indexador, mensal em reais | 1.2 | sim |
 | | emissão anual em 100% por indexador | 1.2 | sim |
 | Estoque | composição por indexador com banda do PAF | 2.1 + PAF | sim |
+| | a mesma composição empilhada em 100% | 2.1 | sim |
 | Detentores | participação relativa e variação, no formato da página 7 | 2.7 | não |
 | | quem carrega cada papel | 2.8 | não |
 | | financeiro por detentor, oito painéis | 2.8 | sim |
@@ -196,8 +197,14 @@ Cada uma destas saiu de uma rodada de crítica sobre um rascunho:
   contra 93% a 97% dos leilões. O total emitido vai como rótulo acima da barra, e o
   ano parcial é marcado com asterisco.
 - **Composição do estoque:** história completa por padrão, não 5 anos. A queda do
-  câmbio de 40% para 3,7% é o fato central da gestão da dívida brasileira e
-  desaparece numa janela curta.
+  câmbio — do pico de **51,0% em set/2002** para 3,7% — é o fato central da gestão da
+  dívida brasileira e desaparece numa janela curta.
+- **São dois gráficos, e não um.** O de **linha** responde *onde estamos contra a meta
+  do PAF*, e por isso carrega a banda. O de **área empilhada em 100%** responde *de
+  que a dívida é feita*, e é nele que a queda do câmbio se lê como o que foi: uma
+  faixa que ocupava metade do gráfico em 2002 e hoje é um fio. O empilhado fica logo
+  abaixo do de linha. A faixa "Demais" entra no empilhado e não no de linha — numa
+  área de 100% ela tem de entrar, ou a soma não fecha.
 - **Quem carrega cada papel:** rótulo de percentual só nas fatias de 10% ou mais.
 - **Financeiro por detentor:** escala própria em cada painel, porque os detentores
   diferem em ordem de grandeza; Tesouro Direto por último, por ordem de importância.

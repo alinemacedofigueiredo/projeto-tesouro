@@ -1201,6 +1201,47 @@ def test_o_cambio_cai_do_pico_de_51_para_37(comp):
     assert round(cam.iloc[-1], 2) == 3.74
 
 
+def test_a_area_de_100_por_cento_empilha_as_cinco_faixas():
+    # O par do grafico de linha: um responde onde estamos contra a meta, o outro de
+    # que a divida e feita. A faixa "Demais" entra AQUI e nao la -- numa area de
+    # 100% ela tem de entrar, ou a soma nao fecha.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    estoque.desenha_composicao_100(dados, ax)
+    faixas = list(ax.collections)
+    rotulos = [texto.get_text() for texto in ax.texts]
+    limites = ax.get_ylim()
+    plt.close(fig)
+
+    assert len(faixas) == 5, "uma faixa por indexador, com Demais"
+    assert limites == (0, 100)
+    # Os valores do ultimo mes escritos na ponta de cada faixa que cabe.
+    for esperado in ("21,0", "25,9", "49,3"):
+        assert esperado in rotulos
+    # E o pico do cambio dito com todas as letras.
+    assert any("51,0" in r for r in rotulos)
+
+
+def test_a_seta_do_pico_aponta_para_dentro_da_faixa_do_cambio():
+    # A faixa do cambio e a QUARTA da pilha: em set/2002 ela mora entre 74 e 100,
+    # nao entre 0 e 51. Apontar para a altura do valor poria a seta dentro da faixa
+    # do prefixado, e a seta continuaria "parecendo certa".
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    estoque.desenha_composicao_100(dados, ax)
+    seta = [a for a in ax.texts if "pico" in a.get_text()][0]
+    _, altura = seta.xy
+    plt.close(fig)
+
+    pico = pd.Timestamp("2002-09-30")
+    abaixo = (dados.loc[pico, "Prefixado"] + dados.loc[pico, "Índice Preços"]
+              + dados.loc[pico, "Taxa Flutuante"])
+    assert abaixo < altura < abaixo + dados.loc[pico, "Câmbio"]
+    assert altura > 70, "a faixa do cambio no pico mora acima de 70%"
+
+
 def test_o_desenho_traz_a_banda_de_cada_ano_visivel():
     estilo.aplicar_estilo()
     fig, ax = plt.subplots(figsize=(13, 6))
@@ -1431,6 +1472,58 @@ def dados_composicao(janela=None):
     share = share[[k for k in _ORDEM if k in share.columns]].copy()
     share["estoque_milhoes"] = total
     return estilo.recorta(share, janela)
+
+
+def desenha_composicao_100(dados, ax):
+    """A mesma composicao, empilhada em 100%.
+
+    O grafico de linha responde "onde estamos contra a meta do PAF"; este responde
+    "de que a divida e feita". Sao perguntas diferentes e por isso os dois existem
+    -- e e neste que a queda do cambio se le como o que ela foi: uma faixa que
+    ocupava metade do grafico em 2002 e hoje e um fio.
+
+    A faixa "Demais" entra aqui, ao contrario do grafico de linha: numa area
+    empilhada de 100% ela tem de entrar, ou a soma nao fecha.
+    """
+    colunas = [c for c in dados.columns if c != "estoque_milhoes"]
+    ax.stackplot(dados.index, *[dados[c] for c in colunas],
+                 labels=colunas,
+                 colors=[estilo.COR[_CHAVE_COR[c]] for c in colunas],
+                 edgecolor="white", linewidth=0.3)
+
+    # O valor de cada faixa no ultimo mes, escrito na altura do meio da faixa.
+    base = 0.0
+    for coluna in colunas:
+        altura = dados[coluna].iloc[-1]
+        if altura >= 2.0:
+            ax.annotate(estilo.num_br(altura, 1), xy=(dados.index[-1], base + altura / 2),
+                        xytext=(7, 0), textcoords="offset points", fontsize=9,
+                        weight="bold", color=estilo.COR[_CHAVE_COR[coluna]],
+                        va="center")
+        base += altura
+
+    # O pico do cambio marcado, porque e o fato que o grafico existe para contar.
+    #
+    # A seta aponta para o MEIO DA FAIXA do cambio, e nao para a altura do valor: a
+    # faixa e a quarta da pilha, entao 51% dela mora entre 74 e 100, e nao entre 0 e
+    # 51. Apontar para 25,5 poria a seta dentro da faixa do prefixado -- que e o
+    # tipo de erro que passa despercebido porque a seta continua "parecendo certa".
+    cambio = dados["C\u00e2mbio"]
+    if cambio.max() > 30:
+        quando = cambio.idxmax()
+        abaixo = sum(dados[c].loc[quando] for c in colunas[:colunas.index("C\u00e2mbio")])
+        ax.annotate(f"c\u00e2mbio no pico: {estilo.num_br(cambio.max(), 1)}%",
+                    xy=(quando, abaixo + cambio.loc[quando] / 2),
+                    xytext=(30, -22), textcoords="offset points", fontsize=9,
+                    color="white", weight="bold",
+                    arrowprops={"arrowstyle": "-", "color": "white", "lw": 1.2})
+
+    ax.set_ylim(0, 100)
+    ax.set_xlim(dados.index.min(), dados.index.max())
+    ax.set_ylabel("% da DPF")
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=len(colunas), frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.08))
 
 
 def desenha_composicao(dados, bandas, ax):
@@ -4511,12 +4604,12 @@ def html():
     return dashboard.monta()
 
 
-def test_o_registro_tem_os_vinte_graficos():
-    # Eram dezesseis; as quatro quebras por papel entraram em 19/08/2026, recolhidas
-    # atras de uma setinha.
-    assert len(dashboard.REGISTRO) == 20
+def test_o_registro_tem_os_vinte_e_um_graficos():
+    # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
+    # atras de uma setinha, e a composicao empilhada em 100%.
+    assert len(dashboard.REGISTRO) == 21
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 20, "id repetido no registro"
+    assert len(set(ids)) == 21, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -4552,12 +4645,12 @@ def test_a_contagem_de_svgs_sai_do_registro():
     # teste passar depois de alguem esquecer de gravar uma versao.
     com_janela = [g for g in dashboard.REGISTRO if g.janela]
     com_variante = [g for g in dashboard.REGISTRO if g.variantes]
-    assert len(com_janela) == 13
+    assert len(com_janela) == 14
     assert len(com_variante) == 1
 
     total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
                 for g in dashboard.REGISTRO)
-    assert total == 35
+    assert total == 37
 
 
 def test_as_quatro_quebras_por_papel_ficam_recolhidas():
@@ -4640,12 +4733,14 @@ def test_o_eixo_do_custo_muda_quando_a_dpfe_entra():
     assert limites[True][1] > 62.6
 
 
-def test_a_composicao_do_estoque_abre_na_serie_completa():
+def test_os_dois_graficos_de_composicao_abrem_na_serie_completa():
+    # Os dois contam a queda do cambio, e ela nao existe numa janela de cinco anos.
     porid = {g.id: g for g in dashboard.REGISTRO}
     assert porid["estoque_composicao"].padrao == "completa"
+    assert porid["estoque_composicao_100"].padrao == "completa"
     # E os demais que aceitam janela abrem em 5 anos.
-    outros = [g for g in dashboard.REGISTRO
-              if g.janela and g.id != "estoque_composicao"]
+    na_completa = {"estoque_composicao", "estoque_composicao_100"}
+    outros = [g for g in dashboard.REGISTRO if g.janela and g.id not in na_completa]
     assert all(g.padrao == "5 anos" for g in outros)
 
 
@@ -4833,6 +4928,12 @@ def _fig_emissao_anual(janela):
     return fig
 
 
+def _fig_composicao_100(janela):
+    fig = _figura()
+    estoque.desenha_composicao_100(estoque.dados_composicao(janela), fig.subplots())
+    return fig
+
+
 def _fig_composicao(janela):
     fig = _figura(6.8)
     bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
@@ -4982,6 +5083,14 @@ REGISTRO = [
             "a ano; onde houve revis\u00e3o, a banda original aparece pontilhada. "
             "Abre na s\u00e9rie completa: o c\u00e2mbio sai de 51,0% em set/2002 para 3,7%.",
             True, "completa", _fig_composicao),
+    Grafico("estoque_composicao_100", "Estoque",
+            "Composi\u00e7\u00e3o da DPF por indexador, em 100%",
+            "aba 2.1",
+            "A mesma s\u00e9rie do gr\u00e1fico acima, empilhada. O de linha responde onde "
+            "estamos contra a meta do PAF; este responde de que a d\u00edvida \u00e9 feita — "
+            "e \u00e9 nele que a queda do c\u00e2mbio se l\u00ea como o que foi: uma faixa que "
+            "ocupava metade do gr\u00e1fico em 2002 e hoje \u00e9 um fio de 3,7%.",
+            True, "completa", _fig_composicao_100),
     Grafico("detentores_participacao", "Detentores",
             "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
             "aba 2.7",

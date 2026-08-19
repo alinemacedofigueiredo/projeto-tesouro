@@ -89,6 +89,47 @@ def test_o_cambio_cai_do_pico_de_51_para_37(comp):
     assert round(cam.iloc[-1], 2) == 3.74
 
 
+def test_a_area_de_100_por_cento_empilha_as_cinco_faixas():
+    # O par do grafico de linha: um responde onde estamos contra a meta, o outro de
+    # que a divida e feita. A faixa "Demais" entra AQUI e nao la -- numa area de
+    # 100% ela tem de entrar, ou a soma nao fecha.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    estoque.desenha_composicao_100(dados, ax)
+    faixas = list(ax.collections)
+    rotulos = [texto.get_text() for texto in ax.texts]
+    limites = ax.get_ylim()
+    plt.close(fig)
+
+    assert len(faixas) == 5, "uma faixa por indexador, com Demais"
+    assert limites == (0, 100)
+    # Os valores do ultimo mes escritos na ponta de cada faixa que cabe.
+    for esperado in ("21,0", "25,9", "49,3"):
+        assert esperado in rotulos
+    # E o pico do cambio dito com todas as letras.
+    assert any("51,0" in r for r in rotulos)
+
+
+def test_a_seta_do_pico_aponta_para_dentro_da_faixa_do_cambio():
+    # A faixa do cambio e a QUARTA da pilha: em set/2002 ela mora entre 74 e 100,
+    # nao entre 0 e 51. Apontar para a altura do valor poria a seta dentro da faixa
+    # do prefixado, e a seta continuaria "parecendo certa".
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    dados = estoque.dados_composicao()
+    estoque.desenha_composicao_100(dados, ax)
+    seta = [a for a in ax.texts if "pico" in a.get_text()][0]
+    _, altura = seta.xy
+    plt.close(fig)
+
+    pico = pd.Timestamp("2002-09-30")
+    abaixo = (dados.loc[pico, "Prefixado"] + dados.loc[pico, "\u00cdndice Pre\u00e7os"]
+              + dados.loc[pico, "Taxa Flutuante"])
+    assert abaixo < altura < abaixo + dados.loc[pico, "C\u00e2mbio"]
+    assert altura > 70, "a faixa do cambio no pico mora acima de 70%"
+
+
 def test_o_desenho_traz_a_banda_de_cada_ano_visivel():
     estilo.aplicar_estilo()
     fig, ax = plt.subplots(figsize=(13, 6))

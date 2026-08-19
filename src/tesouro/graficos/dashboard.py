@@ -75,6 +75,12 @@ def _fig_emissao_anual(janela):
     return fig
 
 
+def _fig_composicao_100(janela):
+    fig = _figura()
+    estoque.desenha_composicao_100(estoque.dados_composicao(janela), fig.subplots())
+    return fig
+
+
 def _fig_composicao(janela):
     fig = _figura(6.8)
     bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
@@ -224,6 +230,14 @@ REGISTRO = [
             "a ano; onde houve revis\u00e3o, a banda original aparece pontilhada. "
             "Abre na s\u00e9rie completa: o c\u00e2mbio sai de 51,0% em set/2002 para 3,7%.",
             True, "completa", _fig_composicao),
+    Grafico("estoque_composicao_100", "Estoque",
+            "Composi\u00e7\u00e3o da DPF por indexador, em 100%",
+            "aba 2.1",
+            "A mesma s\u00e9rie do gr\u00e1fico acima, empilhada. O de linha responde onde "
+            "estamos contra a meta do PAF; este responde de que a d\u00edvida \u00e9 feita \u2014 "
+            "e \u00e9 nele que a queda do c\u00e2mbio se l\u00ea como o que foi: uma faixa que "
+            "ocupava metade do gr\u00e1fico em 2002 e hoje \u00e9 um fio de 3,7%.",
+            True, "completa", _fig_composicao_100),
     Grafico("detentores_participacao", "Detentores",
             "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
             "aba 2.7",

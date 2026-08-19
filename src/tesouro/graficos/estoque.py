@@ -52,6 +52,58 @@ def dados_composicao(janela=None):
     return estilo.recorta(share, janela)
 
 
+def desenha_composicao_100(dados, ax):
+    """A mesma composicao, empilhada em 100%.
+
+    O grafico de linha responde "onde estamos contra a meta do PAF"; este responde
+    "de que a divida e feita". Sao perguntas diferentes e por isso os dois existem
+    -- e e neste que a queda do cambio se le como o que ela foi: uma faixa que
+    ocupava metade do grafico em 2002 e hoje e um fio.
+
+    A faixa "Demais" entra aqui, ao contrario do grafico de linha: numa area
+    empilhada de 100% ela tem de entrar, ou a soma nao fecha.
+    """
+    colunas = [c for c in dados.columns if c != "estoque_milhoes"]
+    ax.stackplot(dados.index, *[dados[c] for c in colunas],
+                 labels=colunas,
+                 colors=[estilo.COR[_CHAVE_COR[c]] for c in colunas],
+                 edgecolor="white", linewidth=0.3)
+
+    # O valor de cada faixa no ultimo mes, escrito na altura do meio da faixa.
+    base = 0.0
+    for coluna in colunas:
+        altura = dados[coluna].iloc[-1]
+        if altura >= 2.0:
+            ax.annotate(estilo.num_br(altura, 1), xy=(dados.index[-1], base + altura / 2),
+                        xytext=(7, 0), textcoords="offset points", fontsize=9,
+                        weight="bold", color=estilo.COR[_CHAVE_COR[coluna]],
+                        va="center")
+        base += altura
+
+    # O pico do cambio marcado, porque e o fato que o grafico existe para contar.
+    #
+    # A seta aponta para o MEIO DA FAIXA do cambio, e nao para a altura do valor: a
+    # faixa e a quarta da pilha, entao 51% dela mora entre 74 e 100, e nao entre 0 e
+    # 51. Apontar para 25,5 poria a seta dentro da faixa do prefixado -- que e o
+    # tipo de erro que passa despercebido porque a seta continua "parecendo certa".
+    cambio = dados["C\u00e2mbio"]
+    if cambio.max() > 30:
+        quando = cambio.idxmax()
+        abaixo = sum(dados[c].loc[quando] for c in colunas[:colunas.index("C\u00e2mbio")])
+        ax.annotate(f"c\u00e2mbio no pico: {estilo.num_br(cambio.max(), 1)}%",
+                    xy=(quando, abaixo + cambio.loc[quando] / 2),
+                    xytext=(30, -22), textcoords="offset points", fontsize=9,
+                    color="white", weight="bold",
+                    arrowprops={"arrowstyle": "-", "color": "white", "lw": 1.2})
+
+    ax.set_ylim(0, 100)
+    ax.set_xlim(dados.index.min(), dados.index.max())
+    ax.set_ylabel("% da DPF")
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=len(colunas), frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.08))
+
+
 def desenha_composicao(dados, bandas, ax):
     """Uma linha por indexador, com a banda do PAF desenhada ano a ano.
 
