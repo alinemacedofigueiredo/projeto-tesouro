@@ -386,7 +386,12 @@ projeto funcionar no banco.
 
 **Como a aba é estruturada.** Linhas 7 a 66 são os 60 meses. Depois vêm linhas de
 resumo acumulado ("Em 12 meses", "Em 24 meses", ... "Em 60 meses"), a linha
-**"Após 5 anos"**, e a linha "Total". O parser atual para nos 60 meses.
+**"Após 5 anos"** (linha 73 no anexo de jun/26), e a linha "Total". O parser atual
+para nos 60 meses.
+
+**A amostra de teste também para antes.** `tests/fixtures/rmd_amostra.xlsx` corta a
+aba em 40 linhas, então o balde não está lá — e sem esticar a amostra o teste falha
+por motivo errado. É o Passo 3b.
 
 - [ ] **Passo 1: escrever o teste que falha**
 
@@ -445,6 +450,31 @@ $env:PYTHONPATH="src"; python -c "import pandas as pd; d = pd.ExcelFile(r'data/r
 Esperado: por volta da linha 73 aparece `['Ap\u00f3s 5 anos', ...]` com os valores por
 grupo, e na 74 `['Total', ...]`. **Não confie no número da linha:** localize pelo
 rótulo, porque a planilha muda de tamanho conforme o mês.
+
+- [ ] **Passo 3b: esticar a amostra de teste ate o balde**
+
+Os testes do parser rodam contra `tests/fixtures/rmd_amostra.xlsx`, nao contra o
+anexo real. O gerador corta a aba 3.4 em **40 linhas** e o balde esta na **73**: sem
+esticar, o parser novo levanta `LookupError` na amostra e o teste falha por motivo
+errado.
+
+Em `tests/fixtures/gerar_fixtures.py`, acrescente `"3.4": 80` a `LINHAS_POR_ABA`,
+com o comentario explicando por que — no mesmo lugar em que a 2.1, a 3.1 e a 5.7 ja
+explicam os cortes delas. Depois regere:
+
+```
+python tests/fixtures/gerar_fixtures.py
+```
+
+- [ ] **Passo 3c: acertar os dois testes que ja existiam**
+
+Dois testes do arquivo falam do formato antigo e passam a falhar:
+
+- `test_cronograma_usa_data_de_referencia_e_nao_data` afirma as **quatro** colunas;
+  passa a afirmar cinco, com `faixa`;
+- `test_cronograma_olha_para_frente` compara `mes_vencimento` com a data de
+  referencia, e o balde nasce **sem mes**. Filtre por `faixa == "mensal"`, com o
+  comentario dizendo por que o balde fica de fora.
 
 - [ ] **Passo 4: alterar o parser**
 
