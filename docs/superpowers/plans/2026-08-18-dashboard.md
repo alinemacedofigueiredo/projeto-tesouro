@@ -3722,3 +3722,696 @@ git commit -m "Adiciona os tres graficos candidatos"
 ```
 
 ---
+
+## Task 11: O dashboard — registro, montagem do HTML e reprodutibilidade
+
+**Files:**
+- Create: `src/tesouro/graficos/dashboard.py`
+- Modify: `src/tesouro/graficos/estilo.py` (`recorta` passa a aceitar par de datas)
+- Test: `tests/test_dashboard.py`
+
+**Interfaces:**
+- Consumes: todos os módulos de gráfico.
+- Produces:
+  - `Grafico` -> namedtuple `id grupo titulo fonte nota janela padrao figura`
+  - `REGISTRO` -> **lista literal** com os dezesseis
+  - `GRUPOS` -> ordem dos grupos no índice
+  - `JANELAS = (("5 anos", 5), ("completa", None))`
+  - `svg_de(figura)` -> str, o SVG pronto para embutir
+  - `monta(recortes=None)` -> str, o HTML inteiro
+  - `grava(caminho=None, recortes=None)` -> Path
+
+**Por que o registro é uma lista literal.** Sem decorador e sem descoberta
+automática: quem abrir o arquivo vê os dezesseis, em ordem, com grupo e fonte, e
+entende em trinta segundos. A indireção de um sistema de registro não se paga para
+dezesseis itens — e um decorador espalharia por dez arquivos a informação que
+interessa junta.
+
+**Uma divergência da spec, resolvida aqui.** A spec diz "sete dos dezesseis aceitam
+janela" e "23 SVGs", mas a tabela da seção 5 marca **nove** com "sim": os sete
+principais mais dois candidatos (custo de emissão e emissão anual por papel). Nove
+dão **25 SVGs**. A contagem certa é a da tabela; o texto contou só os principais. O
+teste **deriva o número do registro** em vez de fixá-lo, para que a próxima mudança
+não precise de nenhuma aritmética à mão.
+
+**Decisões que o código deve respeitar:**
+
+- **Um arquivo autocontido.** `data/processed/dashboard.html`, com os SVGs dentro.
+  Abre com duplo clique, sem servidor, e continua funcionando copiado para outra
+  máquina ou mandado por e-mail. Num banco isso vale mais que elegância.
+- **O limiar de 10 MB é medido, não suposto.** Se o arquivo passar disso, os SVGs
+  saem para arquivos ao lado e a spec registra que "um arquivo só" foi trocado por
+  tamanho utilizável. O Passo 6 mede.
+- **Cada gráfico abre na janela que a usuária escolheu para ele.** A composição do
+  estoque abre na série completa — a queda do câmbio de 51% para 3,7% é o fato
+  central e não existe em cinco anos. Os outros abrem em 5 anos. O botão do topo
+  força todos para a mesma janela quando alguém clica.
+- **A legenda fica abaixo da figura, em HTML**, e não dentro do desenho: assim o
+  texto é selecionável e o SVG fica limpo.
+- **Nenhuma biblioteca nova.** HTML e CSS puros, JavaScript escrito à mão.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **O SVG do matplotlib começa com prólogo XML e DOCTYPE.** Embutir isso no meio de
+   um HTML é inválido. Tudo antes do primeiro `<svg` sai fora.
+2. **Referências internas do SVG colidem entre figuras.** Um `<clipPath id="p1a2b">`
+   é resolvido pelo navegador para o **primeiro** id daquele nome no documento
+   inteiro. Vinte e cinco SVGs no mesmo HTML, e o recorte de um gráfico pode passar a
+   valer para outro. Os ids do matplotlib são derivados do conteúdo (é o que o
+   `svg.hashsalt` da Task 1 fixa), então na prática não colidem — mas isso é
+   propriedade que se perde em silêncio, e o teste a trava.
+3. **Reprodutibilidade só existe com o `svg.hashsalt` fixo.** Sem ele, montar duas
+   vezes o mesmo dado gera arquivos diferentes e ninguém sabe se o dashboard mudou
+   porque o dado mudou. É a razão de a Task 1 existir.
+4. **`--de/--ate` não é uma janela em anos.** Em vez de mudar a assinatura de dez
+   funções de dado, `estilo.recorta` passa a aceitar também um par `(de, ate)` — e
+   como toda função de dado já chama `estilo.recorta`, o recorte por data chega em
+   todas de graça.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_dashboard.py
+import re
+
+import matplotlib
+matplotlib.use("Agg")
+import pandas as pd
+import pytest
+
+from tesouro.graficos import dashboard
+
+
+@pytest.fixture(scope="module")
+def html():
+    return dashboard.monta()
+
+
+def test_o_registro_tem_os_dezesseis_graficos():
+    assert len(dashboard.REGISTRO) == 16
+    ids = [g.id for g in dashboard.REGISTRO]
+    assert len(set(ids)) == 16, "id repetido no registro"
+    for g in dashboard.REGISTRO:
+        assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
+        assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
+
+
+def test_os_grupos_saem_na_ordem_com_os_candidatos_por_ultimo():
+    assert dashboard.GRUPOS[-1] == "Candidatos"
+    grupos_usados = [g.grupo for g in dashboard.REGISTRO]
+    # Os tres candidatos ficam juntos no fim: "cada um escolhe o que olhar" vale
+    # de verdade, sem poluir a primeira leitura.
+    assert grupos_usados[-3:] == ["Candidatos"] * 3
+
+
+def test_nove_graficos_aceitam_janela_e_saem_vinte_e_cinco_svgs():
+    # A spec diz "sete dos dezesseis" e "23 SVGs", mas a tabela da secao 5 marca
+    # nove -- os sete principais mais dois candidatos. A contagem certa e a da
+    # tabela, e este teste a deriva do registro em vez de fixar o numero.
+    com_janela = [g for g in dashboard.REGISTRO if g.janela]
+    assert len(com_janela) == 9
+    total = len(dashboard.REGISTRO) + len(com_janela)
+    assert total == 25
+
+
+def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):
+    for g in dashboard.REGISTRO:
+        assert g.titulo in html, f"faltou o titulo de {g.id}"
+        assert f'id="{g.id}"' in html, f"faltou a ancora de {g.id}"
+    for grupo in dashboard.GRUPOS:
+        assert grupo in html
+
+
+def test_os_graficos_com_janela_trazem_as_duas_versoes_embutidas(html):
+    for g in dashboard.REGISTRO:
+        marcas = html.count(f'data-grafico="{g.id}" data-janela=')
+        assert marcas == (2 if g.janela else 1), f"{g.id} tem {marcas} versoes"
+
+
+def test_a_composicao_do_estoque_abre_na_serie_completa():
+    porid = {g.id: g for g in dashboard.REGISTRO}
+    assert porid["estoque_composicao"].padrao == "completa"
+    # E os demais que aceitam janela abrem em 5 anos.
+    outros = [g for g in dashboard.REGISTRO
+              if g.janela and g.id != "estoque_composicao"]
+    assert all(g.padrao == "5 anos" for g in outros)
+
+
+def test_o_html_nao_tem_nenhuma_referencia_externa(html):
+    # Um src apontando para fora quebra o "abre com duplo clique em qualquer
+    # maquina", que e a propriedade que faz este arquivo servir num banco.
+    #
+    # Nao da para procurar "http://" cru: todo SVG do matplotlib declara
+    # xmlns="http://www.w3.org/2000/svg", que e nome de espaco e nao busca nada
+    # na rede. O que importa e src= e href= apontando para fora.
+    assert not re.search(r'(?:src|href)\s*=\s*"(?!#)[^"]*//', html)
+    assert "<link" not in html
+    assert not re.search(r"<script[^>]+src=", html)
+    # E o prologo XML do matplotlib nao pode vazar para dentro do HTML.
+    assert "<?xml" not in html
+    assert "<!DOCTYPE svg" not in html
+
+
+def test_toda_referencia_interna_do_svg_resolve_para_um_id_unico(html):
+    # url(#p1a2b) e resolvido pelo navegador para o PRIMEIRO id daquele nome no
+    # documento inteiro. Com 25 SVGs juntos, o recorte de um grafico pode passar a
+    # valer para outro.
+    referencias = set(re.findall(r"url\(#([^)]+)\)", html))
+    assert referencias, "nenhuma referencia interna; o teste perdeu sentido"
+    ids = re.findall(r'id="([^"]+)"', html)
+    for referencia in referencias:
+        assert ids.count(referencia) == 1, \
+            f"o id '{referencia}' aparece {ids.count(referencia)} vezes"
+
+
+def test_o_html_e_reprodutivel():
+    # Sem o svg.hashsalt fixo da Task 1, duas montagens do mesmo dado geram
+    # arquivos diferentes e ninguem sabe se o dashboard mudou porque o dado mudou.
+    assert dashboard.monta() == dashboard.monta()
+
+
+def test_cada_figura_leva_a_legenda_com_a_aba_de_origem(html):
+    for g in dashboard.REGISTRO:
+        assert g.fonte in html, f"faltou a fonte de {g.id}"
+    # A legenda e HTML, nao texto dentro do desenho: selecionavel e fora do SVG.
+    assert html.count('class="legenda"') == len(dashboard.REGISTRO)
+
+
+def test_o_botao_de_periodo_some_quando_ha_uma_janela_so():
+    um_so = dashboard.monta(recortes=[("2021-01-01 a 2026-06-30",
+                                       (pd.Timestamp("2021-01-01"),
+                                        pd.Timestamp("2026-06-30")))])
+    assert 'id="troca-periodo"' not in um_so
+    assert 'id="troca-periodo"' in dashboard.monta()
+
+
+def test_o_recorte_por_data_chega_nas_funcoes_de_dado():
+    from tesouro.graficos import funding
+    par = (pd.Timestamp("2021-01-01"), pd.Timestamp("2026-06-30"))
+    cortado = funding.dados_net(par)
+    inteiro = funding.dados_net()
+    assert cortado.index.min() >= par[0]
+    assert cortado.index.max() == inteiro.index.max()
+    assert len(cortado) < len(inteiro)
+
+
+def test_o_arquivo_cabe_no_limiar_de_dez_megabytes(tmp_path):
+    # Limiar medido, nao suposto (ver a spec, secao 4.1). Se estourar, os SVGs
+    # saem para arquivos ao lado e a spec registra a troca.
+    caminho = dashboard.grava(tmp_path / "dashboard.html")
+    tamanho = caminho.stat().st_size
+    assert tamanho > 100_000, "arquivo pequeno demais; algum grafico nao entrou"
+    assert tamanho < 10 * 1024 * 1024, (
+        f"o dashboard passou de 10 MB ({tamanho / 1024 / 1024:.1f} MB). A spec "
+        f"manda trocar os SVGs embutidos por arquivos ao lado e registrar a troca."
+    )
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_dashboard.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'dashboard'`.
+
+- [ ] **Passo 3: o recorte por par de datas, em `estilo.py`**
+
+Troque `recorta` pela versão que aceita as duas formas:
+
+```python
+def recorta(df, janela):
+    """Recorte de um DataFrame indexado por data.
+
+    'janela' vem em tres formas:
+      None                       -> a serie inteira
+      um numero de anos          -> os ultimos N anos
+      um par (de, ate)           -> o intervalo pedido na linha de comando
+
+    A terceira existe para que --de/--ate chegue as dez funcoes de dado sem mudar
+    a assinatura de nenhuma delas: todas ja chamam esta funcao.
+    """
+    import pandas as pd
+    if janela is None:
+        return df
+    if isinstance(janela, tuple):
+        de, ate = janela
+        return df[(df.index >= de) & (df.index <= ate)]
+    return df[df.index >= df.index.max() - pd.DateOffset(years=janela)]
+```
+
+- [ ] **Passo 4: o registro**
+
+```python
+# src/tesouro/graficos/dashboard.py
+"""O registro dos dezesseis graficos e a montagem do HTML.
+
+O registro e uma LISTA LITERAL, sem decorador e sem descoberta automatica: quem
+abre este arquivo ve os dezesseis, em ordem, com grupo e fonte, e entende em trinta
+segundos. A indirecao de um sistema de registro nao se paga para dezesseis itens, e
+um decorador espalharia por dez arquivos a informacao que interessa junta.
+
+O HTML e autocontido: os SVGs vao dentro dele. Abre com duplo clique, sem servidor,
+e continua funcionando copiado para outra maquina ou mandado por e-mail -- num banco
+isso vale mais que elegancia. O limiar de 10 MB e medido por teste; se estourar, os
+SVGs saem para arquivos ao lado.
+
+Nove dos dezesseis aceitam janela, entao sao 25 SVGs. (A spec diz sete e 23 no
+texto, mas a tabela da secao 5 marca nove; a tabela e que esta certa.)
+"""
+
+import collections
+import io
+import re
+
+import matplotlib.pyplot as plt
+
+from .. import config
+from . import (custo, detentores, estilo, estoque, funding, leiloes, paf,
+               prazo, reserva, vencimentos)
+
+Grafico = collections.namedtuple(
+    "Grafico", "id grupo titulo fonte nota janela padrao figura")
+
+GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
+          "Reserva", "Candidatos"]
+
+JANELAS = (("5 anos", 5), ("completa", None))
+
+
+def _figura(altura=6.2):
+    fig = plt.figure(figsize=(13, altura))
+    return fig
+
+
+def _fig_net(janela):
+    fig = _figura(8.0)
+    funding.desenha_net(funding.dados_net(janela), fig)
+    return fig
+
+
+def _fig_emissao_indexador(janela):
+    fig = _figura()
+    funding.desenha_emissao_indexador(funding.dados_emissao_indexador(janela),
+                                      fig.subplots())
+    return fig
+
+
+def _fig_emissao_anual(janela):
+    # Este grafico conta ANOS, nao recorta datas: a janela de 5 anos vira cinco
+    # barras, e a completa vira a serie inteira.
+    anos = janela if isinstance(janela, int) else 100
+    dados = funding.dados_emissao_anual(anos=anos)
+    fig = _figura()
+    funding.desenha_emissao_anual(dados, fig.subplots(),
+                                 funding.ultimo_mes_com_emissao().year)
+    return fig
+
+
+def _fig_composicao(janela):
+    fig = _figura(6.8)
+    bandas = {k: paf.bandas(k) for k in paf.COMPOSICAO}
+    estoque.desenha_composicao(estoque.dados_composicao(janela), bandas,
+                               fig.subplots())
+    return fig
+
+
+def _fig_participacao(janela):
+    fig = _figura(5.0)
+    detentores.desenha_participacao(detentores.dados_participacao(), fig)
+    return fig
+
+
+def _fig_por_papel(janela):
+    fig = _figura(4.6)
+    detentores.desenha_por_papel(detentores.dados_por_papel(), fig)
+    return fig
+
+
+def _fig_financeiro_detentor(janela):
+    fig = _figura(8.6)
+    detentores.desenha_financeiro(detentores.dados_financeiro(janela), fig)
+    return fig
+
+
+def _fig_cronograma(janela):
+    fig = _figura(9.0)
+    vencimentos.desenha_cronograma(vencimentos.dados_cronograma_anual(),
+                                   vencimentos.dados_cronograma_mensal(), fig)
+    return fig
+
+
+def _fig_faixas(janela):
+    fig = _figura(8.0)
+    vencimentos.desenha_faixas(vencimentos.dados_faixas(),
+                               vencimentos.banda_vincendo_12m(), fig)
+    return fig
+
+
+def _fig_prazo(janela):
+    fig = _figura()
+    prazo.desenha_prazo(prazo.dados_prazo(), paf.bandas("prazo_medio_anos"),
+                        fig.subplots())
+    return fig
+
+
+def _fig_custo(janela):
+    fig = _figura()
+    custo.desenha_custo(custo.dados_custo(janela), fig.subplots())
+    return fig
+
+
+def _fig_reserva_13m(janela):
+    fig = _figura(5.4)
+    reserva.desenha_treze_meses(reserva.dados_treze_meses(), fig.subplots())
+    return fig
+
+
+def _fig_reserva(janela):
+    fig = _figura()
+    reserva.desenha_reserva(reserva.dados_reserva(janela), fig.subplots())
+    return fig
+
+
+def _fig_perfil_completo(janela):
+    fig = _figura(6.6)
+    vencimentos.desenha_perfil_completo(vencimentos.dados_perfil_completo(),
+                                        fig.subplots())
+    return fig
+
+
+def _fig_custo_emissao(janela):
+    fig = _figura()
+    custo.desenha_custo_emissao(custo.dados_custo_emissao(janela),
+                                fig.subplots())
+    return fig
+
+
+def _fig_emissao_papel(janela):
+    anos = janela if isinstance(janela, int) else 100
+    dados = leiloes.dados_emissao_anual_papel(anos=anos)
+    fig = _figura()
+    leiloes.desenha_emissao_anual_papel(
+        dados, fig.subplots(), leiloes.ultima_competencia_do_rmd().year)
+    return fig
+
+
+REGISTRO = [
+    Grafico("funding_net", "Funding",
+            "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
+            "aba 1.1",
+            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. Sem m\u00e9dia de 3 meses, "
+            "por decis\u00e3o de quem l\u00ea. Cobre 100% do DPMFi.",
+            True, "5 anos", _fig_net),
+    Grafico("funding_indexador", "Funding",
+            "Emiss\u00e3o do DPMFi por indexador, mensal",
+            "aba 1.2",
+            "Emiss\u00e3o bruta, em reais do m\u00eas. Cobre 100% da emiss\u00e3o do DPMFi.",
+            True, "5 anos", _fig_emissao_indexador),
+    Grafico("funding_anual", "Funding",
+            "Composi\u00e7\u00e3o anual da emiss\u00e3o, em 100%",
+            "aba 1.2",
+            "Por indexador, e n\u00e3o por papel: pela aba 1.2 a cobertura \u00e9 100% da "
+            "emiss\u00e3o, contra 93% a 97% se viesse dos leil\u00f5es. O ano ainda aberto "
+            "leva asterisco.",
+            True, "5 anos", _fig_emissao_anual),
+    Grafico("estoque_composicao", "Estoque",
+            "Composi\u00e7\u00e3o da DPF por indexador, com a banda do PAF",
+            "aba 2.1 e referencia/paf_bandas.csv",
+            "Participa\u00e7\u00e3o de cada indexador na DPF. A banda \u00e9 a meta do PAF, ano "
+            "a ano; onde houve revis\u00e3o, a banda original aparece pontilhada. "
+            "Abre na s\u00e9rie completa: o c\u00e2mbio sai de 51,0% em set/2002 para 3,7%.",
+            True, "completa", _fig_composicao),
+    Grafico("detentores_participacao", "Detentores",
+            "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
+            "aba 2.7",
+            "Os oito detentores da aba agrupados em cinco. A varia\u00e7\u00e3o \u00e9 contra o "
+            "mesmo m\u00eas do ano anterior, em pontos percentuais.",
+            False, None, _fig_participacao),
+    Grafico("detentores_papel", "Detentores",
+            "Quem carrega cada papel",
+            "aba 2.8",
+            "Participa\u00e7\u00e3o de cada detentor dentro de cada papel, no \u00faltimo m\u00eas. "
+            "R\u00f3tulo s\u00f3 nas fatias de 10% ou mais.",
+            False, None, _fig_por_papel),
+    Grafico("detentores_financeiro", "Detentores",
+            "Financeiro por detentor, oito pain\u00e9is",
+            "aba 2.8",
+            "Cada painel tem escala pr\u00f3pria: os detentores diferem em ordem de "
+            "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
+            True, "5 anos", _fig_financeiro_detentor),
+    Grafico("vencimentos_cronograma", "Vencimentos",
+            "Cronograma de vencimentos, com o balde da cauda",
+            "aba 3.4",
+            "Os 60 meses que a aba detalha (6.913,8 bi) mais o balde 'Ap\u00f3s 5 "
+            "anos' (2.006,9 bi). 2026 \u00e9 jul\u2013dez e 2031 \u00e9 jan\u2013jun.",
+            False, None, _fig_cronograma),
+    Grafico("vencimentos_faixas", "Vencimentos",
+            "Composi\u00e7\u00e3o da DPF por horizonte, com a banda do PAF",
+            "aba 3.1 e aba 5.7",
+            "A banda do vincendo em 12 meses \u00e9 publicada na aba 5.7 at\u00e9 2022; "
+            "depois disso n\u00e3o h\u00e1 banda, e nada \u00e9 desenhado.",
+            False, None, _fig_faixas),
+    Grafico("prazo_medio", "Prazo",
+            "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",
+            "aba 3.7 e referencia/paf_bandas.csv",
+            "R\u00f3tulo na DPMFi e na DPFe; a DPF \u00e9 linha de contexto. A banda \u00e9 a "
+            "meta do PAF para o prazo m\u00e9dio da DPF.",
+            False, None, _fig_prazo),
+    Grafico("custo_estoque", "Custo",
+            "Custo do estoque contra a Selic e o IPCA",
+            "abas 4.1 e 4.2, e vna.csv",
+            "Custo acumulado em 12 meses. A Selic e o IPCA saem da varia\u00e7\u00e3o de 12 "
+            "meses do nosso pr\u00f3prio VNA, e come\u00e7am em jan/2011.",
+            True, "5 anos", _fig_custo),
+    Grafico("reserva_13m", "Reserva",
+            "Reserva de liquidez, treze meses",
+            "aba 6.1",
+            "O formato da p\u00e1gina do RMD, para apresenta\u00e7\u00e3o. O eixo do \u00edndice "
+            "come\u00e7a em zero.",
+            False, None, _fig_reserva_13m),
+    Grafico("reserva_serie", "Reserva",
+            "Reserva de liquidez, s\u00e9rie longa com a folga",
+            "aba 6.1",
+            "A folga \u00e9 a reserva menos o valor prudencial. Em jan e fev/2015 ela "
+            "foi negativa, e esses dois meses aparecem em vermelho.",
+            True, "5 anos", _fig_reserva),
+    Grafico("perfil_completo", "Candidatos",
+            "Perfil completo de vencimentos, at\u00e9 2084",
+            "aba 2.2",
+            "Papel a papel, diferente do cronograma, que vem da 3.4. Os dois n\u00e3o "
+            "fecham: 8.904,1 bi aqui contra 8.920,7 l\u00e1, e a causa dos 16,6 bi de "
+            "diferen\u00e7a est\u00e1 em aberto.",
+            False, None, _fig_perfil_completo),
+    Grafico("custo_emissao", "Candidatos",
+            "Custo de emiss\u00e3o contra o custo do estoque",
+            "abas 4.2 e 4.3",
+            "DPMFi. Emite-se a 14,20% e carrega-se a 13,19%: a d\u00edvida encarece "
+            "sem que nenhuma decis\u00e3o nova seja tomada.",
+            True, "5 anos", _fig_custo_emissao),
+    Grafico("emissao_papel", "Candidatos",
+            "Composi\u00e7\u00e3o anual da emiss\u00e3o por papel, dos leil\u00f5es",
+            "leiloes.csv",
+            "Recusado como gr\u00e1fico principal: os leil\u00f5es cobrem de 93,0% a 97,3% "
+            "da emiss\u00e3o que o RMD registra, contra 100% da aba 1.2.",
+            True, "5 anos", _fig_emissao_papel),
+]
+```
+
+- [ ] **Passo 5: a montagem do HTML**
+
+```python
+# continuacao de src/tesouro/graficos/dashboard.py
+
+_CSS = """
+:root { --tinta: #1a1a1a; --fraco: #666; --linha: #e3e3e3; --fundo: #fff; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Segoe UI, Arial, sans-serif; color: var(--tinta);
+       background: var(--fundo); }
+#indice { position: fixed; top: 0; left: 0; width: 250px; height: 100vh;
+          overflow-y: auto; border-right: 1px solid var(--linha);
+          padding: 18px 14px; font-size: 13.5px; }
+#indice h1 { font-size: 15px; margin: 0 0 4px; }
+#indice .data { color: var(--fraco); font-size: 12px; margin-bottom: 14px; }
+#indice .grupo { font-weight: 600; margin: 12px 0 4px; font-size: 12px;
+                 text-transform: uppercase; letter-spacing: .04em;
+                 color: var(--fraco); }
+#indice a { display: block; color: var(--tinta); text-decoration: none;
+            padding: 3px 0 3px 8px; border-left: 2px solid transparent; }
+#indice a:hover { border-left-color: var(--tinta); }
+main { margin-left: 250px; padding: 22px 30px 60px; max-width: 1180px; }
+#troca-periodo { position: sticky; top: 0; background: var(--fundo);
+                 padding: 10px 0; border-bottom: 1px solid var(--linha);
+                 z-index: 5; }
+#troca-periodo button { font: inherit; padding: 5px 14px; margin-right: 6px;
+                        border: 1px solid var(--linha); background: #fff;
+                        cursor: pointer; border-radius: 3px; }
+#troca-periodo button.ativo { background: var(--tinta); color: #fff;
+                              border-color: var(--tinta); }
+section { margin: 34px 0 0; padding-top: 6px; }
+section h2 { font-size: 17px; margin: 0 0 2px; }
+.legenda { color: var(--fraco); font-size: 12.5px; margin: 6px 0 0;
+           max-width: 900px; line-height: 1.45; }
+.fonte { color: var(--fraco); font-size: 12px; margin: 2px 0 10px; }
+svg { max-width: 100%; height: auto; }
+"""
+
+_JS = """
+function trocaPeriodo(janela) {
+  document.querySelectorAll('[data-grafico]').forEach(function (bloco) {
+    var alvo = bloco.parentElement.querySelector('[data-janela="' + janela + '"]');
+    if (alvo) { bloco.style.display = (bloco === alvo) ? '' : 'none'; }
+  });
+  document.querySelectorAll('#troca-periodo button').forEach(function (b) {
+    b.classList.toggle('ativo', b.dataset.janela === janela);
+  });
+}
+"""
+
+
+def svg_de(figura):
+    """SVG pronto para embutir: sem prologo XML e sem DOCTYPE.
+
+    O matplotlib escreve '<?xml ...?>' e '<!DOCTYPE svg ...>' antes do '<svg'.
+    Embutir isso no meio de um HTML e invalido, entao tudo antes do primeiro
+    '<svg' sai fora.
+    """
+    buffer = io.StringIO()
+    figura.savefig(buffer, format="svg", bbox_inches="tight")
+    plt.close(figura)
+    bruto = buffer.getvalue()
+    return bruto[bruto.index("<svg"):]
+
+
+def _bloco(grafico, recortes):
+    """Uma secao: titulo, as versoes do SVG, a fonte e a legenda."""
+    partes = [f'<section id="{grafico.id}">',
+              f"  <h2>{grafico.titulo}</h2>"]
+
+    usados = recortes if grafico.janela else recortes[:1]
+    for nome, janela in usados:
+        visivel = "" if (nome == grafico.padrao or len(usados) == 1) \
+            else ' style="display:none"'
+        svg = svg_de(grafico.figura(janela))
+        partes.append(f'  <div data-grafico="{grafico.id}" '
+                      f'data-janela="{nome}"{visivel}>{svg}</div>')
+
+    partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')
+    partes.append(f'  <p class="legenda">{grafico.nota}</p>')
+    partes.append("</section>")
+    return "\n".join(partes)
+
+
+def _indice():
+    linhas = ['<nav id="indice">', "  <h1>D\u00edvida P\u00fablica Federal</h1>"]
+    for grupo in GRUPOS:
+        do_grupo = [g for g in REGISTRO if g.grupo == grupo]
+        if not do_grupo:
+            continue
+        linhas.append(f'  <div class="grupo">{grupo}</div>')
+        for g in do_grupo:
+            linhas.append(f'  <a href="#{g.id}">{g.titulo}</a>')
+    linhas.append("</nav>")
+    return "\n".join(linhas)
+
+
+def monta(recortes=None):
+    """O HTML inteiro, com os SVGs embutidos.
+
+    'recortes' e uma lista de pares (nome, janela). Com um par so, o botao de
+    periodo nao aparece -- e o caso do --de/--ate na linha de comando.
+    """
+    estilo.aplicar_estilo()
+    recortes = list(recortes) if recortes else list(JANELAS)
+
+    botoes = ""
+    if len(recortes) > 1:
+        marcas = "".join(
+            f'<button data-janela="{nome}" onclick="trocaPeriodo(\'{nome}\')">'
+            f"{nome}</button>" for nome, _ in recortes)
+        botoes = f'<div id="troca-periodo">{marcas}</div>'
+
+    corpo = "\n".join(_bloco(g, recortes) for g in REGISTRO)
+
+    return (
+        "<!doctype html>\n<html lang=\"pt-br\">\n<head>\n"
+        '<meta charset="utf-8">\n'
+        "<title>D\u00edvida P\u00fablica Federal</title>\n"
+        f"<style>{_CSS}</style>\n</head>\n<body>\n"
+        f"{_indice()}\n<main>\n{botoes}\n{corpo}\n</main>\n"
+        f"<script>{_JS}</script>\n</body>\n</html>\n"
+    )
+
+
+def grava(caminho=None, recortes=None):
+    """Grava o dashboard e devolve o caminho."""
+    caminho = caminho or (config.PROCESSED_DIR / "dashboard.html")
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(monta(recortes), encoding="utf-8")
+    return caminho
+```
+
+- [ ] **Passo 6: rodar, ver passar, e medir o tamanho**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_dashboard.py -v
+```
+
+Esperado: 13 passed.
+
+Agora **meça** — o limiar de 10 MB da spec é medido, não suposto:
+
+```
+$env:PYTHONPATH="src"; python -c "from tesouro.graficos import dashboard; c = dashboard.grava(); print(c, round(c.stat().st_size / 1024 / 1024, 2), 'MB')"
+```
+
+**Registre o número na spec**, na seção 4.1, no lugar de "o tamanho do arquivo é
+desconhecido". Se passar de 10 MB, o teste já falhou no passo anterior e a decisão
+registrada na spec entra em vigor: os SVGs saem para arquivos ao lado, o HTML os
+referencia, e a spec anota que "um arquivo só" foi trocado por tamanho utilizável.
+
+- [ ] **Passo 7: abrir o arquivo e olhar**
+
+Nenhum teste desta tarefa olha para o desenho. Abra o HTML no navegador e confira,
+uma vez, com o olho:
+
+- o índice lateral rola e as âncoras saltam para o gráfico certo;
+- o botão troca os nove gráficos que aceitam janela, e **não** mexe nos sete que não
+  aceitam;
+- a composição do estoque abre na série completa, e os outros em 5 anos;
+- nenhum gráfico aparece cortado ou com legenda por cima do desenho.
+
+- [ ] **Passo 8: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- apague uma entrada do `REGISTRO` — os testes dos dezesseis, dos títulos e das
+  legendas devem falhar;
+- troque `janela=True` por `False` em qualquer entrada — o teste dos 25 SVGs e o das
+  duas versões devem falhar;
+- troque `padrao="completa"` da composição por `"5 anos"` — o teste do padrão deve
+  falhar;
+- devolva `bruto` inteiro no `svg_de` (sem cortar o prólogo) — o teste de
+  referências externas deve falhar nas duas últimas asserções, porque o `<?xml` e o
+  `<!DOCTYPE svg` passam a aparecer no meio do HTML;
+- acrescente `<link rel="stylesheet" href="https://exemplo/x.css">` ao `monta` — o
+  teste de referências externas deve falhar;
+- comente a linha `matplotlib.rcParams["svg.hashsalt"]` do `estilo.aplicar_estilo` —
+  `test_o_html_e_reprodutivel` deve falhar. **É a prova de que a Task 1 existe por um
+  motivo.**
+
+- [ ] **Passo 9: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 405 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/ tests/test_dashboard.py
+git commit -m "Adiciona o registro dos graficos e a montagem do dashboard"
+```
+
+---
