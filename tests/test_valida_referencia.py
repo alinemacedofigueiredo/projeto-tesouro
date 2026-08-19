@@ -31,7 +31,11 @@ def test_o_arquivo_de_verdade_passa(bom, tmp_path):
 def test_cobre_de_2003_ate_o_ano_corrente(bom):
     assert bom["ano"].min() == 2003
     assert bom["ano"].max() >= 2026
-    assert set(bom["indicador"]) == set(v.INDICADORES)
+    # Os seis obrigatorios em todo ano, mais o setimo (vincendo_12m_pct) onde ele
+    # existe -- ele e opcional por ano, ver o LEIA-ME da pasta.
+    assert set(bom["indicador"]) == set(v.TODOS)
+    for (ano, versao), g in bom.groupby(["ano", "versao"]):
+        assert set(v.INDICADORES) <= set(g["indicador"]), f"{ano}/{versao}"
 
 
 def test_pega_minimo_maior_que_maximo(bom, tmp_path):
@@ -53,7 +57,7 @@ def test_pega_percentual_escrito_como_fracao(bom, tmp_path):
 def test_pega_indicador_com_nome_errado(bom, tmp_path):
     bom.loc[5, "indicador"] = "prefixado"          # falta o sufixo _pct
     erros = _conferir(bom, tmp_path)
-    assert any("nao e um dos seis nomes fixos" in e for e in erros)
+    assert any("nao e um dos nomes fixos" in e for e in erros)
 
 
 def test_pega_ano_duplicado(bom, tmp_path):

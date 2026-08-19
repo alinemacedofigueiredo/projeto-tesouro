@@ -85,15 +85,12 @@ def test_cada_mes_das_faixas_soma_100(faixas):
     assert len(faixas) == 236
 
 
-def test_a_banda_de_vincendo_em_12_meses_para_em_2022():
-    # Nao e o parser parando cedo: a aba 5.7 do anexo de jun/26 tem quatro blocos e
-    # o ultimo termina em "PAF 2022". E o paf_bandas.csv, que vai ate 2026, guarda
-    # seis indicadores e vincendo nao e um deles.
+def test_a_banda_do_vincendo_cobre_de_2003_a_2026():
+    # A aba 5.7 do anexo de jun/26 tem quatro blocos e o ultimo termina em
+    # "PAF 2022"; o resto vem do arquivo de referencia.
     b = vencimentos.banda_vincendo_12m()
     assert b.index.min() == 2003
-    assert b.index.max() == 2022
-    assert b.loc[2022, "minimo"] == 19.0
-    assert b.loc[2022, "maximo"] == 23.0
+    assert b.index.max() == 2026
 
 
 def test_o_realizado_do_vincendo_bate_com_o_nosso_dado(faixas):
@@ -104,7 +101,10 @@ def test_o_realizado_do_vincendo_bate_com_o_nosso_dado(faixas):
     # Este realizado E lido, diferente do de referencia/paf_bandas.csv: ele vem de
     # uma aba do RMD, por parser, e nao de tabela digitada a mao. O cruzamento
     # confere dois parsers nossos um contra o outro, que e o que pega defeito.
-    b = vencimentos.banda_vincendo_12m()
+    # banda_da_57 e nao banda_vincendo_12m: o realizado so existe na aba 5.7. O
+    # arquivo de referencia tem a coluna, mas ela nao e lida por decisao da dona do
+    # projeto -- de la vem a banda, e so.
+    b = vencimentos.banda_da_57()
     for ano in range(2011, 2023):
         nosso = faixas.loc[pd.Timestamp(f"{ano}-12-31"), "At\u00e9 12 meses"]
         assert abs(nosso - b.loc[ano, "realizado"]) < 0.05, f"vincendo em {ano}"
@@ -137,6 +137,56 @@ def test_o_desenho_do_mensal_divide_a_virada_do_ano():
     assert len(divisorias) == 5
 
 
+def test_a_banda_do_vincendo_vem_das_duas_fontes():
+    # 2022 so existe na aba 5.7; 2026 so existe no arquivo de referencia. As duas
+    # tem de aparecer, ou uma das fontes nao esta sendo lida.
+    b = vencimentos.banda_vincendo_12m()
+    assert (b.loc[2022, "minimo"], b.loc[2022, "maximo"]) == (19.0, 23.0)
+    assert (b.loc[2026, "minimo"], b.loc[2026, "maximo"]) == (18.0, 22.0)
+    # A revisao de 2021 continua valendo sobre a original (24-29 vira 22-27).
+    assert (b.loc[2021, "minimo"], b.loc[2021, "maximo"]) == (22.0, 27.0)
+
+
+def test_o_vincendo_de_hoje_esta_dentro_da_banda_de_2026():
+    # 20,07% contra a banda de 18 a 22. Nao e teste de politica: e o cruzamento que
+    # pega banda digitada na escala errada, ou a faixa lida da coluna errada.
+    faixas = vencimentos.dados_faixas()
+    b = vencimentos.banda_vincendo_12m()
+    hoje = faixas["At\u00e9 12 meses"].iloc[-1]
+    assert round(hoje, 2) == 20.07
+    assert b.loc[2026, "minimo"] <= hoje <= b.loc[2026, "maximo"]
+
+
+def test_os_anos_sem_banda_do_vincendo_estao_declarados():
+    # A 5.7 vai ate 2022 e o arquivo de referencia comeca em 2026: 2023, 2024 e 2025
+    # nao tem banda de vincendo em fonte nenhuma. Sao os anos que faltam digitar da
+    # planilha do PAF. Declarados aqui para que a lacuna seja visivel e para que o
+    # teste avise quando ela for preenchida.
+    b = vencimentos.banda_vincendo_12m()
+    faltando = [a for a in range(2003, 2027) if a not in b.index]
+    assert faltando == [2023, 2024, 2025]
+
+
+def test_as_duas_fontes_concordam_onde_compartilham_o_ano():
+    # HOJE NAO HA ANO COMPARTILHADO -- a 5.7 termina em 2022 e a referencia comeca
+    # em 2026 -- e por isso o laco abaixo nao roda. A contagem esta afirmada de
+    # proposito: no dia em que alguem digitar 2003-2022 na planilha de referencia,
+    # este teste falha e obriga a olhar a comparacao, em vez de deixar um laco vazio
+    # passando para sempre.
+    from tesouro.graficos import paf
+
+    da_57 = vencimentos.banda_da_57()
+    da_referencia = paf.bandas("vincendo_12m_pct")
+    compartilhados = sorted(set(da_57.index) & set(da_referencia.index))
+    assert len(compartilhados) == 0, (
+        "as duas fontes passaram a compartilhar ano(s): "
+        f"{compartilhados}. Troque este assert pela comparacao abaixo."
+    )
+    for ano in compartilhados:
+        assert da_57.loc[ano, "minimo"] == da_referencia.loc[ano, "minimo"]
+        assert da_57.loc[ano, "maximo"] == da_referencia.loc[ano, "maximo"]
+
+
 def test_a_banda_nao_e_desenhada_onde_nao_existe():
     # Depois de 2022 nao ha banda. Um retangulo esticado ate 2026 inventaria meta.
     estilo.aplicar_estilo()
@@ -149,5 +199,7 @@ def test_a_banda_nao_e_desenhada_onde_nao_existe():
     de_cima = list(fig.axes[0].collections)
     plt.close(fig)
     assert len(de_cima) == 4, "as quatro faixas da area empilhada"
-    # Uma banda por ano, de 2006 (inicio da nossa serie) a 2022 (fim da banda).
-    assert len(faixas_desenhadas) == 17
+    # Uma banda por ano com banda: 2006 a 2022 (dezessete, da aba 5.7) mais 2026
+    # (do arquivo de referencia). 2023 a 2025 nao tem banda em fonte nenhuma e
+    # nada e desenhado ali -- o buraco no desenho e a lacuna, nao um defeito.
+    assert len(faixas_desenhadas) == 18

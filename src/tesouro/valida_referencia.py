@@ -16,6 +16,7 @@ import pandas as pd
 
 from . import config
 
+# Os seis que TODO ano do PAF tem. A ausencia de um deles num ano e erro.
 INDICADORES = (
     "estoque_bilhoes",
     "prazo_medio_anos",
@@ -24,6 +25,17 @@ INDICADORES = (
     "taxa_flutuante_pct",
     "cambio_pct",
 )
+
+# O setimo, que a planilha do PAF tambem publica e que entrou depois dos seis.
+# E OPCIONAL por ano: a aba 5.7 do RMD ja cobre 2003 a 2022, entao aqui so
+# precisam entrar os anos que a 5.7 nao alcanca. Exigi-lo em todo ano obrigaria a
+# redigitar vinte anos de dado que ja temos por parser -- e o grafico usa as duas
+# fontes, com teste conferindo que elas concordam onde as duas tem o ano.
+OPCIONAIS = (
+    "vincendo_12m_pct",
+)
+
+TODOS = INDICADORES + OPCIONAIS
 
 VERSOES = ("original", "revisado")
 
@@ -48,6 +60,7 @@ _FAIXA = {
     "indice_precos_pct": (0.0, 100.0),
     "taxa_flutuante_pct": (0.0, 100.0),
     "cambio_pct": (0.0, 100.0),
+    "vincendo_12m_pct": (0.0, 100.0),
 }
 
 
@@ -75,8 +88,9 @@ def conferir_paf(caminho=None):
         return [f"  colunas ausentes: {faltando}; esperadas {_COLUNAS}"]
 
     for i, r in df.reset_index(drop=True).iterrows():
-        if r["indicador"] not in INDICADORES:
-            _erro(erros, i, f"indicador '{r['indicador']}' nao e um dos seis nomes fixos")
+        if r["indicador"] not in TODOS:
+            _erro(erros, i, f"indicador '{r['indicador']}' nao e um dos nomes fixos: "
+                            f"{list(TODOS)}")
             continue
         if r["versao"] not in VERSOES:
             _erro(erros, i, f"versao '{r['versao']}' nao e 'original' nem 'revisado'")
@@ -97,6 +111,8 @@ def conferir_paf(caminho=None):
         r = df.reset_index(drop=True).loc[i]
         _erro(erros, i, f"chave repetida: {r['ano']}/{r['versao']}/{r['indicador']}")
 
+    # So os obrigatorios entram nesta conta: o vincendo pode faltar num ano sem
+    # que isso seja erro (ver o comentario em OPCIONAIS).
     for (ano, versao), g in df.groupby(["ano", "versao"]):
         faltam = sorted(set(INDICADORES) - set(g["indicador"]))
         if faltam:

@@ -215,6 +215,7 @@ grandezas diferentes, e a comparação correta exigiria curva de juros).
 | funding, estoque, detentores, vencimentos, prazo, custo, reserva | 17 CSVs | camada de dados, `master` |
 | Selic e IPCA acumulados em 12 meses | `vna.csv` | **entrega 2** |
 | bandas do PAF, 2003 a 2026 | `referencia/paf_bandas.csv` | esta branch |
+| banda do vincendo em 12 meses, 2003 a 2022 | `paf_metas.csv` (aba 5.7) | camada de dados |
 | taxas de leilão | `leiloes.csv` | camada de dados |
 
 **A Selic e o IPCA saem do nosso próprio VNA.** A variação de 12 meses do VNA que a
@@ -224,6 +225,14 @@ busca isso no site do Bacen; nós não precisamos. É por isso que esta branch n
 
 **O validador do PAF é pré-requisito de execução.** Se `referencia/paf_bandas.csv`
 estiver quebrado, o dashboard **falha** em vez de desenhar banda errada.
+
+**A banda do vincendo em 12 meses tem duas fontes, e uma lacuna.** A aba 5.7 do RMD
+publica de 2003 a 2022; a planilha do PAF publica também o ano corrente, e por isso
+`paf_bandas.csv` ganhou um sétimo indicador, `vincendo_12m_pct`, **opcional por ano**
+— só precisa entrar o que a 5.7 não alcança. Hoje há 2026 (18% a 22%, informado pela
+dona do projeto em 19/08/2026) e faltam **2023, 2024 e 2025**: nesses três anos o
+gráfico não desenha banda, e o buraco é a lacuna, não um defeito. Onde as duas fontes
+tiverem o mesmo ano, um teste confere que elas concordam.
 
 ---
 

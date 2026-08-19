@@ -36,10 +36,10 @@ def bandas(indicador, caminho=None):
     proprio dado, que o parser produz e os testes cobrem; ler o realizado de uma
     tabela digitada a mao seria trocar dado verificado por dado redigitado.
     """
-    if indicador not in valida_referencia.INDICADORES:
+    if indicador not in valida_referencia.TODOS:
         raise ValueError(
-            f"indicador '{indicador}' nao e um dos seis do PAF: "
-            f"{list(valida_referencia.INDICADORES)}"
+            f"indicador '{indicador}' nao e um dos do PAF: "
+            f"{list(valida_referencia.TODOS)}"
         )
 
     caminho = caminho or valida_referencia.caminho_paf()

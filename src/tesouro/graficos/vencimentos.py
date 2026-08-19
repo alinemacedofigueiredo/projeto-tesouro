@@ -12,9 +12,11 @@ os 1.771,9 de 2027 sem saber disso e ler o grafico errado.
 ARMADILHA 2: a aba do cronograma e a 3.4; a 3.1 e a de faixas. As duas falam de
 vencimento e ja foram confundidas num rascunho.
 
-ARMADILHA 3: a banda de vincendo em 12 meses acaba em 2022, porque a aba 5.7 do
-anexo de jun/26 termina em "PAF 2022" -- e o referencia/paf_bandas.csv, que alcanca
-2026, guarda seis indicadores e vincendo nao e um deles.
+ARMADILHA 3: a banda de vincendo em 12 meses vem de DUAS fontes. A aba 5.7 do anexo
+de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv alcanca 2026 e guarda o
+indicador vincendo_12m_pct, que e opcional por ano justamente porque a 5.7 ja cobre o
+passado. Onde os dois tem o mesmo ano, tem de dar a mesma banda -- e isso e teste,
+nao confianca.
 """
 
 import pandas as pd
@@ -105,12 +107,11 @@ def dados_faixas():
     return piv.div(piv.sum(axis=1), axis=0) * 100
 
 
-def banda_vincendo_12m():
-    """Banda do PAF para o vincendo em 12 meses, de 2003 a 2022.
+def banda_da_57():
+    """Banda do vincendo em 12 meses como a aba 5.7 do RMD a publica: 2003 a 2022.
 
-    Vem da aba 5.7 (paf_metas.csv) e nao do referencia/paf_bandas.csv, que guarda
-    seis indicadores e nao inclui este. Onde ha revisao, vale a revisada -- a que
-    estava em vigor no fechamento -- pelo mesmo criterio do modulo paf.
+    Onde ha revisao, vale a revisada -- a que estava em vigor no fechamento -- pelo
+    mesmo criterio do modulo paf.
     """
     m = pd.read_csv(config.PROCESSED_DIR / "paf_metas.csv")
     d = m[m["indicador"] == "% Vincendo em 12 meses"]
@@ -122,6 +123,28 @@ def banda_vincendo_12m():
         saida.loc[ano, "minimo"] = rev.loc[ano, "minimo"]
         saida.loc[ano, "maximo"] = rev.loc[ano, "maximo"]
     return saida
+
+
+def banda_vincendo_12m():
+    """Banda do PAF para o vincendo em 12 meses, das duas fontes que a publicam.
+
+    A aba 5.7 do RMD cobre 2003 a 2022 e vem por parser; o referencia/paf_bandas.csv
+    e digitado a mao da planilha do PAF e cobre o que veio depois. As duas entram, e
+    a de referencia PREVALECE onde as duas tem o ano -- ela e a fonte oficial, e e a
+    que guarda oito revisoes contra as quatro da 5.7.
+
+    Prevalecer nao e o mesmo que divergir em silencio: um teste confere que as duas
+    dao a mesma banda em todo ano compartilhado. Se um dia divergirem, alguem
+    descobre pelo teste, e nao por um grafico com a banda errada.
+    """
+    from . import paf
+
+    saida = banda_da_57()[["minimo", "maximo"]]
+    referencia = paf.bandas("vincendo_12m_pct")[["minimo", "maximo"]]
+    for ano in referencia.index:
+        saida.loc[ano, "minimo"] = referencia.loc[ano, "minimo"]
+        saida.loc[ano, "maximo"] = referencia.loc[ano, "maximo"]
+    return saida.sort_index()
 
 def desenha_cronograma(anual, mensal, fig):
     """Painel anual com o balde, e o detalhe mensal embaixo.

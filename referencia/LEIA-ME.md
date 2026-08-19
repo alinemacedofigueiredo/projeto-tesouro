@@ -13,7 +13,7 @@ O PAF (Plano Anual de Financiamento) define, para cada ano, uma faixa de mínimo
 máximo para os indicadores da dívida. É contra essas faixas que os gráficos de
 composição e de prazo médio comparam o realizado.
 
-Cobre **2003 a 2026**, com 192 linhas.
+Cobre **2003 a 2026**, com 193 linhas.
 
 ### As colunas
 
@@ -26,7 +26,7 @@ Cobre **2003 a 2026**, com 192 linhas.
 | `maximo` | teto da banda |
 | `realizado` | o que de fato aconteceu no fechamento do ano |
 
-### Os seis indicadores
+### Os seis indicadores obrigatórios
 
 Os nomes são fixos. Escreva exatamente assim, sem acento e sem espaço:
 
@@ -37,8 +37,40 @@ Os nomes são fixos. Escreva exatamente assim, sem acento e sem espaço:
 - `taxa_flutuante_pct` — participação da taxa flutuante, em % da DPF
 - `cambio_pct` — participação do câmbio, em % da DPF
 
+Todo ano precisa dos seis. Faltar um é erro, e o validador acusa.
+
+### O sétimo, que é opcional
+
+- `vincendo_12m_pct` — participação do que vence em 12 meses, em % da DPF
+
+**Por que é opcional.** A aba 5.7 do anexo do RMD já publica essa banda de **2003 a
+2022**, e o nosso parser a lê de lá (`paf_metas.csv`). Aqui só precisam entrar os
+anos que a 5.7 não alcança — exigi-lo em todo ano obrigaria a redigitar vinte anos de
+dado que já temos por parser.
+
+**Hoje há uma lacuna: 2023, 2024 e 2025.** A 5.7 termina em 2022 e este arquivo
+começa em 2026. Nesses três anos o gráfico de composição por horizonte não desenha
+banda nenhuma — o buraco é a lacuna, não um defeito. Para fechá-la, acrescente uma
+linha por ano, no formato:
+
+```
+2025,original,vincendo_12m_pct,<mínimo>,<máximo>,
+```
+
+O `realizado` fica vazio: nenhuma coluna `realizado` deste arquivo é lida por nada.
+Se um dia um ano aqui coincidir com um ano da 5.7, um teste confere que as duas
+fontes dão a mesma banda — divergência aparece como teste vermelho, e não como
+gráfico errado.
+
 **Nota histórica:** até 2010 o PAF chamava a taxa flutuante de "Selic". É o mesmo
 indicador, e aqui ele aparece sempre como `taxa_flutuante_pct`.
+
+**Onde a banda entra:** este arquivo é a fonte da banda de quatro gráficos — a
+composição do estoque por indexador, o prazo médio, a composição por horizonte
+(pelo `vincendo_12m_pct`) e, quando houver, o estoque. Um valor errado aqui vira
+banda errada no gráfico, que é defeito que ninguém enxerga olhando a figura — por
+isso o validador roda **antes** de qualquer leitura, e um erro derruba a geração do
+dashboard em vez de deixá-lo desenhar.
 
 ### Original e revisado
 
