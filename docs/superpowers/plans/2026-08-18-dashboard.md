@@ -3247,3 +3247,478 @@ git commit -m "Adiciona as duas versoes da reserva de liquidez"
 ```
 
 ---
+
+## Task 10: Os três candidatos
+
+**Files:**
+- Modify: `src/tesouro/graficos/vencimentos.py` (perfil completo até 2084)
+- Modify: `src/tesouro/graficos/custo.py` (custo de emissão contra o do estoque)
+- Create: `src/tesouro/graficos/leiloes.py` (emissão anual por papel)
+- Test: `tests/test_graficos_candidatos.py`
+
+**Interfaces:**
+- Produces:
+  - `vencimentos.dados_perfil_completo()` -> DataFrame indexado por ano de
+    vencimento, uma coluna por família de título, em R$ milhões.
+  - `vencimentos.desenha_perfil_completo(dados, ax)`
+  - `custo.dados_custo_emissao(janela=None)` -> DataFrame indexado por data, colunas
+    `emissao, estoque`, em % ao ano.
+  - `custo.desenha_custo_emissao(dados, ax)`
+  - `leiloes.dados_emissao_anual_papel(anos=12)` -> DataFrame indexado por ano, uma
+    coluna por papel **em percentual**, mais `total_milhoes` e `cobertura_pct`.
+  - `leiloes.desenha_emissao_anual_papel(dados, ax, ano_parcial)`
+
+**Fonte:** `estoque_titulos_vencimento.csv` (aba 2.2), `custo_medio.csv` medida
+`emissoes_12m` (abas 4.2/4.3), e `leiloes.csv` cruzado com `funding_por_indexador.csv`
+para a cobertura.
+
+**Por que esta tarefa existe.** Os três foram construídos em rascunho, **não são os
+preferidos da dona do projeto, e ela mandou guardá-los**. Ficam num grupo próprio no
+fim do índice: "cada um escolhe o que olhar" vale de verdade, sem poluir a primeira
+leitura. Guardar custa pouco; reconstruir depois custa a conversa toda de novo.
+
+**Decisões tomadas com a usuária que o código deve respeitar:**
+
+- **O perfil completo agrupa em seis famílias**, e mantém a NTN-B1 separada da NTN-B.
+  Sem isso a cauda desaparece: **tudo que vence depois de 2060 é NTN-B1 RendA+**, e o
+  último ano, 2084, são 6,5 bi só dela.
+- **O custo de emissão anda com o do estoque no mesmo gráfico.** Sozinho ele não diz
+  nada; contra o estoque mostra que o Tesouro está emitindo a 14,20% enquanto carrega
+  a 13,19% — a dívida vai ficar mais cara sem que nada mude.
+- **A emissão anual por papel foi recusada como gráfico principal** e vive aqui, com
+  a cobertura escrita ao lado. É a razão da recusa, e tem que estar visível.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **O `leiloes.csv` vai além do RMD.** Ele tem leilões até **13/08/2026** e o RMD
+   para em jun/26. Sem cortar na última competência do RMD, a cobertura de 2026 dá
+   **120%** — o gráfico compara oito meses de leilão contra seis de RMD e parece que
+   os leilões emitiram mais do que a emissão total.
+2. **A cobertura não é 100% e é por isso que este gráfico é candidato.** Nos anos
+   fechados ela fica entre **93,0% e 97,3%**; a emissão por indexador da aba 1.2
+   cobre 100%. É a diferença que fez a usuária preferir o gráfico principal.
+3. **A diferença de 16,6 bi entre a 2.2 e a 3.4 continua sem explicação.** O perfil
+   soma 8.904,1 bi e o cronograma 8.920,7. Os dois gráficos coexistem por decisão, e
+   a diferença é **travada por teste com o valor atual**, para que mudar sem querer
+   seja detectado. A causa fica para investigação posterior — não tente conciliar
+   aqui.
+4. **Linhas com financeiro zero enchem o eixo.** A aba 2.2 traz papéis já vencidos
+   com quantidade e financeiro zerados, e o ano deles é o do vencimento passado: sem
+   filtrar, o eixo do perfil começa em 2010 com quatorze anos vazios.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_candidatos.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro import config
+from tesouro.graficos import custo, estilo, leiloes, vencimentos
+
+
+# ---------------------------------------------------------------------------
+# Candidato 1: perfil completo de vencimentos, ate 2084
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def perfil():
+    return vencimentos.dados_perfil_completo()
+
+
+def test_o_perfil_completo_vai_ate_2084(perfil):
+    assert perfil.index.min() == 2026
+    assert perfil.index.max() == 2084
+    # Anos ja vencidos entram no CSV com financeiro zero; sem filtrar, o eixo
+    # comecaria em 2010 com quatorze anos vazios.
+    assert len(perfil) == 34
+
+
+def test_a_diferenca_de_166_bi_contra_o_cronograma_esta_travada(perfil):
+    # Os dois graficos de vencimento coexistem por decisao. A diferenca e travada
+    # com o valor de hoje para que mudar sem querer seja detectado; a causa fica
+    # para investigacao posterior (ver a spec, secao 10).
+    total_perfil = perfil.sum().sum() / 1000
+    cronograma = vencimentos.dados_cronograma_anual().sum().sum() / 1000
+    assert round(total_perfil, 1) == 8904.1
+    assert round(cronograma, 1) == 8920.7
+    assert round(cronograma - total_perfil, 1) == 16.6
+
+
+def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
+    # Depois de 2040 nao ha mais LFT, LTN nem NTN-F: so indice de precos. E o
+    # motivo de a NTN-B1 ficar separada da NTN-B -- o ultimo ano da divida,
+    # 2084, sao 6,5 bi de RendA+ e mais nada.
+    tarde = perfil[perfil.index > 2040]
+    for familia in ("LFT", "LTN", "NTN-F"):
+        assert tarde[familia].sum() == 0
+    assert round(perfil.loc[2084, "NTN-B1"] / 1000, 1) == 6.5
+    assert round(perfil.loc[2084].sum() / 1000, 1) == 6.5
+
+
+# ---------------------------------------------------------------------------
+# Candidato 2: custo de emissao contra o do estoque
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def emissao():
+    return custo.dados_custo_emissao()
+
+
+def test_o_custo_de_emissao_bate_com_o_medido(emissao):
+    u = emissao.iloc[-1]
+    assert round(u["emissao"], 2) == 14.20
+    assert round(u["estoque"], 2) == 13.19
+    # O fato que o grafico existe para mostrar: emite-se mais caro do que se
+    # carrega, entao a divida encarece sem que nada mude.
+    assert u["emissao"] > u["estoque"]
+
+
+def test_o_custo_de_emissao_comeca_em_dezembro_de_2010(emissao):
+    assert emissao.index.min() == pd.Timestamp("2010-12-31")
+    assert len(emissao) == 187
+
+
+def test_o_custo_do_estoque_e_o_mesmo_nos_dois_graficos():
+    # Coerencia entre graficos que dividem fonte: o custo da DPMFi aparece no
+    # grafico principal e neste, e tem de dar o mesmo numero.
+    principal = custo.dados_custo().iloc[-1]["DPMFi"]
+    candidato = custo.dados_custo_emissao().iloc[-1]["estoque"]
+    assert abs(principal - candidato) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Candidato 3: emissao anual por papel, dos leiloes
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def anual():
+    return leiloes.dados_emissao_anual_papel()
+
+
+def test_a_emissao_anual_por_papel_bate_com_o_medido(anual):
+    assert round(anual.loc[2025, "LFT"], 1) == 39.6
+    assert round(anual.loc[2025, "LTN"], 1) == 33.1
+    assert round(anual.loc[2025, "NTN-B"], 1) == 18.1
+    assert round(anual.loc[2025, "NTN-F"], 1) == 9.2
+    assert round(anual.loc[2024, "LFT"], 1) == 65.1     # o ano da LFT
+
+
+def test_cada_ano_da_emissao_por_papel_soma_100(anual):
+    cols = [c for c in anual.columns
+            if c not in ("total_milhoes", "cobertura_pct")]
+    assert (anual[cols].sum(axis=1) - 100).abs().max() < 0.01
+
+
+def test_os_leiloes_sao_cortados_na_ultima_competencia_do_rmd(anual):
+    # O leiloes.csv vai ate 13/08/2026 e o RMD para em jun/26. Sem cortar, a
+    # cobertura de 2026 da 120% -- oito meses de leilao contra seis de RMD.
+    bruto = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                        parse_dates=["data_leilao"])
+    assert bruto["data_leilao"].max() > pd.Timestamp("2026-06-30"), \
+        "o teste so vale se o CSV de leiloes for alem do RMD"
+    assert round(anual.loc[2026, "total_milhoes"] / 1000, 1) == 842.6
+    assert anual.loc[2026, "cobertura_pct"] < 100
+
+
+def test_a_cobertura_dos_anos_fechados_fica_entre_93_e_98(anual):
+    # A razao de este grafico ser candidato: a aba 1.2 cobre 100% da emissao, os
+    # leiloes cobrem de 93,0% a 97,3%.
+    fechados = anual[anual.index < 2026]["cobertura_pct"]
+    assert fechados.min() >= 93.0
+    assert fechados.max() <= 97.5
+    assert round(fechados.loc[2024], 1) == 93.0
+
+
+def test_a_nota_de_cobertura_aparece_no_desenho(anual):
+    # A licao que custou seis rodadas na entrega 2: esta assercao precisa FALHAR
+    # quando a linha que escreve a nota e apagada. Ver o Passo 6.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    leiloes.desenha_emissao_anual_papel(anual, ax, ano_parcial=2026)
+    textos = " ".join(t.get_text() for t in ax.texts)
+    plt.close(fig)
+    assert "cobertura" in textos.lower()
+    assert "93" in textos or "97" in textos
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_candidatos.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'leiloes'`.
+
+- [ ] **Passo 3: o perfil completo, em `vencimentos.py`**
+
+```python
+# acrescentar em src/tesouro/graficos/vencimentos.py
+
+# A aba 2.2 traz nove nomes de titulo. Eles viram seis familias, e a NTN-B1 fica
+# SEPARADA da NTN-B de proposito: tudo que vence depois de 2060 e NTN-B1 RendA+, e
+# juntar as duas apagaria a cauda inteira do grafico.
+_FAMILIA = {"LFT": "LFT",
+            "LFT-TD1 Reserva": "LFT",
+            "LTN": "LTN",
+            "NTN-B": "NTN-B",
+            "NTN-B Principal": "NTN-B",
+            "NTN-B1 EducA+": "NTN-B1",
+            "NTN-B1 RendA+": "NTN-B1",
+            "NTN-C": "NTN-C",
+            "NTN-F": "NTN-F"}
+
+ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B", "NTN-B1", "NTN-C"]
+
+_COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
+                "NTN-B": "NTN-B", "NTN-B1": "NTN-C", "NTN-C": "Outros"}
+
+
+def dados_perfil_completo():
+    """Vencimentos por ano ate 2084, por familia de titulo, em R$ milhoes.
+
+    Vem da aba 2.2, papel a papel -- diferente do cronograma, que vem da 3.4 e para
+    em 60 meses. Os dois nao fecham: 8.904,1 aqui contra 8.920,7 la, 16,6 bi de
+    diferenca cuja causa esta em aberto e travada por teste.
+
+    ARMADILHA: papeis ja vencidos ficam no CSV com financeiro zero e ano de
+    vencimento no passado. Sem filtrar, o eixo comeca em 2010 com quatorze anos
+    vazios.
+    """
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    u = e[(e["data"] == e["data"].max()) & (e["financeiro_milhoes"] > 0)].copy()
+    u["ano"] = u["vencimento"].dt.year
+    u["familia"] = [_FAMILIA[t] for t in u["titulo"]]
+
+    piv = u.pivot_table(index="ano", columns="familia",
+                        values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
+    for familia in ORDEM_FAMILIAS:
+        if familia not in piv.columns:
+            piv[familia] = 0.0
+    return piv[ORDEM_FAMILIAS]
+
+
+def desenha_perfil_completo(dados, ax):
+    """Barras empilhadas por ano, do proximo ao ultimo.
+
+    O eixo do tempo e categorico e nao continuo: entre 2060 e 2084 ha quatro anos
+    com divida e vinte sem, e um eixo continuo gastaria metade da largura com
+    espaco vazio.
+    """
+    posicoes = range(len(dados))
+    base = pd.Series(0.0, index=dados.index)
+    for familia in dados.columns:
+        ax.bar(list(posicoes), dados[familia] / 1000, bottom=base / 1000,
+               width=0.78, color=estilo.COR[_COR_FAMILIA[familia]], label=familia)
+        base = base + dados[familia]
+
+    ax.set_xticks(list(posicoes))
+    ax.set_xticklabels([str(a) for a in dados.index], rotation=90, fontsize=8)
+    ax.set_ylabel("R$ bilh\u00f5es a vencer")
+    ax.legend(ncol=6, frameon=False, loc="upper right")
+    ax.grid(axis="y", alpha=0.25)
+```
+
+- [ ] **Passo 4: o custo de emissão, em `custo.py`**
+
+```python
+# acrescentar em src/tesouro/graficos/custo.py
+
+def dados_custo_emissao(janela=None):
+    """Custo das emissoes dos ultimos 12 meses contra o custo do estoque, DPMFi.
+
+    O custo de emissao sozinho nao diz nada; contra o do estoque mostra a direcao:
+    em jun/26 o Tesouro emite a 14,20% e carrega a 13,19%, entao a divida encarece
+    sem que nenhuma decisao nova seja tomada.
+
+    A serie de emissoes comeca em dez/2010, cinco anos depois da do estoque, e por
+    isso este grafico e mais curto que o principal.
+    """
+    c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
+    agregado = c[(c["nivel"] == "DPMFi")
+                 & c["entidade"].isna() & c["titulo"].isna()]
+    piv = agregado.pivot_table(index="data", columns="medida",
+                               values="custo_aa_pct")
+
+    saida = pd.DataFrame(index=piv.index)
+    saida["emissao"] = piv["emissoes_12m"]
+    saida["estoque"] = piv["acum_12m"]
+    saida = saida.dropna(subset=["emissao"])
+    return estilo.recorta(saida, janela)
+
+
+def desenha_custo_emissao(dados, ax):
+    """As duas linhas, com a diferenca sombreada entre elas."""
+    ax.plot(dados.index, dados["emissao"], color="#c00000", lw=2.4,
+            label="custo das emiss\u00f5es em 12m")
+    ax.plot(dados.index, dados["estoque"], color="#1f3864", lw=2.4,
+            label="custo do estoque em 12m")
+    ax.fill_between(dados.index, dados["emissao"], dados["estoque"],
+                    where=dados["emissao"] >= dados["estoque"], interpolate=True,
+                    color="#c00000", alpha=0.14)
+    ax.fill_between(dados.index, dados["emissao"], dados["estoque"],
+                    where=dados["emissao"] < dados["estoque"], interpolate=True,
+                    color="#1f3864", alpha=0.14)
+
+    for coluna, cor in (("emissao", "#c00000"), ("estoque", "#1f3864")):
+        ax.annotate(estilo.num_br(dados[coluna].iloc[-1], 2),
+                    xy=(dados.index[-1], dados[coluna].iloc[-1]), xytext=(6, 0),
+                    textcoords="offset points", fontsize=9.5, weight="bold",
+                    color=cor, va="center")
+
+    ax.set_ylabel("% ao ano")
+    estilo.grade_fina(ax, 2, 1)
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=2, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.08))
+```
+
+- [ ] **Passo 5: a emissão anual por papel, em `leiloes.py`**
+
+```python
+# src/tesouro/graficos/leiloes.py
+"""Emissao anual por papel, a partir dos leiloes. Grafico CANDIDATO.
+
+A usuaria pediu a composicao da emissao por papel, viu esta versao e preferiu a por
+indexador (o grafico principal, no funding.py): pela aba 1.2 a cobertura e 100% da
+emissao do RMD, e por aqui fica entre 93,0% e 97,3%. Este ficou guardado, e a
+cobertura de cada ano vai escrita no proprio grafico -- e a razao da recusa, e
+esconde-la seria esconder o defeito.
+
+ARMADILHA: o leiloes.csv vai alem do RMD -- tem leilao ate 13/08/2026 enquanto o
+RMD para em jun/26. Sem cortar na ultima competencia do RMD, 2026 da cobertura de
+120%, comparando oito meses de leilao com seis meses de emissao.
+"""
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+JANELAS = {"5 anos": 5, "completa": None}
+
+ORDEM_PAPEIS = ["LFT", "LTN", "NTN-B", "NTN-F", "NTN-C", "NTN-D"]
+
+
+def ultima_competencia_do_rmd():
+    """Ultimo mes que o RMD cobre. E onde os leiloes tem de ser cortados."""
+    f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
+                    parse_dates=["data"])
+    return f["data"].max()
+
+
+def dados_emissao_anual_papel(anos=12):
+    """Composicao da emissao por papel, ano a ano, em percentual.
+
+    'total_milhoes' e o tamanho do ano; 'cobertura_pct' e quanto os leiloes
+    representam da emissao que o RMD registra no mesmo ano -- o numero que fez a
+    usuaria preferir o grafico por indexador.
+    """
+    corte = ultima_competencia_do_rmd()
+
+    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                    parse_dates=["data_leilao"])
+    venda = l[(l["tipo_leilao"] == "Venda") & (l["data_leilao"] <= corte)].copy()
+    venda["ano"] = venda["data_leilao"].dt.year
+    piv = venda.pivot_table(index="ano", columns="titulo",
+                            values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
+    piv = piv.loc[:, piv.sum() > 0]
+    piv = piv[piv.index >= piv.index.max() - anos + 1]
+
+    f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
+                    parse_dates=["data"])
+    emissao = f[(f["esfera"] == "DPMFi") & (f["operacao"] == "emissao")].copy()
+    emissao["ano"] = emissao["data"].dt.year
+    do_rmd = emissao.groupby("ano")["valor_milhoes"].sum()
+
+    total = piv.sum(axis=1)
+    saida = (piv.div(total, axis=0) * 100)[[p for p in ORDEM_PAPEIS
+                                            if p in piv.columns]].copy()
+    saida["total_milhoes"] = total
+    saida["cobertura_pct"] = total / do_rmd.reindex(total.index) * 100
+    return saida
+
+
+def desenha_emissao_anual_papel(dados, ax, ano_parcial):
+    """Barra de 100% por ano, com o total acima e a cobertura escrita embaixo."""
+    cols = [c for c in dados.columns
+            if c not in ("total_milhoes", "cobertura_pct")]
+    base = pd.Series(0.0, index=dados.index)
+    for papel in cols:
+        ax.bar(dados.index, dados[papel], bottom=base, width=0.72,
+               color=estilo.COR[papel], label=papel)
+        for x in dados.index:
+            altura = dados.loc[x, papel]
+            if altura >= 4:
+                ax.text(x, base[x] + altura / 2, f"{altura:.0f}", ha="center",
+                        va="center", fontsize=8.5, color="white", weight="bold")
+        base = base + dados[papel]
+
+    for x in dados.index:
+        ax.text(x, 101.5,
+                estilo.num_br(dados.loc[x, "total_milhoes"] / 1000, 0) + " bi",
+                ha="center", fontsize=8, color="#444444")
+
+    fechados = dados[dados.index != ano_parcial]["cobertura_pct"]
+    ax.text(0.5, -0.20,
+            "cobertura dos leil\u00f5es sobre a emiss\u00e3o do RMD: "
+            + estilo.num_br(fechados.min(), 1) + "% a "
+            + estilo.num_br(fechados.max(), 1) + "% nos anos fechados",
+            transform=ax.transAxes, ha="center", fontsize=9,
+            color=estilo.COR["neutro"])
+
+    ax.set_ylim(0, 108)
+    ax.set_xticks(list(dados.index))
+    ax.set_xticklabels([str(a) if a != ano_parcial else f"{a}*"
+                        for a in dados.index])
+    ax.set_ylabel("% do financeiro emitido no ano")
+    ax.legend(ncol=len(cols), frameon=False, loc="lower center",
+              bbox_to_anchor=(0.5, -0.13))
+    ax.grid(axis="y", alpha=0.20)
+```
+
+- [ ] **Passo 6: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_candidatos.py -v
+```
+
+Esperado: 11 passed.
+
+- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- tire o `financeiro_milhoes > 0` do perfil — o teste dos 34 anos deve falhar;
+- junte a NTN-B1 na NTN-B no `_FAMILIA` — o teste da cauda deve falhar;
+- troque `medida` `emissoes_12m` por `mensal` no custo de emissão — a âncora de
+  14,20 deve falhar;
+- troque `piv["acum_12m"]` por `piv["mensal"]` — o teste de coerência entre os dois
+  gráficos deve falhar. **É o teste mais importante desta tarefa:** ele é o que
+  garante que o mesmo número não apareça diferente em dois lugares do dashboard;
+- tire o `data_leilao <= corte` — o teste do corte deve falhar, com 2026 passando de
+  100% de cobertura;
+- **apague a linha do `ax.text` da cobertura** e rode
+  `test_a_nota_de_cobertura_aparece_no_desenho`. Ela **tem** que falhar. Se passar, a
+  asserção está afirmando o resultado em vez da intenção, e é exatamente o defeito
+  que custou seis rodadas na entrega 2. Restaure.
+
+- [ ] **Passo 8: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 392 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/ tests/test_graficos_candidatos.py
+git commit -m "Adiciona os tres graficos candidatos"
+```
+
+---
