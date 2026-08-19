@@ -39,7 +39,8 @@ Copiadas da spec. Valem para toda tarefa deste plano.
 "` explícito** e construa o escape
   Unicode em tempo de execução (`chr(92) + "u%04x" % ord(c)`). Sem o primeiro, o
   Windows traduz `
-` para `
+` para `
+
 ` e a leitura seguinte dobra todas as linhas em
   branco; sem o segundo, a camada que grava interpreta o `ç` de volta para o
   byte acentuado. **As duas coisas aconteceram** ao executar as tarefas 1 a 5. O
@@ -1949,9 +1950,12 @@ meses.
    ele guarda seis, e vincendo não é um deles. Então a banda é desenhada até 2022 e a
    legenda diz isso. Silenciar seria pior: o leitor entende ausência de banda como
    ausência de meta.
-4. **A série de faixas da DPF começa em 2006, não em 1999.** O `vencimentos_faixa.csv`
-   tem DPMFi desde dez/1999, mas DPF só a partir de jan/2006. Filtrar por nível depois
-   de calcular o percentual mistura os dois.
+4. **A série de faixas da DPF começa em nov/2006, não em 1999 nem em jan/2006.** O
+   `vencimentos_faixa.csv` tem DPMFi desde dez/1999; o bloco DPF tem 246 meses a
+   partir de jan/2006, mas os **dez primeiros vêm zerados** — a série só começa em
+   nov/2006, a mesma data em que a do prazo médio começa. Filtrar por nível depois de
+   calcular o percentual mistura os dois níveis; não descartar os dez meses zerados
+   faz a divisão dar 0/0 e abre a área empilhada com um buraco.
 5. **A diferença de 16,6 bi contra a aba 2.2** é conhecida e travada por teste na
    Task 10, onde o outro gráfico de vencimentos nasce. Não é para conciliar aqui.
 
@@ -2038,9 +2042,12 @@ def test_as_faixas_da_dpf_batem_com_o_medido(faixas):
 def test_cada_mes_das_faixas_soma_100(faixas):
     assert len(faixas.columns) == 4
     assert (faixas.sum(axis=1) - 100).abs().max() < 1e-9
-    # DPF so existe a partir de jan/2006 -- antes disso o CSV tem DPMFi apenas.
-    assert faixas.index.min() == pd.Timestamp("2006-01-31")
-    assert len(faixas) == 246
+    # O bloco DPF da aba 3.1 tem 246 meses, mas os dez primeiros (jan a out/2006)
+    # vem ZERADOS -- a serie so comeca de fato em nov/2006, a mesma data em que a
+    # do prazo medio comeca. Mantidos, eles viram dez meses somando zero por cento,
+    # e a area empilhada abre com um buraco que parece dado faltando.
+    assert faixas.index.min() == pd.Timestamp("2006-11-30")
+    assert len(faixas) == 236
 
 
 def test_a_banda_de_vincendo_em_12_meses_para_em_2022():
@@ -2101,9 +2108,13 @@ def test_a_banda_nao_e_desenhada_onde_nao_existe():
     fig = plt.figure(figsize=(13, 8))
     vencimentos.desenha_faixas(vencimentos.dados_faixas(),
                                vencimentos.banda_vincendo_12m(), fig)
-    faixas_desenhadas = [c for ax in fig.axes for c in ax.collections]
+    # So o painel de baixo: o stackplot do de cima tambem cria colecoes, uma por
+    # faixa, e contar as duas coisas juntas mede outra coisa.
+    faixas_desenhadas = list(fig.axes[1].collections)
+    de_cima = list(fig.axes[0].collections)
     plt.close(fig)
-    # Uma por ano de 2006 (inicio da nossa serie) a 2022.
+    assert len(de_cima) == 4, "as quatro faixas da area empilhada"
+    # Uma banda por ano, de 2006 (inicio da nossa serie) a 2022 (fim da banda).
     assert len(faixas_desenhadas) == 17
 ```
 
@@ -2220,6 +2231,12 @@ def dados_faixas():
                           values="valor_milhoes", aggfunc="sum").fillna(0.0)
     piv["De 2 a 5 anos"] = piv[_DE_2_A_5].sum(axis=1)
     piv = piv[ORDEM_FAIXAS]
+
+    # Os dez primeiros meses do bloco DPF (jan a out/2006) vem zerados: a serie so
+    # comeca em nov/2006. Sem tirar, a divisao pelo total da 0/0 e a area empilhada
+    # abre com dez meses somando zero por cento -- que se le como dado faltando.
+    piv = piv[piv.sum(axis=1) > 0]
+
     return piv.div(piv.sum(axis=1), axis=0) * 100
 
 
@@ -2342,10 +2359,16 @@ Esperado: 11 passed.
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
 
+- tire o `piv = piv[piv.sum(axis=1) > 0]` — a soma de 100 deve falhar nos dez meses
+  zerados de 2006;
 - apague a linha `piv.loc["Após 5 anos"] = balde` — o teste do balde deve falhar e o
   total cair para 6.913,8;
 - deixe o balde entrar no `dados_cronograma_mensal` (tire o filtro
-  `faixa == "mensal"`) — o teste dos 60 meses deve falhar;
+  `faixa == "mensal"`) — **o teste continua passando**, e isso foi medido. O
+  `pivot_table(index="mes_vencimento")` descarta em silêncio as linhas com índice
+  vazio, e o balde nasce sem mês: o pandas já faz o trabalho do filtro. O filtro
+  fica como declaração de intenção, mas quem lê deve saber que aquela asserção
+  protege o **total** de 6.913,8, não o filtro;
 - troque `ANOS_PARCIAIS = (2026, 2031)` por `()` — o teste do asterisco deve falhar;
 - tire o `if ano not in banda.index: continue` do desenho — o teste das 17 faixas
   deve falhar, porque passaria a desenhar até 2026;
