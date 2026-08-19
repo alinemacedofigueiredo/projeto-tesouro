@@ -102,6 +102,21 @@ def main(argumentos=None):
     from . import figuras
     figuras.gravar_todas()
 
+    print("\n--- dashboard ---")
+    try:
+        from .graficos import dashboard
+        caminho = dashboard.grava()
+        print(f"dashboard gravado em {caminho}")
+    except Exception as erro:               # noqa: BLE001
+        # O paf.bandas levanta de proposito quando referencia/paf_bandas.csv esta
+        # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico
+        # com banda errada. Aqui isso vira falha visivel e codigo de saida 1, do
+        # mesmo jeito que a coleta da Bloomberg, em vez de sumir no meio do log.
+        mensagem = f"a geracao do dashboard FALHOU: {erro}"
+        print(f"ATENCAO: {mensagem}")
+        falhas.append(mensagem)
+
+
     if falhas:
         print(
             "\nATENCAO: concluido com falha(s) -- os CSVs acima podem "

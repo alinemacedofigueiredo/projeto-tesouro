@@ -4685,7 +4685,10 @@ def test_o_pipeline_grava_o_dashboard_depois_das_figuras(monkeypatch):
 
     assert pipeline.main(["--sem-coleta"]) == 0
     assert "dashboard.grava" in chamadas
-    assert chamadas.index("dashboard.grava") > chamadas.index("gravar_todas")
+    # O _stub_gravacoes que ja existe no arquivo registra o nome QUALIFICADO --
+    # "tesouro.figuras.gravar_todas", nao "gravar_todas".
+    assert (chamadas.index("dashboard.grava")
+            > chamadas.index("tesouro.figuras.gravar_todas"))
 
 
 def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatch,

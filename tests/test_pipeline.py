@@ -205,3 +205,40 @@ def test_import_do_fetch_bloomberg_fica_fora_do_sem_coleta(monkeypatch):
     _stub_gravacoes(monkeypatch)
     codigo = pipeline.main(["--sem-coleta"])
     assert codigo == 0
+
+
+def test_o_pipeline_grava_o_dashboard_depois_das_figuras(monkeypatch):
+    # Os graficos leem os CSVs que as etapas anteriores acabaram de escrever:
+    # gerar o dashboard antes produz um HTML com o dado do mes passado.
+    from tesouro.graficos import dashboard
+
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    monkeypatch.setattr(dashboard, "grava",
+                        lambda *a, **k: chamadas.append("dashboard.grava"))
+
+    assert pipeline.main(["--sem-coleta"]) == 0
+    assert "dashboard.grava" in chamadas
+    # O _stub_gravacoes que ja existe no arquivo registra o nome QUALIFICADO --
+    # "tesouro.figuras.gravar_todas", nao "gravar_todas".
+    assert (chamadas.index("dashboard.grava")
+            > chamadas.index("tesouro.figuras.gravar_todas"))
+
+
+def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatch,
+                                                                     capsys):
+    # O paf.bandas levanta de proposito quando a referencia esta quebrada. Isso
+    # tem de aparecer como falha real, nao sumir no meio do log.
+    from tesouro.graficos import dashboard
+
+    _stub_gravacoes(monkeypatch)
+
+    def _explode(*args, **kwargs):
+        raise ValueError("paf_bandas.csv esta invalido")
+
+    monkeypatch.setattr(dashboard, "grava", _explode)
+
+    assert pipeline.main(["--sem-coleta"]) == 1
+    saida = capsys.readouterr().out
+    assert "dashboard" in saida.lower()
+    assert "paf_bandas.csv" in saida
