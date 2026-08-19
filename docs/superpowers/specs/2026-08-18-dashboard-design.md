@@ -278,8 +278,11 @@ independente, que é o que pega defeito plausível-e-errado.
 
 **Coerência entre gráficos que dividem fonte.** O custo aparece em dois gráficos e
 tem que dar o mesmo número. As duas versões de vencimentos coexistem por decisão, e
-a diferença de 16,6 bi entre elas é **travada por teste** com o valor atual, para que
-mudar sem querer seja detectado; a causa fica para investigação posterior.
+a diferença de 16,6 bi entre elas é **travada por teste** — não só o total, mas a
+decomposição: 12,9 de "Demais" mais 3,4 de Dívida Securitizada mais 0,3 de TDA, que
+são o que a aba 2.2 não lista. Travar a causa e não só a magnitude importa porque a
+diferença poderia mudar de tamanho e de origem ao mesmo tempo, e um teste do total
+sozinho continuaria passando.
 
 **Testes de desenho, mínimos mas com dentes.** A lição que custou seis rodadas na
 entrega 2: uma asserção que afirma que a nota de cobertura existe precisa **falhar
@@ -325,7 +328,7 @@ Medidas durante os rascunhos. Cada uma produziria gráfico plausível e errado.
 
 | assunto | situação |
 |---|---|
-| Diferença de 16,6 bi entre os totais da 3.4 e da 2.2 | Os dois gráficos coexistem; a diferença é travada por teste e investigada depois |
+| Diferença de 16,6 bi entre os totais da 3.4 e da 2.2 | **Resolvida em 19/08/2026.** Todo papel com nome bate na casa decimal. A diferença inteira está no balde "Demais" da 3.4 (34,7 bi): dele, a 2.2 lista a NTN-B1 (18,1) e mais nada — "Demais" (12,9), Dívida Securitizada (3,4) e TDA (0,3) não têm linha lá, porque a 2.2 é tabela título a título, por ISIN e vencimento. Travada por teste, agora na decomposição e não só no total |
 | Divergência de 12 meses dos detentores contra o slide do RMD | O nosso dado foi verificado contra a célula crua da aba 2.7 e está fiel ao anexo. A origem do número do slide é desconhecida. Documentar, não perseguir |
 | Descontinuidade do Governo em 2012 na aba 2.8 | **Resolvida:** a LFT vai de ~100 para 40 e depois a zero, provavelmente mudança de regra. Dado real, não defeito |
 | Decomposição do custo de emissão | Precisa das taxas de leilão cruzadas com o VNA. Trabalho próprio |

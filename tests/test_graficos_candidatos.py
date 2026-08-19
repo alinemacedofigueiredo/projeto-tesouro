@@ -26,14 +26,55 @@ def test_o_perfil_completo_vai_ate_2084(perfil):
 
 
 def test_a_diferenca_de_166_bi_contra_o_cronograma_esta_travada(perfil):
-    # Os dois graficos de vencimento coexistem por decisao. A diferenca e travada
-    # com o valor de hoje para que mudar sem querer seja detectado; a causa fica
-    # para investigacao posterior (ver a spec, secao 10).
+    # Os dois graficos de vencimento coexistem por decisao, e a diferenca entre os
+    # totais e travada aqui.
     total_perfil = perfil.sum().sum() / 1000
     cronograma = vencimentos.dados_cronograma_anual().sum().sum() / 1000
     assert round(total_perfil, 1) == 8904.1
     assert round(cronograma, 1) == 8920.7
     assert round(cronograma - total_perfil, 1) == 16.6
+
+
+def test_os_papeis_com_nome_batem_papel_a_papel_entre_as_duas_abas(perfil):
+    # A diferenca NAO esta espalhada: todo papel com nome bate na casa decimal. A
+    # 3.4 agrupa LTN e NTN-F numa coluna so, entao a comparacao soma os dois.
+    cr = vencimentos.dados_cronograma_anual().sum() / 1000
+    pf = perfil.sum() / 1000
+
+    assert round(cr["LFT"], 1) == round(pf["LFT"], 1) == 4567.3
+    assert round(cr["NTN-B"], 1) == round(pf["NTN-B"], 1) == 2291.5
+    assert round(cr["NTN-C"], 1) == round(pf["NTN-C"], 1) == 82.5
+    assert round(cr["LTN / NTN-F"], 1) == round(pf["LTN"] + pf["NTN-F"], 1) == 1944.8
+
+
+def test_a_diferenca_de_166_bi_e_o_que_a_aba_22_nao_lista():
+    # A CAUSA, medida em 19/08/2026 -- a spec listava isto como investigacao
+    # posterior. Toda a diferenca esta no balde "Demais" da aba 3.4, que vale 34,7
+    # bi. Desse balde, a aba 2.2 lista a NTN-B1 (18,1) e mais nada: "Demais" (12,9),
+    # Divida Securitizada (3,4) e TDA (0,3) nao tem linha la, porque a 2.2 e uma
+    # tabela titulo a titulo, por ISIN e vencimento, e esses tres nao entram nela.
+    #
+    # 12,9 + 3,4 + 0,3 = 16,6, na casa decimal. Este teste trava a decomposicao, e
+    # nao so o total: se a diferenca mudar de tamanho E de causa ao mesmo tempo, o
+    # teste do total sozinho poderia continuar passando.
+    import pandas as pd
+
+    from tesouro import config
+
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_dpf.csv", parse_dates=["data"])
+    u = e[(e["data"] == e["data"].max()) & (e["nivel"] == "DPMFi")]
+    por_titulo = u.groupby("titulo")["valor_milhoes"].sum() / 1000
+
+    fora_da_22 = ["Demais", "D\u00edvida Securitizada", "TDA"]
+    assert round(por_titulo["Demais"], 1) == 12.9
+    assert round(por_titulo["D\u00edvida Securitizada"], 1) == 3.4
+    assert round(por_titulo["TDA"], 1) == 0.3
+    assert round(por_titulo[fora_da_22].sum(), 1) == 16.6
+
+    # E o balde inteiro da 3.4 e esses tres mais a NTN-B1, que a 2.2 lista.
+    assert round(por_titulo[fora_da_22].sum() + por_titulo["NTN-B1"], 1) == 34.7
+    cr = vencimentos.dados_cronograma_anual().sum() / 1000
+    assert round(cr["Demais"], 1) == 34.7
 
 
 def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
