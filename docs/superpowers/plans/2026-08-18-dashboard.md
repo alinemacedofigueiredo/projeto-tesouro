@@ -834,7 +834,7 @@ git commit -m "Adiciona os tres graficos de funding"
 - Produces:
   - `estilo.recorta(df, janela)` — o corte de janela, que sai do `funding.py`.
   - `paf.bandas(indicador, caminho=None)` -> DataFrame indexado por ano, colunas
-    `minimo, maximo, minimo_original, maximo_original, realizado`.
+    `minimo, maximo, minimo_original, maximo_original`.
   - `paf.COMPOSICAO` -> tupla dos quatro indicadores que particionam a dívida.
   - `estoque.dados_composicao(janela=None)` -> DataFrame indexado por data, uma
     coluna por indexador **em percentual da DPF**, mais `estoque_milhoes`.
@@ -873,12 +873,12 @@ resolução entre banda original e revisada. Um leitor só, testado uma vez.
    grava `"Índice Preços"` e a 1.2 grava `"Índice de Preços"` —
    com "de" no meio. Copiar a lista de nomes do `funding.py` produz uma coluna
    vazia e um gráfico com um indexador faltando.
-2. **O `realizado` do PAF não é a nossa medida.** O gráfico desenha a **nossa**
-   série, do `composicao_dpf.csv`; a coluna `realizado` do PAF só serve de
-   cruzamento contra fonte independente, e é isso que o teste faz.
-3. **O ano aberto não tem realizado.** 2026 tem banda e `realizado` vazio. Tratar
-   `NaN` como zero desenharia a composição caindo a zero em 2026.
-4. **O `funding.py` da Task 3 tem literais acentuados**, contra a restrição global de
+2. **Da planilha do PAF sai a banda, e só.** A coluna `realizado` daquele arquivo
+   **não é lida por nada** — decisão da dona do projeto. O que aconteceu sai do
+   `composicao_dpf.csv`, que o nosso parser produz e os testes já cobrem; ler o
+   realizado de uma tabela digitada à mão seria trocar dado verificado por dado
+   redigitado, para desenhar o mesmo ponto.
+3. **O `funding.py` da Task 3 tem literais acentuados**, contra a restrição global de
    ASCII puro. Esta tarefa fecha isso com um teste que varre o pacote inteiro, em vez
    de conferir arquivo por arquivo à mão.
 
@@ -903,9 +903,8 @@ def test_a_banda_de_2026_do_prefixado_bate_com_a_planilha_do_paf():
     b = paf.bandas("prefixado_pct")
     assert b.loc[2026, "minimo"] == 21.0
     assert b.loc[2026, "maximo"] == 25.0
-    # 2026 ainda nao fechou: realizado VAZIO, nunca zero -- zero seria lido como
-    # "a participacao do prefixado foi a zero".
-    assert pd.isna(b.loc[2026, "realizado"])
+    # Da planilha do PAF sai a banda, e so: o que aconteceu vem do nosso dado.
+    assert "realizado" not in b.columns
 
 
 def test_a_revisao_de_2025_vira_a_banda_vigente_e_guarda_a_original():
@@ -976,22 +975,6 @@ def test_o_cambio_cai_do_pico_de_51_para_37(comp):
     assert round(cam.max(), 1) == 51.0
     assert cam.idxmax() == pd.Timestamp("2002-09-30")
     assert round(cam.iloc[-1], 2) == 3.74
-
-
-def test_o_nosso_dado_bate_com_o_realizado_que_o_paf_registra(comp):
-    # Cruzamento contra fonte independente: a composicao sai da aba 2.1 pelo nosso
-    # parser, e o realizado do PAF foi digitado a mao de outra fonte. De 2011 em
-    # diante os dois tem de coincidir.
-    #
-    # Antes de 2011 divergem em ate 2,8 p.p. na taxa flutuante, e o realizado do
-    # PAF soma 97,7 em 2003 em vez de 100 -- o PAF antigo media a DPF de outro
-    # jeito. Documentado, nao perseguido (ver a spec, secao 10).
-    for indicador, coluna in estoque.BANDA_DE.items():
-        b = paf.bandas(indicador)
-        for ano in range(2011, 2026):
-            fecha = pd.Timestamp(f"{ano}-12-31")
-            assert abs(comp.loc[fecha, coluna] - b.loc[ano, "realizado"]) < 0.01, \
-                f"{indicador} em {ano}"
 
 
 def test_o_desenho_traz_a_banda_de_cada_ano_visivel():
@@ -1105,6 +1088,9 @@ Este modulo devolve essa banda ja resolvida: onde houve revisao no meio do ano, 
 banda VIGENTE e a revisada -- e a que valia no fechamento -- e a original fica
 guardada a parte, para o desenho traca-la em linha fina por baixo.
 
+Da planilha sai a BANDA, e so: a coluna 'realizado' nao e devolvida, porque o que
+aconteceu ja esta no nosso proprio dado.
+
 O validador de referencia/paf_bandas.csv roda ANTES de qualquer leitura, e o erro
 derruba. E decisao da spec (secao 6): banda quebrada nao vira grafico com banda
 errada, que e o defeito que ninguem enxerga olhando a figura.
@@ -1119,7 +1105,7 @@ from .. import valida_referencia
 COMPOSICAO = ("prefixado_pct", "indice_precos_pct",
               "taxa_flutuante_pct", "cambio_pct")
 
-_COLUNAS = ["minimo", "maximo", "minimo_original", "maximo_original", "realizado"]
+_COLUNAS = ["minimo", "maximo", "minimo_original", "maximo_original"]
 
 
 def bandas(indicador, caminho=None):
@@ -1127,8 +1113,11 @@ def bandas(indicador, caminho=None):
 
     'minimo'/'maximo' sao a banda vigente no fechamento do ano. Nos anos revisados,
     'minimo_original'/'maximo_original' guardam a que foi substituida; nos demais
-    ficam vazias. 'realizado' fica vazio no ano que ainda nao fechou -- nunca zero,
-    que seria lido como "a participacao foi a zero".
+    ficam vazias.
+
+    A coluna 'realizado' do arquivo NAO e devolvida. O que aconteceu sai do nosso
+    proprio dado, que o parser produz e os testes cobrem; ler o realizado de uma
+    tabela digitada a mao seria trocar dado verificado por dado redigitado.
     """
     if indicador not in valida_referencia.INDICADORES:
         raise ValueError(
@@ -1152,7 +1141,6 @@ def bandas(indicador, caminho=None):
     saida = pd.DataFrame(index=orig.index, columns=_COLUNAS, dtype=float)
     saida["minimo"] = orig["minimo"]
     saida["maximo"] = orig["maximo"]
-    saida["realizado"] = orig["realizado"]
 
     for ano in rev.index:
         saida.loc[ano, "minimo_original"] = orig.loc[ano, "minimo"]
@@ -1274,7 +1262,7 @@ def desenha_composicao(dados, bandas, ax):
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_estoque.py tests/test_estilo.py -v
 ```
 
-Esperado: 10 passed no arquivo do estoque e 7 no do estilo.
+Esperado: 9 passed no arquivo do estoque e 7 no do estilo.
 
 - [ ] **Passo 7: confirmar que cada asserção tem dentes**
 
@@ -1305,7 +1293,7 @@ que ele cobre mais do que cobre.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 334 passed, 1 skipped.
+Esperado: 333 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_estoque.py tests/test_estilo.py tests/test_graficos_funding.py
@@ -1792,7 +1780,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 345 passed, 1 skipped.
+Esperado: 344 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_detentores.py
@@ -1964,6 +1952,10 @@ def test_o_realizado_do_vincendo_bate_com_o_nosso_dado(faixas):
     # Cruzamento contra fonte independente: a faixa sai da aba 3.1 pelo nosso
     # parser e o realizado sai da 5.7, que e outra aba e outro parser. A tolerancia
     # de 0,05 e o arredondamento com que o proprio RMD imprime o realizado.
+    #
+    # Este realizado E lido, diferente do de referencia/paf_bandas.csv: ele vem de
+    # uma aba do RMD, por parser, e nao de tabela digitada a mao. O cruzamento
+    # confere dois parsers nossos um contra o outro, que e o que pega defeito.
     b = vencimentos.banda_vincendo_12m()
     for ano in range(2011, 2023):
         nosso = faixas.loc[pd.Timestamp(f"{ano}-12-31"), "At\u00e9 12 meses"]
@@ -2264,7 +2256,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 356 passed, 1 skipped.
+Esperado: 355 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/vencimentos.py tests/test_graficos_vencimentos.py
@@ -2273,12 +2265,10 @@ git commit -m "Adiciona o cronograma de vencimentos e as faixas da DPF"
 
 ---
 
-## Task 7: Prazo médio, com a banda do PAF e uma correção na referência
+## Task 7: Prazo médio, com a banda do PAF
 
 **Files:**
 - Create: `src/tesouro/graficos/prazo.py`
-- Modify: `referencia/paf_bandas.csv` (**duas linhas**, ver o Passo 5)
-- Modify: `referencia/LEIA-ME.md` (registra a correção)
 - Test: `tests/test_graficos_prazo.py`
 
 **Interfaces:**
@@ -2316,8 +2306,12 @@ das duas ponderada por um estoque que é 96% doméstico.
    depois fica mensal — 237 observações em vinte anos e meio, não 247. Qualquer conta
    que suponha espaçamento constante (média móvel por número de linhas, variação em
    "12 posições") erra os dois primeiros anos.
-3. **O `referencia/paf_bandas.csv` tem um erro de digitação em 2025**, encontrado ao
-   escrever esta tarefa. Detalhe e correção no Passo 5.
+3. **Da planilha do PAF vem só a banda.** O `realizado` que aquele arquivo guarda
+   não é lido aqui nem em nenhum outro gráfico: a linha desenhada é a nossa série,
+   da aba 3.7. Isso não é detalhe de implementação — ao escrever esta tarefa
+   descobrimos que o `realizado` de 2025 naquele arquivo está com o valor de 2024
+   repetido (`4.048869` contra os `4.003076` que a aba 3.7 dá). Como nada o lê, o
+   erro não vira gráfico errado. Fica registrado para quem for mexer no arquivo.
 
 - [ ] **Passo 1: escrever os testes que falham**
 
@@ -2366,17 +2360,8 @@ def test_a_banda_do_prazo_medio_bate_com_o_paf():
     b = paf.bandas("prazo_medio_anos")
     assert b.loc[2026, "minimo"] == 3.8
     assert b.loc[2026, "maximo"] == 4.2
-    assert pd.isna(b.loc[2026, "realizado"])
-
-
-def test_o_realizado_do_prazo_bate_com_o_nosso_dado(dados):
-    # Cruzamento contra fonte independente: o realizado do PAF foi digitado a mao
-    # e a nossa serie sai da aba 3.7 pelo parser. Foi este teste que encontrou o
-    # erro de digitacao de 2025 (ver o Passo 5).
-    b = paf.bandas("prazo_medio_anos")
-    for ano in range(2011, 2026):
-        nosso = dados.loc[pd.Timestamp(f"{ano}-12-31"), "DPF"]
-        assert abs(nosso - b.loc[ano, "realizado"]) < 0.01, f"prazo medio em {ano}"
+    # A linha desenhada e a NOSSA serie; da planilha vem so a banda.
+    assert "realizado" not in b.columns
 
 
 def test_so_a_dpmfi_e_a_dpfe_levam_rotulo(dados):
@@ -2515,63 +2500,15 @@ def desenha_prazo(dados, banda, ax):
               title="banda: meta do PAF para o prazo m\u00e9dio da DPF")
 ```
 
-- [ ] **Passo 4: rodar e ver o teste do realizado falhar em 2025**
+- [ ] **Passo 4: rodar e ver passar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
 ```
 
-Esperado: **8 passam e um falha** —
-`test_o_realizado_do_prazo_bate_com_o_nosso_dado`, com
-`AssertionError: prazo medio em 2025`.
+Esperado: 8 passed.
 
-Isto **não é defeito do código**. É o teste fazendo o trabalho dele.
-
-- [ ] **Passo 5: corrigir o erro de digitação em `referencia/paf_bandas.csv`**
-
-**O que está errado.** As duas linhas de `prazo_medio_anos` de 2025 — a `original` e
-a `revisado` — trazem `realizado = 4.048869`. Esse é **exatamente o valor de 2024**,
-nas seis casas decimais. A nossa série, lida da aba 3.7 pelo parser, dá **4.003076**
-em 31/12/2025. Todos os outros realizados de 2011 a 2025, nos seis indicadores,
-batem na terceira casa; este é o único que não bate.
-
-**Como confirmar antes de mexer:**
-
-```
-$env:PYTHONPATH="src"; python -c "import pandas as pd; p = pd.read_csv('data/processed/prazo_medio_por_titulo.csv', parse_dates=['data']); a = p[p['entidade'].isna() & p['titulo'].isna()]; d = a[a['nivel'] == 'DPF'].set_index('data')['prazo_anos']; print(d.loc['2024-12-31'], d.loc['2025-12-31'])"
-```
-
-Esperado: `4.048869... 4.003076...` — o valor que está no CSV para 2025 é o de 2024.
-
-**A correção:** nas duas linhas de 2025 (`2025,original,prazo_medio_anos` e
-`2025,revisado,prazo_medio_anos`), trocar `4.048869...` por `4.003076...`. O valor
-tem de ficar igual nas duas versões — o validador exige isso, e com razão: a meta
-muda, o que aconteceu não.
-
-**Antes de commitar, confirme com a dona do projeto.** Esta pasta é diferente de
-`data/`: o que está nela foi digitado à mão, não existe para download, e se for
-apagado não volta. O `LEIA-ME.md` da pasta diz isso na primeira linha. Uma correção
-com evidência ainda é uma correção em dado que é dela.
-
-Depois de confirmada, acrescente ao `referencia/LEIA-ME.md`, na seção do
-`paf_bandas.csv`:
-
-```markdown
-**Correção de 18/08/2026:** o `realizado` de `prazo_medio_anos` em 2025 estava
-`4.048869`, que é o valor de 2024 repetido. O correto é `4.003076`, lido da aba 3.7
-do anexo de junho/26. Encontrado pelo teste que cruza o realizado do PAF contra a
-nossa série (`tests/test_graficos_prazo.py`).
-```
-
-- [ ] **Passo 6: rodar e ver passar**
-
-```
-$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_prazo.py -v
-```
-
-Esperado: 9 passed.
-
-- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+- [ ] **Passo 5: confirmar que cada asserção tem dentes**
 
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
@@ -2584,21 +2521,21 @@ falha, e desfaça:
 - tire o `if ano not in banda.index: continue` — o teste das 21 faixas deve falhar;
 - troque `ax.set_ylim(0, ...)` por `ax.set_ylim(0, 4.5)` — o teste do eixo deve
   falhar, porque a DPFe em 6,93 sai pela borda;
-- **desfaça a correção do Passo 5** e confirme que o teste do realizado volta a
-  falhar em 2025. É a prova de que a correção está travada por teste e não pode
-  regredir em silêncio.
+- devolva a coluna `realizado` no `paf.bandas` — os dois testes que afirmam
+  `"realizado" not in b.columns` (este e o da Task 4) devem falhar. É o que impede
+  que a planilha digitada volte a alimentar gráfico sem ninguém decidir isso.
 
-- [ ] **Passo 8: rodar a suíte inteira e commitar**
+- [ ] **Passo 6: rodar a suíte inteira e commitar**
 
 ```
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 365 passed, 1 skipped.
+Esperado: 363 passed, 1 skipped.
 
 ```bash
-git add src/tesouro/graficos/prazo.py tests/test_graficos_prazo.py referencia/
-git commit -m "Adiciona o prazo medio com banda e corrige o realizado de 2025 no PAF"
+git add src/tesouro/graficos/prazo.py tests/test_graficos_prazo.py
+git commit -m "Adiciona o prazo medio com a banda do PAF"
 ```
 
 ---
@@ -2911,7 +2848,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 373 passed, 1 skipped.
+Esperado: 371 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/custo.py tests/test_graficos_custo.py
@@ -3239,7 +3176,7 @@ repositório: o dashboard é quem grava figura, e num lugar só.
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 381 passed, 1 skipped.
+Esperado: 379 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/reserva.py tests/test_graficos_reserva.py
@@ -3714,7 +3651,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 392 passed, 1 skipped.
+Esperado: 390 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_graficos_candidatos.py
@@ -4407,7 +4344,7 @@ falha, e desfaça:
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 405 passed, 1 skipped.
+Esperado: 403 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/graficos/ tests/test_dashboard.py
@@ -4762,7 +4699,7 @@ Abra o arquivo e confirme, com o olho, que a composição de jun/2026 mostra
 $env:PYTHONPATH="src"; python -m pytest -q
 ```
 
-Esperado: 413 passed, 1 skipped.
+Esperado: 411 passed, 1 skipped.
 
 ```bash
 git add src/tesouro/ tests/ README.md docs/dicionario-de-dados.md
@@ -4775,7 +4712,7 @@ git commit -m "Adiciona a linha de comando do dashboard e o pendura no pipeline"
 
 Depois da Task 12, antes de considerar a entrega pronta:
 
-- [ ] **Rodar a suíte inteira uma última vez** e confirmar **413 passed, 1
+- [ ] **Rodar a suíte inteira uma última vez** e confirmar **411 passed, 1
   skipped**. O pulado é o teste do PU contra o `PX_DIRTY_MID`, que aguarda
   autorização para puxar `bbg_precos_*.csv` — ele estava pulado antes desta entrega
   e continua.
@@ -4783,8 +4720,6 @@ Depois da Task 12, antes de considerar a entrega pronta:
   lugar de "o tamanho do arquivo é desconhecido".
 - [ ] **Corrigir a seção 4.2 da spec**: são **nove** gráficos com janela e **25**
   SVGs, não sete e 23 (ver a Task 11).
-- [ ] **Registrar a correção do `paf_bandas.csv`** no `LEIA-ME.md` da pasta
-  `referencia/`, se ainda não estiver lá (ver a Task 7).
 - [ ] **Usar `superpowers:requesting-code-review`** sobre a branch inteira antes de
   falar em merge. As entregas anteriores mostraram que a revisão de branch encontra
   o que a revisão tarefa a tarefa não encontra.
@@ -4798,6 +4733,6 @@ Depois da Task 12, antes de considerar a entrega pronta:
 | Absorver o `figuras.py` da entrega 2 no pacote novo | spec, seção 3.4 |
 | A causa dos 16,6 bi entre a aba 3.4 e a 2.2 | spec, seção 10; travado por teste na Task 10 |
 | A divergência de 12 meses dos detentores contra o slide | spec, seção 10 |
-| A divergência de até 2,8 p.p. do PAF antes de 2011 | Task 4, no teste do realizado |
+| O `realizado` de 2025 errado em `referencia/paf_bandas.csv` | Task 7, armadilha 3; não é lido por nada |
 | Decomposição do custo de emissão em taxa mais indexador | spec, seção 2 (fora do escopo) |
 | Interatividade dentro do gráfico | spec, seção 10; o código já nasce separado para a troca |
