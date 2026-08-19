@@ -4415,3 +4415,389 @@ git commit -m "Adiciona o registro dos graficos e a montagem do dashboard"
 ```
 
 ---
+
+## Task 12: Linha de comando, pipeline e documentação
+
+**Files:**
+- Create: `src/tesouro/graficos/__main__.py`
+- Modify: `src/tesouro/pipeline.py`
+- Modify: `README.md`
+- Modify: `docs/dicionario-de-dados.md`
+- Test: `tests/test_graficos_cli.py`, e mais um teste em `tests/test_pipeline.py`
+
+**Interfaces:**
+- Produces:
+  - `python -m tesouro.graficos` — gera as duas janelas padrão.
+  - `--de AAAA-MM-DD --ate AAAA-MM-DD` — gera um recorte só, e o botão de período
+    some porque só existe uma janela.
+  - `--saida CAMINHO` — grava em outro lugar (usado pelos testes).
+  - `main(argumentos=None)` -> int, o código de saída.
+  - `pipeline.main` passa a gerar o dashboard depois das figuras.
+
+**Por que esta tarefa existe.** Até aqui o dashboard só existe para quem sabe
+importar um módulo Python. Esta tarefa é a que o entrega: um comando, uma linha no
+pipeline, e a documentação que diz onde o arquivo aparece.
+
+**Decisões que o código deve respeitar:**
+
+- **Instrução em PowerShell primeiro e bash depois**, seguindo
+  `docs/como-baixar.md:6-12`. Sintaxe bash sozinha falha na primeira linha no shell
+  da usuária, e **isso já quebrou quatro vezes neste projeto**.
+- **`--de` e `--ate` andam juntos.** Um sem o outro é erro com mensagem, não um
+  recorte pela metade.
+- **Nada é escrito em `data/raw/`.** É dado insubstituível, e um coletor de entrega
+  anterior já destruiu snapshots ali em silêncio.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **O `pipeline.py` só grava o dashboard depois de `figuras.gravar_todas()`.** Os
+   gráficos leem os CSVs que as etapas anteriores acabaram de escrever; gerar o
+   dashboard antes produz um HTML com o dado do mês passado, e nada acusa.
+2. **A falha do dashboard não pode derrubar o pipeline em silêncio nem passar
+   despercebida.** O `paf.bandas` levanta de propósito quando a referência está
+   quebrada (Task 4). Isso tem de aparecer como falha real na lista de `falhas` que
+   o pipeline já mantém, do mesmo jeito que a coleta da Bloomberg — e fazer o
+   pipeline sair com código diferente de zero.
+3. **O `README.md` diz "vinte e dois CSVs"** e a Task 2 não muda esse número, mas o
+   dashboard é saída nova e precisa aparecer. Sem isso, quem seguir o README não
+   descobre que o arquivo existe.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_cli.py
+"""A linha de comando do dashboard.
+
+Os testes gravam sempre em tmp_path: nenhum deles escreve em data/processed/, e
+muito menos em data/raw/, que e dado insubstituivel.
+"""
+import matplotlib
+matplotlib.use("Agg")
+import pytest
+
+from tesouro.graficos import __main__ as cli
+
+
+def test_sem_argumento_gera_as_duas_janelas(tmp_path):
+    saida = tmp_path / "dashboard.html"
+    assert cli.main(["--saida", str(saida)]) == 0
+    html = saida.read_text(encoding="utf-8")
+    assert 'id="troca-periodo"' in html
+    assert 'data-janela="5 anos"' in html
+    assert 'data-janela="completa"' in html
+
+
+def test_com_de_e_ate_gera_uma_janela_so_e_sem_botao(tmp_path):
+    saida = tmp_path / "recorte.html"
+    codigo = cli.main(["--de", "2021-01-01", "--ate", "2026-06-30",
+                       "--saida", str(saida)])
+    assert codigo == 0
+    html = saida.read_text(encoding="utf-8")
+    assert 'id="troca-periodo"' not in html
+    assert 'data-janela="completa"' not in html
+    # O recorte pedido vira o nome da janela, e aparece no atributo do bloco.
+    assert 'data-janela="2021-01-01 a 2026-06-30"' in html
+
+
+def test_de_sem_ate_falha_com_mensagem(tmp_path, capsys):
+    codigo = cli.main(["--de", "2021-01-01", "--saida", str(tmp_path / "x.html")])
+    assert codigo == 2
+    assert "--ate" in capsys.readouterr().err
+    assert not (tmp_path / "x.html").exists(), "nao pode gravar arquivo pela metade"
+
+
+def test_data_invalida_falha_alto(tmp_path, capsys):
+    codigo = cli.main(["--de", "01/01/2021", "--ate", "2026-06-30",
+                       "--saida", str(tmp_path / "x.html")])
+    assert codigo == 2
+    erro = capsys.readouterr().err
+    assert "AAAA-MM-DD" in erro
+    assert not (tmp_path / "x.html").exists()
+
+
+def test_ate_antes_de_de_falha(tmp_path, capsys):
+    codigo = cli.main(["--de", "2026-01-01", "--ate", "2021-01-01",
+                       "--saida", str(tmp_path / "x.html")])
+    assert codigo == 2
+    assert "anterior" in capsys.readouterr().err.lower()
+
+
+def test_a_documentacao_ensina_powershell_antes_de_bash():
+    # Sintaxe bash sozinha falha na primeira linha no shell da usuaria, e isso ja
+    # quebrou quatro vezes neste projeto.
+    from tesouro import config
+
+    texto = (config.RAIZ / "README.md").read_text(encoding="utf-8")
+    assert "python -m tesouro.graficos" in texto
+    assert "dashboard.html" in texto
+
+    pedaco = texto[texto.index("python -m tesouro.graficos") - 400:]
+    posicao_ps = pedaco.index("$env:PYTHONPATH")
+    posicao_bash = pedaco.index("PYTHONPATH=src python -m tesouro.graficos")
+    assert posicao_ps < posicao_bash, "o bloco do bash veio antes do PowerShell"
+```
+
+```python
+# acrescentar em tests/test_pipeline.py
+
+def test_o_pipeline_grava_o_dashboard_depois_das_figuras(monkeypatch):
+    # Os graficos leem os CSVs que as etapas anteriores acabaram de escrever:
+    # gerar o dashboard antes produz um HTML com o dado do mes passado.
+    from tesouro.graficos import dashboard
+
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    monkeypatch.setattr(dashboard, "grava",
+                        lambda *a, **k: chamadas.append("dashboard.grava"))
+
+    assert pipeline.main(["--sem-coleta"]) == 0
+    assert "dashboard.grava" in chamadas
+    assert chamadas.index("dashboard.grava") > chamadas.index("gravar_todas")
+
+
+def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatch,
+                                                                     capsys):
+    # O paf.bandas levanta de proposito quando a referencia esta quebrada. Isso
+    # tem de aparecer como falha real, nao sumir no meio do log.
+    from tesouro.graficos import dashboard
+
+    _stub_gravacoes(monkeypatch)
+
+    def _explode(*args, **kwargs):
+        raise ValueError("paf_bandas.csv esta invalido")
+
+    monkeypatch.setattr(dashboard, "grava", _explode)
+
+    assert pipeline.main(["--sem-coleta"]) == 1
+    saida = capsys.readouterr().out
+    assert "dashboard" in saida.lower()
+    assert "paf_bandas.csv" in saida
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_cli.py tests/test_pipeline.py -v
+```
+
+Esperado: FAIL com `ModuleNotFoundError: No module named 'tesouro.graficos.__main__'`.
+
+- [ ] **Passo 3: escrever a linha de comando**
+
+```python
+# src/tesouro/graficos/__main__.py
+"""Gera o dashboard da divida.
+
+    PowerShell:  $env:PYTHONPATH="src"; python -m tesouro.graficos
+    bash:        PYTHONPATH=src python -m tesouro.graficos
+
+Sem argumento, grava data/processed/dashboard.html com as duas janelas -- 5 anos e
+serie completa -- e o botao que alterna entre elas.
+
+Com --de e --ate, grava o recorte pedido, e o botao some porque so existe uma
+janela. Os dois andam juntos: um sem o outro e erro, nao recorte pela metade.
+"""
+
+import argparse
+import sys
+
+import pandas as pd
+
+from . import dashboard
+
+
+def _data(texto, campo, erros):
+    """Converte AAAA-MM-DD, acumulando o erro em vez de levantar.
+
+    O formato vai EXPLICITO: pd.Timestamp("01/01/2021") aceita e devolve 1 de
+    janeiro, entao a data em formato brasileiro passaria batido e o recorte sairia
+    de um lugar que ninguem pediu.
+    """
+    try:
+        return pd.to_datetime(texto, format="%Y-%m-%d")
+    except (ValueError, TypeError):
+        erros.append(f"{campo}: '{texto}' nao e uma data no formato AAAA-MM-DD")
+        return None
+
+
+def main(argumentos=None):
+    analisador = argparse.ArgumentParser(
+        prog="python -m tesouro.graficos", description=__doc__)
+    analisador.add_argument("--de", help="inicio do recorte, AAAA-MM-DD")
+    analisador.add_argument("--ate", help="fim do recorte, AAAA-MM-DD")
+    analisador.add_argument("--saida", help="caminho do HTML a gravar")
+    opcoes = analisador.parse_args(argumentos)
+
+    erros = []
+    if bool(opcoes.de) != bool(opcoes.ate):
+        falta = "--ate" if opcoes.de else "--de"
+        erros.append(f"{falta} tambem e necessario: o recorte precisa dos dois "
+                     f"extremos, senao nao da para saber onde ele termina")
+
+    recortes = None
+    if opcoes.de and opcoes.ate:
+        de = _data(opcoes.de, "--de", erros)
+        ate = _data(opcoes.ate, "--ate", erros)
+        if de is not None and ate is not None:
+            if ate < de:
+                erros.append(f"--ate ({opcoes.ate}) e anterior a --de "
+                             f"({opcoes.de})")
+            else:
+                recortes = [(f"{opcoes.de} a {opcoes.ate}", (de, ate))]
+
+    if erros:
+        for erro in erros:
+            print(f"erro: {erro}", file=sys.stderr)
+        return 2
+
+    from pathlib import Path
+    caminho = Path(opcoes.saida) if opcoes.saida else None
+    gravado = dashboard.grava(caminho, recortes)
+    print(f"dashboard gravado em {gravado}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Passo 4: pendurar no pipeline**
+
+Em `src/tesouro/pipeline.py`, **depois** do bloco das figuras:
+
+```python
+    print("\n--- dashboard ---")
+    try:
+        from .graficos import dashboard
+        caminho = dashboard.grava()
+        print(f"dashboard gravado em {caminho}")
+    except Exception as erro:               # noqa: BLE001
+        # O paf.bandas levanta de proposito quando referencia/paf_bandas.csv esta
+        # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico
+        # com banda errada. Aqui isso vira falha visivel e codigo de saida 1, do
+        # mesmo jeito que a coleta da Bloomberg, em vez de sumir no meio do log.
+        mensagem = f"a geracao do dashboard FALHOU: {erro}"
+        print(f"ATENCAO: {mensagem}")
+        falhas.append(mensagem)
+```
+
+- [ ] **Passo 5: documentar**
+
+No `README.md`, logo depois do parágrafo que fala dos vinte e dois CSVs:
+
+```markdown
+### O dashboard
+
+Os dezesseis gráficos da dívida num arquivo HTML autocontido, que abre com duplo
+clique e continua funcionando copiado para outra máquina ou mandado por e-mail.
+
+PowerShell:
+
+    $env:PYTHONPATH="src"; python -m tesouro.graficos
+
+bash:
+
+    PYTHONPATH=src python -m tesouro.graficos
+
+Grava `data/processed/dashboard.html` com duas janelas — 5 anos e série completa —
+e um botão no topo que alterna entre elas. Para um recorte específico, com o botão
+suprimido porque só existe uma janela:
+
+    $env:PYTHONPATH="src"; python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
+    PYTHONPATH=src python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
+
+O `pipeline` já gera o dashboard no fim, depois de reescrever os CSVs; o comando
+acima serve para regerar sem rodar o pipeline inteiro.
+```
+
+E em `docs/dicionario-de-dados.md`, uma entrada para `dashboard.html`: o que é, de
+quais CSVs sai, e a observação de que ele é **derivado** — apagar não perde nada,
+porque o pipeline regenera.
+
+- [ ] **Passo 6: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_cli.py tests/test_pipeline.py -v
+```
+
+Esperado: 6 passed no arquivo da linha de comando, e o de pipeline com os dois
+novos passando junto com os que já existiam.
+
+- [ ] **Passo 7: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- troque `!=` por `and` na conferência de `--de`/`--ate` — o teste do `--de` sozinho
+  deve falhar;
+- devolva `0` em vez de `2` quando há erros — três testes devem falhar;
+- grave o arquivo **antes** de conferir os erros — os testes que verificam
+  `not exists()` devem falhar. É o que impede um HTML pela metade em disco;
+- mova a geração do dashboard para **antes** de `figuras.gravar_todas()` no pipeline
+  — `test_o_pipeline_grava_o_dashboard_depois_das_figuras` deve falhar;
+- troque o `except` do pipeline por um `pass` silencioso — o teste do código de
+  saída deve falhar;
+- **inverta os dois blocos no README**, pondo o bash antes do PowerShell — o teste
+  da documentação deve falhar. Esse teste existe porque a ordem já foi trocada
+  quatro vezes neste projeto, sempre por distração.
+
+- [ ] **Passo 8: rodar tudo de ponta a ponta, de verdade**
+
+Os testes usam stub nas gravações. Uma vez, à mão, rode o pipeline inteiro sem rede
+e confirme que o dashboard sai com o dado de hoje:
+
+```
+$env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta
+```
+
+Esperado: termina com `concluido.`, sem nenhuma linha `ATENCAO:`, e
+`data/processed/dashboard.html` com a data de modificação de agora.
+
+Abra o arquivo e confirme, com o olho, que a composição de jun/2026 mostra
+**21,0 / 25,9 / 49,3 / 3,7** — o mesmo número do teste, agora na tela.
+
+- [ ] **Passo 9: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 413 passed, 1 skipped.
+
+```bash
+git add src/tesouro/ tests/ README.md docs/dicionario-de-dados.md
+git commit -m "Adiciona a linha de comando do dashboard e o pendura no pipeline"
+```
+
+---
+
+## Fechamento da entrega
+
+Depois da Task 12, antes de considerar a entrega pronta:
+
+- [ ] **Rodar a suíte inteira uma última vez** e confirmar **413 passed, 1
+  skipped**. O pulado é o teste do PU contra o `PX_DIRTY_MID`, que aguarda
+  autorização para puxar `bbg_precos_*.csv` — ele estava pulado antes desta entrega
+  e continua.
+- [ ] **Registrar na spec o tamanho medido do `dashboard.html`** (seção 4.1), no
+  lugar de "o tamanho do arquivo é desconhecido".
+- [ ] **Corrigir a seção 4.2 da spec**: são **nove** gráficos com janela e **25**
+  SVGs, não sete e 23 (ver a Task 11).
+- [ ] **Registrar a correção do `paf_bandas.csv`** no `LEIA-ME.md` da pasta
+  `referencia/`, se ainda não estiver lá (ver a Task 7).
+- [ ] **Usar `superpowers:requesting-code-review`** sobre a branch inteira antes de
+  falar em merge. As entregas anteriores mostraram que a revisão de branch encontra
+  o que a revisão tarefa a tarefa não encontra.
+- [ ] **Não mergear sem a dona do projeto pedir.** As branches `dv01-decay` e
+  `dashboard` ficam separadas até ela decidir — decisão dela, registrada.
+
+**O que fica explicitamente para depois, e não é esquecimento:**
+
+| assunto | onde está registrado |
+|---|---|
+| Absorver o `figuras.py` da entrega 2 no pacote novo | spec, seção 3.4 |
+| A causa dos 16,6 bi entre a aba 3.4 e a 2.2 | spec, seção 10; travado por teste na Task 10 |
+| A divergência de 12 meses dos detentores contra o slide | spec, seção 10 |
+| A divergência de até 2,8 p.p. do PAF antes de 2011 | Task 4, no teste do realizado |
+| Decomposição do custo de emissão em taxa mais indexador | spec, seção 2 (fora do escopo) |
+| Interatividade dentro do gráfico | spec, seção 10; o código já nasce separado para a troca |
