@@ -30,13 +30,22 @@ JANELAS = {"5 anos": 5, "completa": None}
 NIVEIS = ["DPF", "DPMFi"]
 INDICES = ["SELIC", "IPCA"]
 
+# A DPFe entra so quando pedida. Ela nao mede a mesma coisa que as outras duas: e
+# divida externa medida em real, entao o custo e cupom MAIS variacao cambial, e a
+# serie vai de -16,0% (jan/2017) a +62,6% (set/2015) enquanto a DPF e a DPMFi vivem
+# entre 10% e 14%. Desenhada junto por padrao, ela achata as outras e convida a
+# leitura de que as tres sao comparaveis.
+NIVEL_OPCIONAL = "DPFe"
+
 _COR = {"DPF": "#1f3864",
         "DPMFi": "#3d9be9",
+        "DPFe": "#8c564b",
         "SELIC": "#2ca02c",
         "IPCA": "#ed7d31"}
 
 _ROTULO = {"DPF": "custo da DPF",
            "DPMFi": "custo da DPMFi",
+           "DPFe": "custo da DPFe (carrega c\u00e2mbio)",
            "SELIC": "Selic acumulada em 12m",
            "IPCA": "IPCA acumulado em 12m"}
 
@@ -63,18 +72,22 @@ def variacao_12m_do_vna():
     return (piv / piv.shift(12) - 1) * 100
 
 
-def dados_custo(janela=None):
+def dados_custo(janela=None, com_dpfe=False):
     """Custo acumulado em 12 meses da DPF e da DPMFi, com a Selic e o IPCA.
+
+    Com com_dpfe=True a DPFe entra como quinta serie. Ela e opcional porque mede
+    outra coisa: divida externa em real, com o cambio dentro. Ver NIVEL_OPCIONAL.
 
     A juncao com o VNA e por competencia: o VNA e do ultimo dia util e o custo e do
     ultimo dia do mes, e so 137 das 198 datas coincidem.
     """
+    niveis = NIVEIS + ([NIVEL_OPCIONAL] if com_dpfe else [])
     c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
     agregado = c[(c["medida"] == "acum_12m")
                  & c["entidade"].isna() & c["titulo"].isna()
-                 & c["nivel"].isin(NIVEIS)]
+                 & c["nivel"].isin(niveis)]
     saida = agregado.pivot_table(index="data", columns="nivel",
-                                 values="custo_aa_pct")[NIVEIS]
+                                 values="custo_aa_pct")[niveis]
 
     indices = variacao_12m_do_vna()
     competencia = saida.index.to_period("M")
@@ -90,22 +103,43 @@ def desenha_custo(dados, ax):
     O eixo do tempo e anual e o dado continua mensal: a pagina do RMD usa cerca de
     170 rotulos mensais e ninguem le.
     """
-    for coluna in NIVEIS + INDICES:
+    desenhadas = [c for c in dados.columns]
+    ultimos = {}
+    for coluna in desenhadas:
         serie = dados[coluna].dropna()
-        largura = 2.6 if coluna in NIVEIS else 1.6
-        estilo_linha = "-" if coluna in NIVEIS else "--"
+        largura = 2.6 if coluna not in INDICES else 1.6
+        estilo_linha = "-" if coluna not in INDICES else "--"
         ax.plot(serie.index, serie, color=_COR[coluna], lw=largura,
                 ls=estilo_linha, label=_ROTULO[coluna])
-        ax.annotate(estilo.num_br(serie.iloc[-1], 2),
-                    xy=(serie.index[-1], serie.iloc[-1]), xytext=(6, 0),
-                    textcoords="offset points", fontsize=9.5, weight="bold",
-                    color=_COR[coluna], va="center")
+        ultimos[coluna] = (serie.index[-1], serie.iloc[-1])
 
     ax.axhline(0, color="gray", lw=0.8)
     ax.set_ylabel("% ao ano")
-    estilo.grade_fina(ax, 5, 2.5)
+
+    # O eixo sai do dado, e nao de um limite fixo: com a DPFe ele precisa abrir
+    # para baixo de zero e bem mais para cima. Fixar o eixo faria a DPFe sair
+    # cortada ou espremeria as outras quatro num tapete.
+    piso = min(0.0, float(dados.min().min())) - 1.5
+    teto = float(dados.max().max()) + 1.5
+    ax.set_ylim(piso, teto)
+
+    # O rotulo de cada linha vai no ultimo ponto, e dois deles se sobrepoem quando o
+    # eixo abre: com a DPFe dentro, a DPF (12,68) e a DPMFi (13,19) ficam a meio
+    # ponto uma da outra num eixo de 47 pontos, e os textos viram um borrao. Aqui
+    # eles sao empurrados para cima ate caberem, na ordem do valor.
+    minimo = (teto - piso) * 0.035
+    anterior = None
+    for coluna, (x, y) in sorted(ultimos.items(), key=lambda item: item[1][1]):
+        alvo = y if anterior is None else max(y, anterior + minimo)
+        ax.annotate(estilo.num_br(y, 2), xy=(x, alvo), xytext=(6, 0),
+                    textcoords="offset points", fontsize=9.5, weight="bold",
+                    color=_COR[coluna], va="center")
+        anterior = alvo
+
+    passo = 5 if teto - piso <= 45 else 10
+    estilo.grade_fina(ax, passo, passo / 2)
     estilo.eixo_anual(ax, a_cada=2)
-    ax.legend(ncol=4, frameon=False, loc="upper center",
+    ax.legend(ncol=len(desenhadas), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.08))
 
 

@@ -17,22 +17,40 @@ def perfil():
     return vencimentos.dados_perfil_completo()
 
 
-def test_o_perfil_completo_vai_ate_2084(perfil):
+def test_o_perfil_termina_em_2060_porque_a_ntnb1_ficou_de_fora(perfil):
+    # Com a NTN-B1 o grafico ia ate 2084. Sem ela para em 2060: 2064, 2069, 2074,
+    # 2079 e 2084 sao RendA+ e mais nada. Decisao da dona do projeto -- a NTN-B1 tem
+    # regra propria de cupom e amortizacao e nao empilha com o resto.
     assert perfil.index.min() == 2026
-    assert perfil.index.max() == 2084
+    assert perfil.index.max() == 2060
+    assert "NTN-B1" not in perfil.columns
     # Anos ja vencidos entram no CSV com financeiro zero; sem filtrar, o eixo
     # comecaria em 2010 com quatorze anos vazios.
-    assert len(perfil) == 34
+    assert len(perfil) == 16
 
 
-def test_a_diferenca_de_166_bi_contra_o_cronograma_esta_travada(perfil):
+def test_o_que_ficou_de_fora_do_perfil_esta_dito_e_medido():
+    # O asterisco do desenho promete um numero, e este teste confere que o numero
+    # prometido e o numero que saiu.
+    assert round(vencimentos.excluido_do_perfil() / 1000, 1) == 18.1
+    bruto = vencimentos._perfil_bruto()
+    assert round(bruto.sum().sum() / 1000, 1) == 8904.1
+    assert round(vencimentos.dados_perfil_completo().sum().sum() / 1000, 1) == 8886.0
+
+
+def test_a_diferenca_contra_o_cronograma_esta_travada(perfil):
     # Os dois graficos de vencimento coexistem por decisao, e a diferenca entre os
-    # totais e travada aqui.
+    # totais e travada aqui. Ela tem duas parcelas, e as duas sao escolhas:
+    #   16,6 bi -- o que a aba 2.2 nao lista (Demais, Securitizada, TDA);
+    #   18,1 bi -- a NTN-B1, que a 2.2 lista e nos tiramos do desenho.
+    # Somadas dao 34,7, que e exatamente o balde "Demais" do cronograma.
     total_perfil = perfil.sum().sum() / 1000
     cronograma = vencimentos.dados_cronograma_anual().sum().sum() / 1000
-    assert round(total_perfil, 1) == 8904.1
+    assert round(total_perfil, 1) == 8886.0
     assert round(cronograma, 1) == 8920.7
-    assert round(cronograma - total_perfil, 1) == 16.6
+    assert round(cronograma - total_perfil, 1) == 34.7
+    assert round(vencimentos.excluido_do_perfil() / 1000, 1) == 18.1
+    assert round(34.7 - 18.1, 1) == 16.6
 
 
 def test_os_papeis_com_nome_batem_papel_a_papel_entre_as_duas_abas(perfil):
@@ -78,14 +96,22 @@ def test_a_diferenca_de_166_bi_e_o_que_a_aba_22_nao_lista():
 
 
 def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
-    # Depois de 2040 nao ha mais LFT, LTN nem NTN-F: so indice de precos. E o
-    # motivo de a NTN-B1 ficar separada da NTN-B -- o ultimo ano da divida,
-    # 2084, sao 6,5 bi de RendA+ e mais nada.
+    # Depois de 2040 nao ha mais LFT, LTN nem NTN-F: so indice de precos.
     tarde = perfil[perfil.index > 2040]
     for familia in ("LFT", "LTN", "NTN-F"):
         assert tarde[familia].sum() == 0
-    assert round(perfil.loc[2084, "NTN-B1"] / 1000, 1) == 6.5
-    assert round(perfil.loc[2084].sum() / 1000, 1) == 6.5
+    # O ultimo ano desenhado e 2060, e sao 105,5 bi de NTN-B.
+    assert round(perfil.loc[2060, "NTN-B"] / 1000, 1) == 105.5
+    assert round(perfil.loc[2060].sum() / 1000, 1) == 105.5
+
+
+def test_a_cauda_que_a_ntnb1_carregava_continua_no_dado(perfil):
+    # Tirar do desenho nao e tirar do dado: quem precisar da cauda ate 2084 acha em
+    # _perfil_bruto, e sao 6,5 bi de RendA+ em 2084.
+    bruto = vencimentos._perfil_bruto()
+    assert bruto.index.max() == 2084
+    assert round(bruto.loc[2084, "NTN-B1"] / 1000, 1) == 6.5
+    assert round(bruto.loc[2084].sum() / 1000, 1) == 6.5
 
 
 # ---------------------------------------------------------------------------

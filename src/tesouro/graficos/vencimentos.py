@@ -256,17 +256,24 @@ _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
                 "NTN-B": "NTN-B", "NTN-B1": "NTN-C", "NTN-C": "Outros"}
 
 
-def dados_perfil_completo():
-    """Vencimentos por ano ate 2084, por familia de titulo, em R$ milhoes.
+# A NTN-B1 -- RendA+ e EducA+ -- fica FORA do grafico, por decisao da dona do
+# projeto: ela tem regra propria de cupom e amortizacao, e empilhar com a NTN-B
+# comum soma coisas que nao se comportam igual. Sao 18,1 bi, e o desenho diz isso
+# num asterisco em vez de escond\u00ea-los.
+FORA_DO_PERFIL = ("NTN-B1",)
 
-    Vem da aba 2.2, papel a papel -- diferente do cronograma, que vem da 3.4 e para
-    em 60 meses. Os dois nao fecham: 8.904,1 aqui contra 8.920,7 la, 16,6 bi de
-    diferenca cuja causa esta em aberto e travada por teste.
 
-    ARMADILHA: papeis ja vencidos ficam no CSV com financeiro zero e ano de
-    vencimento no passado. Sem filtrar, o eixo comeca em 2010 com quatorze anos
-    vazios.
+def excluido_do_perfil():
+    """Quanto de NTN-B1 ficou fora do grafico, em R$ milhoes.
+
+    Existe para o asterisco do desenho poder dizer o numero, e para o teste poder
+    conferir que o numero dito e o numero excluido.
     """
+    return _perfil_bruto()[list(FORA_DO_PERFIL)].sum().sum()
+
+
+def _perfil_bruto():
+    """A aba 2.2 inteira, por ano e familia, ANTES de tirar a NTN-B1."""
     e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                     parse_dates=["data", "vencimento"])
     u = e[(e["data"] == e["data"].max()) & (e["financeiro_milhoes"] > 0)].copy()
@@ -281,7 +288,27 @@ def dados_perfil_completo():
     return piv[ORDEM_FAMILIAS]
 
 
-def desenha_perfil_completo(dados, ax):
+def dados_perfil_completo():
+    """Vencimentos por ano, por familia de titulo, em R$ milhoes.
+
+    Vem da aba 2.2, papel a papel -- diferente do cronograma, que vem da 3.4 e para
+    em 60 meses.
+
+    SEM a NTN-B1: com ela o grafico ia ate 2084; sem ela termina em 2060, porque
+    2064, 2069, 2074, 2079 e 2084 sao RendA+ e mais nada. A cauda longa some do
+    desenho de proposito -- ver FORA_DO_PERFIL.
+
+    ARMADILHA: papeis ja vencidos ficam no CSV com financeiro zero e ano de
+    vencimento no passado. Sem filtrar, o eixo comeca em 2010 com quatorze anos
+    vazios.
+    """
+    piv = _perfil_bruto().drop(columns=list(FORA_DO_PERFIL))
+    # Anos que so existiam por causa da NTN-B1 saem junto: uma barra de altura zero
+    # em 2084 seria pior do que nao ter 2084 nenhum.
+    return piv[piv.sum(axis=1) > 0]
+
+
+def desenha_perfil_completo(dados, ax, excluido=None):
     """Barras empilhadas por ano, do proximo ao ultimo.
 
     O eixo do tempo e categorico e nao continuo: entre 2060 e 2084 ha quatro anos
@@ -298,5 +325,16 @@ def desenha_perfil_completo(dados, ax):
     ax.set_xticks(list(posicoes))
     ax.set_xticklabels([str(a) for a in dados.index], rotation=90, fontsize=8)
     ax.set_ylabel("R$ bilh\u00f5es a vencer")
+
+    # O asterisco: o que ficou de fora tem de estar escrito na figura, nao so na
+    # legenda do HTML. Quem copia o grafico para um slide leva a ressalva junto.
+    if excluido is None:
+        excluido = excluido_do_perfil()
+    ax.set_title(
+        "* n\u00e3o considera as NTN-B1 (RendA+ e EducA+), "
+        + estilo.num_br(excluido / 1000, 1)
+        + " bi: elas t\u00eam regra pr\u00f3pria de cupom e "
+        "amortiza\u00e7\u00e3o",
+        fontsize=9, loc="left", color=estilo.COR["neutro"], pad=10)
     ax.legend(ncol=6, frameon=False, loc="upper right")
     ax.grid(axis="y", alpha=0.25)

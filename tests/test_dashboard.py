@@ -2,10 +2,11 @@ import re
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from tesouro.graficos import dashboard
+from tesouro.graficos import custo, dashboard, estilo
 
 
 @pytest.fixture(scope="module")
@@ -51,7 +52,49 @@ def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):
 def test_os_graficos_com_janela_trazem_as_duas_versoes_embutidas(html):
     for g in dashboard.REGISTRO:
         marcas = html.count(f'data-grafico="{g.id}" data-janela=')
-        assert marcas == (2 if g.janela else 1), f"{g.id} tem {marcas} versoes"
+        esperado = (2 if g.janela else 1) * (2 if g.variantes else 1)
+        assert marcas == esperado, f"{g.id} tem {marcas} versoes, esperava {esperado}"
+
+
+def test_a_caixa_da_dpfe_traz_as_quatro_combinacoes(html):
+    # Dois eixos de troca no mesmo grafico: janela (5 anos / completa) e variante
+    # (com / sem DPFe). As quatro vao embutidas, como as duas janelas ja iam.
+    assert html.count('data-grafico="custo_estoque" data-janela=') == 4
+    for janela in ("5 anos", "completa"):
+        for variante in ("False", "True"):
+            marca = (f'data-grafico="custo_estoque" data-janela="{janela}" '
+                     f'data-variante="{variante}"')
+            assert marca in html, marca
+    # E a caixa existe, com o rotulo que o registro declara.
+    assert 'input type="checkbox" class="variante"' in html
+    assert "incluir a DPFe" in html
+    assert "trocaVariante(&#x27;custo_estoque&#x27;)" in html or         "trocaVariante('custo_estoque')" in html
+
+
+def test_so_o_custo_tem_caixa_de_variante(html):
+    # Uma caixa e um grafico so. Se aparecer outra sem alguem decidir, este teste
+    # avisa -- interatividade e a coisa que mais cresce sozinha.
+    assert html.count('input type="checkbox"') == 1
+    com_variante = [g.id for g in dashboard.REGISTRO if g.variantes]
+    assert com_variante == ["custo_estoque"]
+
+
+def test_o_eixo_do_custo_muda_quando_a_dpfe_entra():
+    # A razao de a caixa existir: a DPFe vai de -16,0% a +62,6% e as outras duas
+    # vivem entre 10% e 14%. Se o eixo nao mudasse, ou a DPFe sairia cortada ou as
+    # outras quatro virariam um tapete no meio do grafico.
+    estilo.aplicar_estilo()
+    limites = {}
+    for com_dpfe in (False, True):
+        fig, ax = plt.subplots(figsize=(13, 6))
+        custo.desenha_custo(custo.dados_custo(com_dpfe=com_dpfe), ax)
+        limites[com_dpfe] = ax.get_ylim()
+        plt.close(fig)
+
+    assert limites[False][0] > limites[True][0], "o piso tem de descer"
+    assert limites[True][1] > limites[False][1], "o teto tem de subir"
+    assert limites[True][0] < -16.0 <= limites[False][0]
+    assert limites[True][1] > 62.6
 
 
 def test_a_composicao_do_estoque_abre_na_serie_completa():

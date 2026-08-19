@@ -24,8 +24,13 @@ from .. import config
 from . import (custo, detentores, estilo, estoque, funding, leiloes, paf,
                prazo, reserva, vencimentos)
 
+# 'variantes' e o segundo eixo de troca, alem da janela: um par
+# (rotulo_da_caixa, (valor_desmarcado, valor_marcado)) ou None. Hoje so o custo usa,
+# para incluir ou nao a DPFe. Um campo opcional custa menos que um sistema de opcoes,
+# e a lista continua legivel de cima a baixo.
 Grafico = collections.namedtuple(
-    "Grafico", "id grupo titulo fonte nota janela padrao figura")
+    "Grafico", "id grupo titulo fonte nota janela padrao figura variantes")
+Grafico.__new__.__defaults__ = (None,)
 
 GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
           "Reserva", "Candidatos"]
@@ -111,9 +116,10 @@ def _fig_prazo(janela):
     return fig
 
 
-def _fig_custo(janela):
+def _fig_custo(janela, com_dpfe=False):
     fig = _figura()
-    custo.desenha_custo(custo.dados_custo(janela), fig.subplots())
+    custo.desenha_custo(custo.dados_custo(janela, com_dpfe=com_dpfe),
+                        fig.subplots())
     return fig
 
 
@@ -219,8 +225,12 @@ REGISTRO = [
             "Custo do estoque contra a Selic e o IPCA",
             "abas 4.1 e 4.2, e vna.csv",
             "Custo acumulado em 12 meses. A Selic e o IPCA saem da varia\u00e7\u00e3o de 12 "
-            "meses do nosso pr\u00f3prio VNA, e come\u00e7am em jan/2011.",
-            True, "5 anos", _fig_custo),
+            "meses do nosso pr\u00f3prio VNA, e come\u00e7am em jan/2011. A DPFe fica fora por "
+            "padr\u00e3o: ela \u00e9 d\u00edvida externa medida em real, ent\u00e3o carrega c\u00e2mbio e "
+            "vai de -16,0% a +62,6% enquanto as outras duas vivem entre 10% e 14%. "
+            "Marque a caixa para inclu\u00ed-la; o eixo se ajusta.",
+            True, "5 anos", _fig_custo,
+            ("incluir a DPFe", (False, True))),
     Grafico("reserva_13m", "Reserva",
             "Reserva de liquidez, treze meses",
             "aba 6.1",
@@ -234,11 +244,12 @@ REGISTRO = [
             "foi negativa, e esses dois meses aparecem em vermelho.",
             True, "5 anos", _fig_reserva),
     Grafico("perfil_completo", "Candidatos",
-            "Perfil completo de vencimentos, at\u00e9 2084",
+            "Perfil de vencimentos, papel a papel",
             "aba 2.2",
-            "Papel a papel, diferente do cronograma, que vem da 3.4. Os dois n\u00e3o "
-            "fecham: 8.904,1 bi aqui contra 8.920,7 l\u00e1, e a causa dos 16,6 bi de "
-            "diferen\u00e7a est\u00e1 em aberto.",
+            "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
+            "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
+            "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
+            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma.",
             False, None, _fig_perfil_completo),
     Grafico("custo_emissao", "Candidatos",
             "Custo de emiss\u00e3o contra o custo do estoque",
@@ -285,17 +296,63 @@ section h2 { font-size: 17px; margin: 0 0 2px; }
            max-width: 900px; line-height: 1.45; }
 .fonte { color: var(--fraco); font-size: 12px; margin: 2px 0 10px; }
 svg { max-width: 100%; height: auto; }
+label.variante { display: inline-flex; align-items: center; gap: 6px;
+                 font-size: 12.5px; color: var(--fraco); margin: 0 0 6px;
+                 cursor: pointer; user-select: none; }
+label.variante input { cursor: pointer; }
 """
 
+# Escrito a mao, sem biblioteca -- a lista permitida do projeto nao tem nenhuma de
+# JavaScript, e nem precisaria: trocar qual <div> esta visivel e tudo o que ha aqui.
+#
+# Dois eixos de troca. A JANELA e global (um botao no topo, vale para todos) e a
+# VARIANTE e local (uma caixa dentro da secao). 'mostra' resolve os dois juntos.
+#
+# janelaAtiva comeca nula de proposito: enquanto ninguem toca no botao, cada grafico
+# fica na janela em que foi gravado -- a composicao do estoque abre na serie
+# completa e os demais em 5 anos, que e a decisao de projeto. Ler a janela do bloco
+# visivel preserva isso.
 _JS = """
-function trocaPeriodo(janela) {
-  document.querySelectorAll('[data-grafico]').forEach(function (bloco) {
-    var alvo = bloco.parentElement.querySelector('[data-janela="' + janela + '"]');
-    if (alvo) { bloco.style.display = (bloco === alvo) ? '' : 'none'; }
+var janelaAtiva = null;
+
+function mostra(secao) {
+  var blocos = secao.querySelectorAll('[data-grafico]');
+  if (!blocos.length) { return; }
+
+  var caixa = secao.querySelector('input.variante');
+  var variante = caixa ? (caixa.checked ? caixa.dataset.sim : caixa.dataset.nao) : '';
+
+  var visivel = null;
+  blocos.forEach(function (b) {
+    if (b.style.display !== 'none' && visivel === null) { visivel = b; }
   });
+  var janela = janelaAtiva || (visivel ? visivel.dataset.janela : null);
+
+  var candidatos = [];
+  blocos.forEach(function (b) {
+    if ((b.dataset.variante || '') === variante) { candidatos.push(b); }
+  });
+  if (!candidatos.length) { candidatos = Array.prototype.slice.call(blocos); }
+
+  var alvo = null;
+  candidatos.forEach(function (b) {
+    if (b.dataset.janela === janela && alvo === null) { alvo = b; }
+  });
+  if (alvo === null) { alvo = candidatos[0]; }
+
+  blocos.forEach(function (b) { b.style.display = (b === alvo) ? '' : 'none'; });
+}
+
+function trocaPeriodo(janela) {
+  janelaAtiva = janela;
+  document.querySelectorAll('section').forEach(mostra);
   document.querySelectorAll('#troca-periodo button').forEach(function (b) {
     b.classList.toggle('ativo', b.dataset.janela === janela);
   });
+}
+
+function trocaVariante(id) {
+  mostra(document.getElementById(id));
 }
 """
 
@@ -344,17 +401,37 @@ def svg_de(figura, prefixo=""):
 
 
 def _bloco(grafico, recortes):
-    """Uma secao: titulo, as versoes do SVG, a fonte e a legenda."""
+    """Uma secao: titulo, as versoes do SVG, a fonte e a legenda.
+
+    Cada versao e um par (janela, variante). Sem variantes sao uma ou duas versoes;
+    com variantes, o dobro -- e a caixa de marcar escolhe qual metade aparece.
+    """
     partes = [f'<section id="{grafico.id}">',
               f"  <h2>{grafico.titulo}</h2>"]
 
+    if grafico.variantes:
+        rotulo, (desmarcada, marcada) = grafico.variantes
+        partes.append(
+            f'  <label class="variante"><input type="checkbox" class="variante" '
+            f'data-nao="{desmarcada}" data-sim="{marcada}" '
+            f"onchange=\"trocaVariante('{grafico.id}')\"> {rotulo}</label>")
+        opcoes = [(str(desmarcada), desmarcada), (str(marcada), marcada)]
+    else:
+        opcoes = [("", None)]
+
     usados = recortes if grafico.janela else recortes[:1]
     for nome, janela in usados:
-        visivel = "" if (nome == grafico.padrao or len(usados) == 1) \
-            else ' style="display:none"'
-        svg = svg_de(grafico.figura(janela), prefixo=f"{grafico.id}-{nome}")
-        partes.append(f'  <div data-grafico="{grafico.id}" '
-                      f'data-janela="{nome}"{visivel}>{svg}</div>')
+        for marca, variante in opcoes:
+            padrao_da_janela = (nome == grafico.padrao or len(usados) == 1)
+            padrao_da_variante = (marca == opcoes[0][0])
+            visivel = "" if (padrao_da_janela and padrao_da_variante) \
+                else ' style="display:none"'
+            figura = (grafico.figura(janela, variante) if grafico.variantes
+                      else grafico.figura(janela))
+            svg = svg_de(figura, prefixo=f"{grafico.id}-{nome}-{marca}")
+            partes.append(f'  <div data-grafico="{grafico.id}" '
+                          f'data-janela="{nome}" data-variante="{marca}"'
+                          f"{visivel}>{svg}</div>")
 
     partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')
     partes.append(f'  <p class="legenda">{grafico.nota}</p>')

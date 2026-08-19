@@ -2971,13 +2971,22 @@ JANELAS = {"5 anos": 5, "completa": None}
 NIVEIS = ["DPF", "DPMFi"]
 INDICES = ["SELIC", "IPCA"]
 
+# A DPFe entra so quando pedida. Ela nao mede a mesma coisa que as outras duas: e
+# divida externa medida em real, entao o custo e cupom MAIS variacao cambial, e a
+# serie vai de -16,0% (jan/2017) a +62,6% (set/2015) enquanto a DPF e a DPMFi vivem
+# entre 10% e 14%. Desenhada junto por padrao, ela achata as outras e convida a
+# leitura de que as tres sao comparaveis.
+NIVEL_OPCIONAL = "DPFe"
+
 _COR = {"DPF": "#1f3864",
         "DPMFi": "#3d9be9",
+        "DPFe": "#8c564b",
         "SELIC": "#2ca02c",
         "IPCA": "#ed7d31"}
 
 _ROTULO = {"DPF": "custo da DPF",
            "DPMFi": "custo da DPMFi",
+           "DPFe": "custo da DPFe (carrega c\u00e2mbio)",
            "SELIC": "Selic acumulada em 12m",
            "IPCA": "IPCA acumulado em 12m"}
 
@@ -3004,18 +3013,22 @@ def variacao_12m_do_vna():
     return (piv / piv.shift(12) - 1) * 100
 
 
-def dados_custo(janela=None):
+def dados_custo(janela=None, com_dpfe=False):
     """Custo acumulado em 12 meses da DPF e da DPMFi, com a Selic e o IPCA.
+
+    Com com_dpfe=True a DPFe entra como quinta serie. Ela e opcional porque mede
+    outra coisa: divida externa em real, com o cambio dentro. Ver NIVEL_OPCIONAL.
 
     A juncao com o VNA e por competencia: o VNA e do ultimo dia util e o custo e do
     ultimo dia do mes, e so 137 das 198 datas coincidem.
     """
+    niveis = NIVEIS + ([NIVEL_OPCIONAL] if com_dpfe else [])
     c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
     agregado = c[(c["medida"] == "acum_12m")
                  & c["entidade"].isna() & c["titulo"].isna()
-                 & c["nivel"].isin(NIVEIS)]
+                 & c["nivel"].isin(niveis)]
     saida = agregado.pivot_table(index="data", columns="nivel",
-                                 values="custo_aa_pct")[NIVEIS]
+                                 values="custo_aa_pct")[niveis]
 
     indices = variacao_12m_do_vna()
     competencia = saida.index.to_period("M")
@@ -3031,22 +3044,43 @@ def desenha_custo(dados, ax):
     O eixo do tempo e anual e o dado continua mensal: a pagina do RMD usa cerca de
     170 rotulos mensais e ninguem le.
     """
-    for coluna in NIVEIS + INDICES:
+    desenhadas = [c for c in dados.columns]
+    ultimos = {}
+    for coluna in desenhadas:
         serie = dados[coluna].dropna()
-        largura = 2.6 if coluna in NIVEIS else 1.6
-        estilo_linha = "-" if coluna in NIVEIS else "--"
+        largura = 2.6 if coluna not in INDICES else 1.6
+        estilo_linha = "-" if coluna not in INDICES else "--"
         ax.plot(serie.index, serie, color=_COR[coluna], lw=largura,
                 ls=estilo_linha, label=_ROTULO[coluna])
-        ax.annotate(estilo.num_br(serie.iloc[-1], 2),
-                    xy=(serie.index[-1], serie.iloc[-1]), xytext=(6, 0),
-                    textcoords="offset points", fontsize=9.5, weight="bold",
-                    color=_COR[coluna], va="center")
+        ultimos[coluna] = (serie.index[-1], serie.iloc[-1])
 
     ax.axhline(0, color="gray", lw=0.8)
     ax.set_ylabel("% ao ano")
-    estilo.grade_fina(ax, 5, 2.5)
+
+    # O eixo sai do dado, e nao de um limite fixo: com a DPFe ele precisa abrir
+    # para baixo de zero e bem mais para cima. Fixar o eixo faria a DPFe sair
+    # cortada ou espremeria as outras quatro num tapete.
+    piso = min(0.0, float(dados.min().min())) - 1.5
+    teto = float(dados.max().max()) + 1.5
+    ax.set_ylim(piso, teto)
+
+    # O rotulo de cada linha vai no ultimo ponto, e dois deles se sobrepoem quando o
+    # eixo abre: com a DPFe dentro, a DPF (12,68) e a DPMFi (13,19) ficam a meio
+    # ponto uma da outra num eixo de 47 pontos, e os textos viram um borrao. Aqui
+    # eles sao empurrados para cima ate caberem, na ordem do valor.
+    minimo = (teto - piso) * 0.035
+    anterior = None
+    for coluna, (x, y) in sorted(ultimos.items(), key=lambda item: item[1][1]):
+        alvo = y if anterior is None else max(y, anterior + minimo)
+        ax.annotate(estilo.num_br(y, 2), xy=(x, alvo), xytext=(6, 0),
+                    textcoords="offset points", fontsize=9.5, weight="bold",
+                    color=_COR[coluna], va="center")
+        anterior = alvo
+
+    passo = 5 if teto - piso <= 45 else 10
+    estilo.grade_fina(ax, passo, passo / 2)
     estilo.eixo_anual(ax, a_cada=2)
-    ax.legend(ncol=4, frameon=False, loc="upper center",
+    ax.legend(ncol=len(desenhadas), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.08))
 ```
 
@@ -3507,22 +3541,40 @@ def perfil():
     return vencimentos.dados_perfil_completo()
 
 
-def test_o_perfil_completo_vai_ate_2084(perfil):
+def test_o_perfil_termina_em_2060_porque_a_ntnb1_ficou_de_fora(perfil):
+    # Com a NTN-B1 o grafico ia ate 2084. Sem ela para em 2060: 2064, 2069, 2074,
+    # 2079 e 2084 sao RendA+ e mais nada. Decisao da dona do projeto -- a NTN-B1 tem
+    # regra propria de cupom e amortizacao e nao empilha com o resto.
     assert perfil.index.min() == 2026
-    assert perfil.index.max() == 2084
+    assert perfil.index.max() == 2060
+    assert "NTN-B1" not in perfil.columns
     # Anos ja vencidos entram no CSV com financeiro zero; sem filtrar, o eixo
     # comecaria em 2010 com quatorze anos vazios.
-    assert len(perfil) == 34
+    assert len(perfil) == 16
 
 
-def test_a_diferenca_de_166_bi_contra_o_cronograma_esta_travada(perfil):
+def test_o_que_ficou_de_fora_do_perfil_esta_dito_e_medido():
+    # O asterisco do desenho promete um numero, e este teste confere que o numero
+    # prometido e o numero que saiu.
+    assert round(vencimentos.excluido_do_perfil() / 1000, 1) == 18.1
+    bruto = vencimentos._perfil_bruto()
+    assert round(bruto.sum().sum() / 1000, 1) == 8904.1
+    assert round(vencimentos.dados_perfil_completo().sum().sum() / 1000, 1) == 8886.0
+
+
+def test_a_diferenca_contra_o_cronograma_esta_travada(perfil):
     # Os dois graficos de vencimento coexistem por decisao, e a diferenca entre os
-    # totais e travada aqui.
+    # totais e travada aqui. Ela tem duas parcelas, e as duas sao escolhas:
+    #   16,6 bi -- o que a aba 2.2 nao lista (Demais, Securitizada, TDA);
+    #   18,1 bi -- a NTN-B1, que a 2.2 lista e nos tiramos do desenho.
+    # Somadas dao 34,7, que e exatamente o balde "Demais" do cronograma.
     total_perfil = perfil.sum().sum() / 1000
     cronograma = vencimentos.dados_cronograma_anual().sum().sum() / 1000
-    assert round(total_perfil, 1) == 8904.1
+    assert round(total_perfil, 1) == 8886.0
     assert round(cronograma, 1) == 8920.7
-    assert round(cronograma - total_perfil, 1) == 16.6
+    assert round(cronograma - total_perfil, 1) == 34.7
+    assert round(vencimentos.excluido_do_perfil() / 1000, 1) == 18.1
+    assert round(34.7 - 18.1, 1) == 16.6
 
 
 def test_os_papeis_com_nome_batem_papel_a_papel_entre_as_duas_abas(perfil):
@@ -3568,14 +3620,22 @@ def test_a_diferenca_de_166_bi_e_o_que_a_aba_22_nao_lista():
 
 
 def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
-    # Depois de 2040 nao ha mais LFT, LTN nem NTN-F: so indice de precos. E o
-    # motivo de a NTN-B1 ficar separada da NTN-B -- o ultimo ano da divida,
-    # 2084, sao 6,5 bi de RendA+ e mais nada.
+    # Depois de 2040 nao ha mais LFT, LTN nem NTN-F: so indice de precos.
     tarde = perfil[perfil.index > 2040]
     for familia in ("LFT", "LTN", "NTN-F"):
         assert tarde[familia].sum() == 0
-    assert round(perfil.loc[2084, "NTN-B1"] / 1000, 1) == 6.5
-    assert round(perfil.loc[2084].sum() / 1000, 1) == 6.5
+    # O ultimo ano desenhado e 2060, e sao 105,5 bi de NTN-B.
+    assert round(perfil.loc[2060, "NTN-B"] / 1000, 1) == 105.5
+    assert round(perfil.loc[2060].sum() / 1000, 1) == 105.5
+
+
+def test_a_cauda_que_a_ntnb1_carregava_continua_no_dado(perfil):
+    # Tirar do desenho nao e tirar do dado: quem precisar da cauda ate 2084 acha em
+    # _perfil_bruto, e sao 6,5 bi de RendA+ em 2084.
+    bruto = vencimentos._perfil_bruto()
+    assert bruto.index.max() == 2084
+    assert round(bruto.loc[2084, "NTN-B1"] / 1000, 1) == 6.5
+    assert round(bruto.loc[2084].sum() / 1000, 1) == 6.5
 
 
 # ---------------------------------------------------------------------------
@@ -3705,17 +3765,24 @@ _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
                 "NTN-B": "NTN-B", "NTN-B1": "NTN-C", "NTN-C": "Outros"}
 
 
-def dados_perfil_completo():
-    """Vencimentos por ano ate 2084, por familia de titulo, em R$ milhoes.
+# A NTN-B1 -- RendA+ e EducA+ -- fica FORA do grafico, por decisao da dona do
+# projeto: ela tem regra propria de cupom e amortizacao, e empilhar com a NTN-B
+# comum soma coisas que nao se comportam igual. Sao 18,1 bi, e o desenho diz isso
+# num asterisco em vez de escondê-los.
+FORA_DO_PERFIL = ("NTN-B1",)
 
-    Vem da aba 2.2, papel a papel -- diferente do cronograma, que vem da 3.4 e para
-    em 60 meses. Os dois nao fecham: 8.904,1 aqui contra 8.920,7 la, 16,6 bi de
-    diferenca cuja causa esta em aberto e travada por teste.
 
-    ARMADILHA: papeis ja vencidos ficam no CSV com financeiro zero e ano de
-    vencimento no passado. Sem filtrar, o eixo comeca em 2010 com quatorze anos
-    vazios.
+def excluido_do_perfil():
+    """Quanto de NTN-B1 ficou fora do grafico, em R$ milhoes.
+
+    Existe para o asterisco do desenho poder dizer o numero, e para o teste poder
+    conferir que o numero dito e o numero excluido.
     """
+    return _perfil_bruto()[list(FORA_DO_PERFIL)].sum().sum()
+
+
+def _perfil_bruto():
+    """A aba 2.2 inteira, por ano e familia, ANTES de tirar a NTN-B1."""
     e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                     parse_dates=["data", "vencimento"])
     u = e[(e["data"] == e["data"].max()) & (e["financeiro_milhoes"] > 0)].copy()
@@ -3730,7 +3797,27 @@ def dados_perfil_completo():
     return piv[ORDEM_FAMILIAS]
 
 
-def desenha_perfil_completo(dados, ax):
+def dados_perfil_completo():
+    """Vencimentos por ano, por familia de titulo, em R$ milhoes.
+
+    Vem da aba 2.2, papel a papel -- diferente do cronograma, que vem da 3.4 e para
+    em 60 meses.
+
+    SEM a NTN-B1: com ela o grafico ia ate 2084; sem ela termina em 2060, porque
+    2064, 2069, 2074, 2079 e 2084 sao RendA+ e mais nada. A cauda longa some do
+    desenho de proposito -- ver FORA_DO_PERFIL.
+
+    ARMADILHA: papeis ja vencidos ficam no CSV com financeiro zero e ano de
+    vencimento no passado. Sem filtrar, o eixo comeca em 2010 com quatorze anos
+    vazios.
+    """
+    piv = _perfil_bruto().drop(columns=list(FORA_DO_PERFIL))
+    # Anos que so existiam por causa da NTN-B1 saem junto: uma barra de altura zero
+    # em 2084 seria pior do que nao ter 2084 nenhum.
+    return piv[piv.sum(axis=1) > 0]
+
+
+def desenha_perfil_completo(dados, ax, excluido=None):
     """Barras empilhadas por ano, do proximo ao ultimo.
 
     O eixo do tempo e categorico e nao continuo: entre 2060 e 2084 ha quatro anos
@@ -3747,6 +3834,17 @@ def desenha_perfil_completo(dados, ax):
     ax.set_xticks(list(posicoes))
     ax.set_xticklabels([str(a) for a in dados.index], rotation=90, fontsize=8)
     ax.set_ylabel("R$ bilh\u00f5es a vencer")
+
+    # O asterisco: o que ficou de fora tem de estar escrito na figura, nao so na
+    # legenda do HTML. Quem copia o grafico para um slide leva a ressalva junto.
+    if excluido is None:
+        excluido = excluido_do_perfil()
+    ax.set_title(
+        "* n\u00e3o considera as NTN-B1 (RendA+ e EducA+), "
+        + estilo.num_br(excluido / 1000, 1)
+        + " bi: elas t\u00eam regra pr\u00f3pria de cupom e "
+        "amortiza\u00e7\u00e3o",
+        fontsize=9, loc="left", color=estilo.COR["neutro"], pad=10)
     ax.legend(ncol=6, frameon=False, loc="upper right")
     ax.grid(axis="y", alpha=0.25)
 ```
@@ -4030,10 +4128,11 @@ import re
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from tesouro.graficos import dashboard
+from tesouro.graficos import custo, dashboard, estilo
 
 
 @pytest.fixture(scope="module")
@@ -4079,7 +4178,49 @@ def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):
 def test_os_graficos_com_janela_trazem_as_duas_versoes_embutidas(html):
     for g in dashboard.REGISTRO:
         marcas = html.count(f'data-grafico="{g.id}" data-janela=')
-        assert marcas == (2 if g.janela else 1), f"{g.id} tem {marcas} versoes"
+        esperado = (2 if g.janela else 1) * (2 if g.variantes else 1)
+        assert marcas == esperado, f"{g.id} tem {marcas} versoes, esperava {esperado}"
+
+
+def test_a_caixa_da_dpfe_traz_as_quatro_combinacoes(html):
+    # Dois eixos de troca no mesmo grafico: janela (5 anos / completa) e variante
+    # (com / sem DPFe). As quatro vao embutidas, como as duas janelas ja iam.
+    assert html.count('data-grafico="custo_estoque" data-janela=') == 4
+    for janela in ("5 anos", "completa"):
+        for variante in ("False", "True"):
+            marca = (f'data-grafico="custo_estoque" data-janela="{janela}" '
+                     f'data-variante="{variante}"')
+            assert marca in html, marca
+    # E a caixa existe, com o rotulo que o registro declara.
+    assert 'input type="checkbox" class="variante"' in html
+    assert "incluir a DPFe" in html
+    assert "trocaVariante(&#x27;custo_estoque&#x27;)" in html or         "trocaVariante('custo_estoque')" in html
+
+
+def test_so_o_custo_tem_caixa_de_variante(html):
+    # Uma caixa e um grafico so. Se aparecer outra sem alguem decidir, este teste
+    # avisa -- interatividade e a coisa que mais cresce sozinha.
+    assert html.count('input type="checkbox"') == 1
+    com_variante = [g.id for g in dashboard.REGISTRO if g.variantes]
+    assert com_variante == ["custo_estoque"]
+
+
+def test_o_eixo_do_custo_muda_quando_a_dpfe_entra():
+    # A razao de a caixa existir: a DPFe vai de -16,0% a +62,6% e as outras duas
+    # vivem entre 10% e 14%. Se o eixo nao mudasse, ou a DPFe sairia cortada ou as
+    # outras quatro virariam um tapete no meio do grafico.
+    estilo.aplicar_estilo()
+    limites = {}
+    for com_dpfe in (False, True):
+        fig, ax = plt.subplots(figsize=(13, 6))
+        custo.desenha_custo(custo.dados_custo(com_dpfe=com_dpfe), ax)
+        limites[com_dpfe] = ax.get_ylim()
+        plt.close(fig)
+
+    assert limites[False][0] > limites[True][0], "o piso tem de descer"
+    assert limites[True][1] > limites[False][1], "o teto tem de subir"
+    assert limites[True][0] < -16.0 <= limites[False][0]
+    assert limites[True][1] > 62.6
 
 
 def test_a_composicao_do_estoque_abre_na_serie_completa():
@@ -4224,8 +4365,13 @@ from .. import config
 from . import (custo, detentores, estilo, estoque, funding, leiloes, paf,
                prazo, reserva, vencimentos)
 
+# 'variantes' e o segundo eixo de troca, alem da janela: um par
+# (rotulo_da_caixa, (valor_desmarcado, valor_marcado)) ou None. Hoje so o custo usa,
+# para incluir ou nao a DPFe. Um campo opcional custa menos que um sistema de opcoes,
+# e a lista continua legivel de cima a baixo.
 Grafico = collections.namedtuple(
-    "Grafico", "id grupo titulo fonte nota janela padrao figura")
+    "Grafico", "id grupo titulo fonte nota janela padrao figura variantes")
+Grafico.__new__.__defaults__ = (None,)
 
 GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
           "Reserva", "Candidatos"]
@@ -4311,9 +4457,10 @@ def _fig_prazo(janela):
     return fig
 
 
-def _fig_custo(janela):
+def _fig_custo(janela, com_dpfe=False):
     fig = _figura()
-    custo.desenha_custo(custo.dados_custo(janela), fig.subplots())
+    custo.desenha_custo(custo.dados_custo(janela, com_dpfe=com_dpfe),
+                        fig.subplots())
     return fig
 
 
@@ -4419,8 +4566,12 @@ REGISTRO = [
             "Custo do estoque contra a Selic e o IPCA",
             "abas 4.1 e 4.2, e vna.csv",
             "Custo acumulado em 12 meses. A Selic e o IPCA saem da varia\u00e7\u00e3o de 12 "
-            "meses do nosso pr\u00f3prio VNA, e come\u00e7am em jan/2011.",
-            True, "5 anos", _fig_custo),
+            "meses do nosso pr\u00f3prio VNA, e come\u00e7am em jan/2011. A DPFe fica fora por "
+            "padr\u00e3o: ela \u00e9 d\u00edvida externa medida em real, ent\u00e3o carrega c\u00e2mbio e "
+            "vai de -16,0% a +62,6% enquanto as outras duas vivem entre 10% e 14%. "
+            "Marque a caixa para inclu\u00ed-la; o eixo se ajusta.",
+            True, "5 anos", _fig_custo,
+            ("incluir a DPFe", (False, True))),
     Grafico("reserva_13m", "Reserva",
             "Reserva de liquidez, treze meses",
             "aba 6.1",
@@ -4434,11 +4585,12 @@ REGISTRO = [
             "foi negativa, e esses dois meses aparecem em vermelho.",
             True, "5 anos", _fig_reserva),
     Grafico("perfil_completo", "Candidatos",
-            "Perfil completo de vencimentos, at\u00e9 2084",
+            "Perfil de vencimentos, papel a papel",
             "aba 2.2",
-            "Papel a papel, diferente do cronograma, que vem da 3.4. Os dois n\u00e3o "
-            "fecham: 8.904,1 bi aqui contra 8.920,7 l\u00e1, e a causa dos 16,6 bi de "
-            "diferen\u00e7a est\u00e1 em aberto.",
+            "N\u00e3o considera as NTN-B1 (RendA+ e EducA+), 18,1 bi, que t\u00eam regra "
+            "pr\u00f3pria de cupom e amortiza\u00e7\u00e3o. Sem elas o gr\u00e1fico termina em 2060: "
+            "2064, 2069, 2074, 2079 e 2084 s\u00e3o RendA+ e mais nada. O total desenhado "
+            "\u00e9 8.886,0 bi, contra 8.920,7 do cronograma.",
             False, None, _fig_perfil_completo),
     Grafico("custo_emissao", "Candidatos",
             "Custo de emiss\u00e3o contra o custo do estoque",
@@ -4491,17 +4643,63 @@ section h2 { font-size: 17px; margin: 0 0 2px; }
            max-width: 900px; line-height: 1.45; }
 .fonte { color: var(--fraco); font-size: 12px; margin: 2px 0 10px; }
 svg { max-width: 100%; height: auto; }
+label.variante { display: inline-flex; align-items: center; gap: 6px;
+                 font-size: 12.5px; color: var(--fraco); margin: 0 0 6px;
+                 cursor: pointer; user-select: none; }
+label.variante input { cursor: pointer; }
 """
 
+# Escrito a mao, sem biblioteca -- a lista permitida do projeto nao tem nenhuma de
+# JavaScript, e nem precisaria: trocar qual <div> esta visivel e tudo o que ha aqui.
+#
+# Dois eixos de troca. A JANELA e global (um botao no topo, vale para todos) e a
+# VARIANTE e local (uma caixa dentro da secao). 'mostra' resolve os dois juntos.
+#
+# janelaAtiva comeca nula de proposito: enquanto ninguem toca no botao, cada grafico
+# fica na janela em que foi gravado -- a composicao do estoque abre na serie
+# completa e os demais em 5 anos, que e a decisao de projeto. Ler a janela do bloco
+# visivel preserva isso.
 _JS = """
-function trocaPeriodo(janela) {
-  document.querySelectorAll('[data-grafico]').forEach(function (bloco) {
-    var alvo = bloco.parentElement.querySelector('[data-janela="' + janela + '"]');
-    if (alvo) { bloco.style.display = (bloco === alvo) ? '' : 'none'; }
+var janelaAtiva = null;
+
+function mostra(secao) {
+  var blocos = secao.querySelectorAll('[data-grafico]');
+  if (!blocos.length) { return; }
+
+  var caixa = secao.querySelector('input.variante');
+  var variante = caixa ? (caixa.checked ? caixa.dataset.sim : caixa.dataset.nao) : '';
+
+  var visivel = null;
+  blocos.forEach(function (b) {
+    if (b.style.display !== 'none' && visivel === null) { visivel = b; }
   });
+  var janela = janelaAtiva || (visivel ? visivel.dataset.janela : null);
+
+  var candidatos = [];
+  blocos.forEach(function (b) {
+    if ((b.dataset.variante || '') === variante) { candidatos.push(b); }
+  });
+  if (!candidatos.length) { candidatos = Array.prototype.slice.call(blocos); }
+
+  var alvo = null;
+  candidatos.forEach(function (b) {
+    if (b.dataset.janela === janela && alvo === null) { alvo = b; }
+  });
+  if (alvo === null) { alvo = candidatos[0]; }
+
+  blocos.forEach(function (b) { b.style.display = (b === alvo) ? '' : 'none'; });
+}
+
+function trocaPeriodo(janela) {
+  janelaAtiva = janela;
+  document.querySelectorAll('section').forEach(mostra);
   document.querySelectorAll('#troca-periodo button').forEach(function (b) {
     b.classList.toggle('ativo', b.dataset.janela === janela);
   });
+}
+
+function trocaVariante(id) {
+  mostra(document.getElementById(id));
 }
 """
 
@@ -4550,17 +4748,37 @@ def svg_de(figura, prefixo=""):
 
 
 def _bloco(grafico, recortes):
-    """Uma secao: titulo, as versoes do SVG, a fonte e a legenda."""
+    """Uma secao: titulo, as versoes do SVG, a fonte e a legenda.
+
+    Cada versao e um par (janela, variante). Sem variantes sao uma ou duas versoes;
+    com variantes, o dobro -- e a caixa de marcar escolhe qual metade aparece.
+    """
     partes = [f'<section id="{grafico.id}">',
               f"  <h2>{grafico.titulo}</h2>"]
 
+    if grafico.variantes:
+        rotulo, (desmarcada, marcada) = grafico.variantes
+        partes.append(
+            f'  <label class="variante"><input type="checkbox" class="variante" '
+            f'data-nao="{desmarcada}" data-sim="{marcada}" '
+            f"onchange=\"trocaVariante('{grafico.id}')\"> {rotulo}</label>")
+        opcoes = [(str(desmarcada), desmarcada), (str(marcada), marcada)]
+    else:
+        opcoes = [("", None)]
+
     usados = recortes if grafico.janela else recortes[:1]
     for nome, janela in usados:
-        visivel = "" if (nome == grafico.padrao or len(usados) == 1) \
-            else ' style="display:none"'
-        svg = svg_de(grafico.figura(janela), prefixo=f"{grafico.id}-{nome}")
-        partes.append(f'  <div data-grafico="{grafico.id}" '
-                      f'data-janela="{nome}"{visivel}>{svg}</div>')
+        for marca, variante in opcoes:
+            padrao_da_janela = (nome == grafico.padrao or len(usados) == 1)
+            padrao_da_variante = (marca == opcoes[0][0])
+            visivel = "" if (padrao_da_janela and padrao_da_variante) \
+                else ' style="display:none"'
+            figura = (grafico.figura(janela, variante) if grafico.variantes
+                      else grafico.figura(janela))
+            svg = svg_de(figura, prefixo=f"{grafico.id}-{nome}-{marca}")
+            partes.append(f'  <div data-grafico="{grafico.id}" '
+                          f'data-janela="{nome}" data-variante="{marca}"'
+                          f"{visivel}>{svg}</div>")
 
     partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')
     partes.append(f'  <p class="legenda">{grafico.nota}</p>')

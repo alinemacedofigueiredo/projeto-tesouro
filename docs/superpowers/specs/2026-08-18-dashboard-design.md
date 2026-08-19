@@ -119,9 +119,18 @@ alternam com JavaScript escrito à mão. Nenhuma biblioteca nova — a lista per
 
 **Nove dos dezesseis aceitam janela** — os sete principais mais dois candidatos (o
 custo de emissão e a emissão anual por papel), como a tabela da seção 5 marca. Os
-outros são retrato de uma data ou têm layout fixo herdado das páginas do RMD. Total:
-**25 SVGs**. (Uma versão anterior desta seção dizia sete e 23, contando só os
-principais; o número certo é o da tabela, e o teste o deriva do registro.)
+outros são retrato de uma data ou têm layout fixo herdado das páginas do RMD. (Uma
+versão anterior desta seção dizia sete e 23, contando só os principais; o número
+certo é o da tabela, e o teste o deriva do registro.)
+
+**Um gráfico tem um segundo eixo de troca.** O custo do estoque traz uma caixa de
+marcar para incluir a DPFe, e por isso vai em quatro versões — duas janelas × duas
+variantes. Total: **27 SVGs**.
+
+A caixa é o mesmo mecanismo do botão de período, e não interatividade dentro do
+desenho: as versões vão todas embutidas e o JavaScript troca qual está visível.
+Continua valendo a restrição de nenhuma biblioteca nova. Interatividade de verdade —
+zoom, hover, seleção dentro do gráfico — segue na seção 10, esperando o banco.
 
 ### 4.3 Linha de comando
 
@@ -161,7 +170,7 @@ figura, **não dentro do desenho** — assim o texto é selecionável e o SVG fi
 | Custo | custo do estoque contra Selic e IPCA | 4.1/4.2 + `vna.csv` | sim |
 | Reserva | treze meses, no formato do RMD | 6.1 | não |
 | | cinco anos, com a folga sombreada | 6.1 | sim |
-| *Candidatos* | perfil completo de vencimentos até 2084 | 2.2 | não |
+| *Candidatos* | perfil de vencimentos papel a papel, até 2060 | 2.2 | não |
 | | custo de emissão contra o do estoque | 4.2/4.3 | sim |
 | | emissão anual em 100% por papel | leilões | sim |
 
@@ -189,7 +198,19 @@ Cada uma destas saiu de uma rodada de crítica sobre um rascunho:
   marcas em jan/abr/jul/out e divisória na virada do ano.
 - **Prazo médio:** rótulos só na DPMFi e na DPFe; a DPF fica como linha de contexto.
 - **Custo:** eixo do tempo em marcas anuais mantendo o dado mensal, e rótulo só no
-  último ponto de cada linha.
+  último ponto de cada linha. A **DPFe fica fora por padrão**, com caixa de marcar
+  para incluí-la: ela é dívida externa medida em real, então carrega câmbio, e vai
+  de −16,0% (jan/2017) a +62,6% (set/2015) enquanto a DPF e a DPMFi vivem entre 10%
+  e 14%. Desenhada junto sem aviso, achata as outras e convida à leitura de que as
+  três são comparáveis. O eixo Y sai do dado, e não de um limite fixo — com a DPFe
+  ele abre para baixo de zero e bem mais para cima; e os rótulos do último ponto se
+  afastam quando ficariam sobrepostos.
+- **Perfil de vencimentos:** **não considera a NTN-B1** (RendA+ e EducA+), 18,1 bi,
+  que tem regra própria de cupom e amortização. Sem ela o gráfico termina em 2060 e
+  não em 2084 — 2064, 2069, 2074, 2079 e 2084 são RendA+ e mais nada. O que ficou de
+  fora está escrito num asterisco na própria figura, não só na legenda do HTML: quem
+  copia o gráfico para um slide leva a ressalva junto. O dado completo continua em
+  `_perfil_bruto()`, com a cauda até 2084.
 - **Reserva:** as duas versões coexistem. A de treze meses é a linguagem do RMD, para
   apresentação; a de cinco anos diz se o número de hoje é alto ou baixo.
 - **Banda do PAF:** desenhada **ano a ano sobre o próprio gráfico**, não como caixa
