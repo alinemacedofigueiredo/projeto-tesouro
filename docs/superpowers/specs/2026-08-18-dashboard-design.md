@@ -161,9 +161,10 @@ figura, **não dentro do desenho** — assim o texto é selecionável e o SVG fi
 | | emissão por indexador, mensal em reais | 1.2 | sim |
 | | emissão anual em 100% por indexador | 1.2 | sim |
 | Estoque | composição por indexador com banda do PAF | 2.1 + PAF | sim |
-| Detentores | participação relativa e variação | 2.7 | não |
+| Detentores | participação relativa e variação, no formato da página 7 | 2.7 | não |
 | | quem carrega cada papel | 2.8 | não |
 | | financeiro por detentor, oito painéis | 2.8 | sim |
+| | *quebra por papel: LFT, NTN-B, LTN, NTN-F* — quatro gráficos recolhidos | 2.8 | sim |
 | Vencimentos | cronograma com o balde da cauda | 3.4 | não |
 | | composição da DPF com banda do PAF | 3.1 + PAF | não |
 | Prazo | prazo médio com banda do PAF | 3.7 + PAF | não |
@@ -194,6 +195,14 @@ Cada uma destas saiu de uma rodada de crítica sobre um rascunho:
 - **Quem carrega cada papel:** rótulo de percentual só nas fatias de 10% ou mais.
 - **Financeiro por detentor:** escala própria em cada painel, porque os detentores
   diferem em ordem de grandeza; Tesouro Direto por último, por ordem de importância.
+  A mesma leitura se repete **por papel** — LFT, NTN-B, LTN e NTN-F —, e esses quatro
+  ficam **recolhidos atrás de uma setinha** (`<details>`, HTML puro): respondem a
+  mesma pergunta do gráfico geral e, abertos, empurram metade do dashboard para
+  baixo da dobra. O conteúdo continua no arquivo mesmo fechado.
+- **Participação relativa:** no formato da página 7 do RMD — uma coluna de 100% por
+  ano fechado mais os dois últimos meses, com o percentual escrito dentro de cada
+  faixa. A variação vai em **reais**, e não em pontos percentuais: participação que
+  cai com estoque subindo é ruído de composição, não venda.
 - **Cronograma:** painel anual mais o balde "Após 5 anos", mais o detalhe mensal com
   marcas em jan/abr/jul/out e divisória na virada do ano.
 - **Prazo médio:** rótulos só na DPMFi e na DPFe; a DPF fica como linha de contexto.
@@ -350,7 +359,7 @@ Medidas durante os rascunhos. Cada uma produziria gráfico plausível e errado.
 | assunto | situação |
 |---|---|
 | Diferença de 16,6 bi entre os totais da 3.4 e da 2.2 | **Resolvida em 19/08/2026.** Todo papel com nome bate na casa decimal. A diferença inteira está no balde "Demais" da 3.4 (34,7 bi): dele, a 2.2 lista a NTN-B1 (18,1) e mais nada — "Demais" (12,9), Dívida Securitizada (3,4) e TDA (0,3) não têm linha lá, porque a 2.2 é tabela título a título, por ISIN e vencimento. Travada por teste, agora na decomposição e não só no total |
-| Divergência de 12 meses dos detentores contra o slide do RMD | O nosso dado foi verificado contra a célula crua da aba 2.7 e está fiel ao anexo. A origem do número do slide é desconhecida. Documentar, não perseguir |
+| Divergência de 12 meses dos detentores contra o slide do RMD | **Contornada em 19/08/2026.** A página 7 foi transcrita para `referencia/detentores_pagina_rmd.csv` e cruzada: 2025, mai-26 e jun-26 batem na casa decimal; "no ano" e "no mês" batem para os quatro grupos. **Só a variação de 12 meses diverge**, e só em três — logo a diferença está na base de jun/2025, não no nosso mês corrente. As diferenças somam +13,4 bi e trocam de sinal entre grupos, com cara de reclassificação aplicada ao anexo depois. Confirmar exigiria um anexo antigo, que não temos. Documentar, não perseguir — agora com o contorno medido e travado por teste |
 | Descontinuidade do Governo em 2012 na aba 2.8 | **Resolvida:** a LFT vai de ~100 para 40 e depois a zero, provavelmente mudança de regra. Dado real, não defeito |
 | Decomposição do custo de emissão | Precisa das taxas de leilão cruzadas com o VNA. Trabalho próprio |
 | Absorver o `figuras.py` da entrega 2 | Quando as branches se encontrarem |

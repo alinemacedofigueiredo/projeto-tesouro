@@ -1464,7 +1464,7 @@ git commit -m "Adiciona a composicao do estoque com a banda do PAF"
   - `JANELAS = {"5 anos": 5, "completa": None}`
   - `dados_participacao()` -> DataFrame indexado pelos **cinco grupos**, colunas
     `hoje_pct, ha12m_pct, var_pp, valor_milhoes`.
-  - `desenha_participacao(dados, fig)`
+  - `desenha_participacao(dados, variacao, fig)`
   - `dados_por_papel()` -> DataFrame indexado por título, uma coluna por detentor,
     **em percentual do papel**.
   - `desenha_por_papel(dados, fig)`
@@ -1538,39 +1538,82 @@ def part():
     return detentores.dados_participacao()
 
 
-def test_a_participacao_de_junho_de_2026_bate_com_o_medido(part):
-    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
-    assert round(part.loc["Inst. Financeiras", "hoje_pct"], 1) == 31.8
-    assert round(part.loc["Fundos", "hoje_pct"], 1) == 22.0
-    assert round(part.loc["Previd\u00eancia", "hoje_pct"], 1) == 22.5
-    assert round(part.loc["N\u00e3o-residentes", "hoje_pct"], 1) == 10.0
-    assert round(part.loc["Demais Grupos", "hoje_pct"], 1) == 13.8
-    assert round(part["valor_milhoes"].sum() / 1000, 1) == 8920.7
+def test_as_colunas_sao_os_anos_fechados_mais_os_dois_ultimos_meses(part):
+    # O formato da pagina 7 do RMD, pedido pela dona do projeto em 19/08/2026.
+    assert list(part.index) == ["2020", "2021", "2022", "2023", "2024", "2025",
+                                "mai-26", "jun-26"]
+    assert list(part.columns) == detentores.ORDEM_GRUPOS
 
 
-def test_os_cinco_grupos_somam_100(part):
-    assert len(part) == 5
-    assert abs(part["hoje_pct"].sum() - 100) < 1e-9
-    assert abs(part["ha12m_pct"].sum() - 100) < 1e-9
+def test_a_participacao_de_junho_de_2026_bate_com_a_pagina_do_rmd(part):
+    # Conferido contra a pagina 7 do RMD de jun/26, que a dona do projeto forneceu.
+    assert round(part.loc["jun-26", "Inst. Financeiras"], 1) == 31.8
+    assert round(part.loc["jun-26", "Fundos"], 1) == 22.0
+    assert round(part.loc["jun-26", "Previd\u00eancia"], 1) == 22.5
+    assert round(part.loc["jun-26", "N\u00e3o-residentes"], 1) == 10.0
+    assert round(part.loc["jun-26", "Demais Grupos"], 1) == 13.8
+    assert round(part.loc["mai-26", "Inst. Financeiras"], 1) == 31.5
+    assert round(part.loc["mai-26", "Fundos"], 1) == 21.7
 
 
-def test_a_variacao_de_12_meses_bate_com_o_medido(part):
-    # Em pontos percentuais, contra jun/2025. A Previdencia perdeu 0,57 p.p. e as
-    # Instituicoes Financeiras ganharam 0,46 -- o movimento do ano.
-    assert round(part.loc["Previd\u00eancia", "var_pp"], 2) == -0.57
-    assert round(part.loc["Inst. Financeiras", "var_pp"], 2) == 0.46
-    assert round(part.loc["Fundos", "var_pp"], 2) == -0.14
-    assert round(part.loc["N\u00e3o-residentes", "var_pp"], 2) == 0.11
-    assert round(part.loc["Demais Grupos", "var_pp"], 2) == 0.13
-    # A variacao e redistribuicao: a soma fecha em zero.
-    assert abs(part["var_pp"].sum()) < 1e-9
+def test_toda_coluna_soma_100(part):
+    assert len(part) == 8
+    assert (part.sum(axis=1) - 100).abs().max() < 1e-9
+
+
+def test_a_variacao_vai_em_reais_e_bate_com_a_pagina_do_rmd():
+    # A pagina traz os tres horizontes em R$ bi. "No ano" e "no mes" batem na casa
+    # decimal para os quatro; a de 12 meses diverge para tres deles, e a
+    # divergencia esta documentada em tests/test_conferencia_detentores.py.
+    v = detentores.dados_variacao() / 1000
+    assert list(v.columns) == ["em 12 meses", "no ano", "no m\u00eas"]
+    assert list(v.index) == detentores.PRINCIPAIS
+
+    assert round(v.loc["Inst. Financeiras", "no ano"], 1) == 101.1
+    assert round(v.loc["Inst. Financeiras", "no m\u00eas"], 1) == 92.1
+    assert round(v.loc["Fundos", "no ano"], 1) == 234.9
+    assert round(v.loc["Previd\u00eancia", "no ano"], 1) == 117.6
+    assert round(v.loc["N\u00e3o-residentes", "em 12 meses"], 1) == 142.0
+
+
+def test_a_variacao_falha_alto_se_faltar_o_mes_de_referencia(monkeypatch):
+    # Calcular contra o mes vizinho mais proximo daria numero plausivel e errado.
+    real = detentores._estoque_por_grupo()
+
+    def sem_dezembro():
+        return real.drop(index=pd.Timestamp("2025-12-31"))
+
+    monkeypatch.setattr(detentores, "_estoque_por_grupo", sem_dezembro)
+    with pytest.raises(LookupError) as erro:
+        detentores.dados_variacao()
+    assert "no ano" in str(erro.value)
 
 
 def test_o_rotulo_perde_o_numero_da_nota_de_rodape(part):
     # O CSV grava "Instituicoes Financeiras 1", com o numero da nota do RMD colado
-    # no nome. Nenhum indice pode carregar digito.
-    for nome in part.index:
+    # no nome. Nenhum rotulo de grupo pode carregar digito.
+    for nome in part.columns:
         assert not nome[-1].isdigit(), f"'{nome}' ainda tem o numero da nota"
+
+
+def test_a_quebra_por_papel_soma_o_estoque_do_papel():
+    # A quebra de um papel entre os oito detentores tem de somar o estoque daquele
+    # papel: 4.567,3 bi de LFT em jun/26.
+    lft = detentores.dados_financeiro_do_papel("LFT")
+    assert round(lft.iloc[-1].sum() / 1000, 1) == 4567.3
+    assert len(lft.columns) == 8
+    assert round(lft.iloc[-1]["Inst. Financeiras"] / 1000, 1) == 1666.0
+
+    ntnb = detentores.dados_financeiro_do_papel("NTN-B")
+    assert round(ntnb.iloc[-1].sum() / 1000, 1) == 2309.6
+    # A Previdencia carrega quase metade da NTN-B, e e o fato do papel.
+    assert round(ntnb.iloc[-1]["Previd\u00eancia"] / ntnb.iloc[-1].sum() * 100, 1) == 44.9
+
+
+def test_papel_que_nao_existe_falha_alto():
+    with pytest.raises(LookupError) as erro:
+        detentores.dados_financeiro_do_papel("NTN-Z")
+    assert "NTN-Z" in str(erro.value)
 
 
 # ---------------------------------------------------------------------------
@@ -1757,29 +1800,89 @@ def _sem_nota(nome):
     return re.sub(r"\s*\d+$", "", str(nome)).strip()
 
 
-def dados_participacao():
-    """Participacao dos cinco grupos hoje e ha doze meses, e a variacao em p.p."""
+# Quantos anos fechados aparecem antes dos dois ultimos meses. Seis e o que cabe na
+# pagina do RMD, e e o que a dona do projeto pediu.
+ANOS_NA_PARTICIPACAO = 6
+
+# Os quatro que a pagina do RMD nomeia no painel de variacao. "Demais Grupos" fica
+# de fora la, e fica aqui tambem: e um balde, e variacao de balde nao se le.
+PRINCIPAIS = ["Inst. Financeiras", "Fundos", "Previd\u00eancia", "N\u00e3o-residentes"]
+
+
+def _estoque_por_grupo():
+    """Estoque de cada um dos cinco grupos, mes a mes, em R$ milhoes."""
     d = pd.read_csv(config.PROCESSED_DIR / "detentores.csv", parse_dates=["data"])
     d["grupo"] = [_GRUPO_DE.get(_sem_nota(n), "Demais Grupos") for n in d["detentor"]]
-
     piv = d.pivot_table(index="data", columns="grupo",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
-    share = piv.div(piv.sum(axis=1), axis=0) * 100
+    return piv[ORDEM_GRUPOS]
 
-    hoje = share.index.max()
-    ha12m = hoje - pd.DateOffset(months=12)
-    if ha12m not in share.index:
-        raise LookupError(
-            f"detentores.csv nao tem o mes de {ha12m.date()}, doze meses antes do "
-            f"ultimo ({hoje.date()}). A variacao de 12 meses e o segundo painel do "
-            f"grafico e nao pode ser calculada contra um mes vizinho em silencio."
-        )
 
-    saida = pd.DataFrame(index=ORDEM_GRUPOS)
-    saida["hoje_pct"] = share.loc[hoje]
-    saida["ha12m_pct"] = share.loc[ha12m]
-    saida["var_pp"] = saida["hoje_pct"] - saida["ha12m_pct"]
-    saida["valor_milhoes"] = piv.loc[hoje]
+def colunas_da_participacao():
+    """As datas que viram coluna: os anos fechados mais os dois ultimos meses.
+
+    Devolve pares (rotulo, data). O rotulo do ano fechado e o ano; o dos dois
+    ultimos meses e 'mai-26', 'jun-26' -- como a pagina do RMD escreve.
+    """
+    piv = _estoque_por_grupo()
+    ultimo = piv.index.max()
+    penultimo = piv.index[piv.index < ultimo].max()
+
+    fechados = []
+    for ano in range(ultimo.year - ANOS_NA_PARTICIPACAO, ultimo.year):
+        fim = pd.Timestamp(year=ano, month=12, day=31)
+        if fim in piv.index:
+            fechados.append((str(ano), fim))
+
+    def rotulo_curto(d):
+        return f"{estilo.MES[d.month]}-{d.year % 100:02d}"
+
+    return fechados + [(rotulo_curto(penultimo), penultimo),
+                       (rotulo_curto(ultimo), ultimo)]
+
+
+def dados_participacao():
+    """Participacao dos cinco grupos em cada coluna, em percentual.
+
+    O formato e o da pagina 7 do RMD: uma coluna de 100% por ano fechado, mais os
+    dois ultimos meses. Substituiu o par barra-horizontal-mais-variacao por pedido
+    da dona do projeto -- a serie por coluna mostra o movimento, que o retrato de
+    um mes nao mostra.
+    """
+    piv = _estoque_por_grupo()
+    colunas = colunas_da_participacao()
+    recorte = piv.loc[[data for _, data in colunas]]
+    share = recorte.div(recorte.sum(axis=1), axis=0) * 100
+    share.index = [rotulo for rotulo, _ in colunas]
+    return share
+
+
+def dados_variacao():
+    """Variacao do estoque dos quatro principais, em R$ milhoes, em tres horizontes.
+
+    Os mesmos tres da pagina do RMD: em 12 meses, no ano (contra o fechamento do ano
+    anterior) e no mes. Em R$ e nao em pontos percentuais -- participacao que cai
+    com estoque subindo e ruido de composicao, nao venda.
+    """
+    piv = _estoque_por_grupo()
+    hoje = piv.index.max()
+
+    referencias = {
+        "em 12 meses": hoje - pd.DateOffset(months=12),
+        "no ano": pd.Timestamp(year=hoje.year - 1, month=12, day=31),
+        "no m\u00eas": piv.index[piv.index < hoje].max(),
+    }
+    for nome, data in referencias.items():
+        if data not in piv.index:
+            raise LookupError(
+                f"detentores.csv nao tem {data.date()}, que e a base de '{nome}' "
+                f"contra o ultimo mes ({hoje.date()}). Calcular contra o mes vizinho "
+                f"mais proximo daria um numero plausivel e errado."
+            )
+
+    saida = pd.DataFrame(index=PRINCIPAIS)
+    for nome, data in referencias.items():
+        saida[nome] = piv.loc[hoje, PRINCIPAIS] - piv.loc[data, PRINCIPAIS]
     return saida
 
 
@@ -1791,6 +1894,26 @@ def dados_por_papel():
     piv = u.pivot_table(index="titulo", columns="detentor",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
     return piv.div(piv.sum(axis=1), axis=0) * 100
+
+
+def dados_financeiro_do_papel(papel, janela=None):
+    """Financeiro de cada detentor DENTRO de um papel, mes a mes, em R$ milhoes.
+
+    A aba 2.8 abre o estoque por papel e por detentor. Isto e a mesma leitura do
+    grafico dos oito paineis, restrita a um papel -- e o que responde "quem esta
+    comprando LFT" em vez de "quem esta comprando divida".
+    """
+    d = pd.read_csv(config.PROCESSED_DIR / "detentores_por_titulo.csv",
+                    parse_dates=["data"])
+    do_papel = d[d["titulo"] == papel]
+    if do_papel.empty:
+        raise LookupError(
+            f"detentores_por_titulo.csv nao tem o papel '{papel}'. Os que existem "
+            f"sao {sorted(d['titulo'].unique())}."
+        )
+    piv = do_papel.pivot_table(index="data", columns="detentor",
+                               values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    return estilo.recorta(piv, janela)
 
 
 def dados_financeiro(janela=None):
@@ -1817,34 +1940,69 @@ def ordem_paineis(dados):
 ```python
 # continuacao de src/tesouro/graficos/detentores.py
 
-def desenha_participacao(dados, fig):
-    """Dois paineis: a participacao de hoje, e a variacao em doze meses."""
-    a1, a2 = fig.subplots(1, 2, gridspec_kw={"width_ratios": [2, 1]})
+def desenha_participacao(dados, variacao, fig):
+    """Os dois paineis da pagina 7 do RMD.
 
-    y = range(len(dados))
-    a1.barh(list(y), dados["hoje_pct"],
-            color=[estilo.COR[CHAVE_COR[g]] for g in dados.index])
-    for i, (g, v) in enumerate(dados["hoje_pct"].items()):
-        a1.text(v + 0.4, i, estilo.num_br(v, 1) + "%", va="center", fontsize=9.5)
-    a1.set_yticks(list(y))
-    a1.set_yticklabels(list(dados.index))
-    a1.invert_yaxis()
-    a1.set_xlim(0, max(dados["hoje_pct"]) * 1.18)
-    a1.set_xlabel("% do estoque em poder do p\u00fablico")
-    a1.grid(axis="x", alpha=0.20)
+    Em cima, uma coluna de 100% por ano fechado mais os dois ultimos meses, com o
+    percentual escrito dentro de cada faixa. Embaixo, a variacao do estoque dos
+    quatro principais em R$ bilhoes, nos tres horizontes.
 
-    cores = ["#2ca02c" if v >= 0 else "#d62728" for v in dados["var_pp"]]
-    a2.barh(list(y), dados["var_pp"], color=cores, alpha=0.85)
-    for i, v in enumerate(dados["var_pp"]):
-        desloca = 0.02 if v >= 0 else -0.02
-        a2.text(v + desloca, i, estilo.num_br(v, 2), va="center",
-                ha="left" if v >= 0 else "right", fontsize=9)
-    a2.set_yticks(list(y))
-    a2.set_yticklabels([])
-    a2.invert_yaxis()
-    a2.axvline(0, color="gray", lw=0.8)
-    a2.set_xlabel("varia\u00e7\u00e3o em 12 meses (p.p.)")
-    a2.grid(axis="x", alpha=0.20)
+    A variacao vai em REAIS e nao em pontos percentuais. Participacao que cai com
+    estoque subindo e ruido de composicao -- o grupo comprou, mas os outros
+    compraram mais -- e ler isso como venda e o erro que o painel em p.p. convida.
+    """
+    a1, a2 = fig.subplots(2, 1, gridspec_kw={"height_ratios": [3, 2]})
+
+    posicoes = range(len(dados))
+    base = [0.0] * len(dados)
+    for grupo in ORDEM_GRUPOS:
+        alturas = list(dados[grupo])
+        a1.bar(list(posicoes), alturas, bottom=base, width=0.62,
+               color=estilo.COR[CHAVE_COR[grupo]], label=grupo)
+        for x, (altura, pe) in enumerate(zip(alturas, base)):
+            # 3,5% e o limiar em que o texto ainda cabe dentro da faixa. Abaixo
+            # disso ele encavala na faixa vizinha, que e pior do que faltar.
+            if altura >= 3.5:
+                a1.text(x, pe + altura / 2, estilo.num_br(altura, 1) + "%",
+                        ha="center", va="center", fontsize=8.5, color="white",
+                        weight="bold")
+        base = [b + h for b, h in zip(base, alturas)]
+
+    a1.set_xticks(list(posicoes))
+    a1.set_xticklabels(list(dados.index), fontsize=9.5)
+    a1.set_ylim(0, 100)
+    a1.set_yticks([])
+    a1.set_ylabel("% do estoque da DPMFi")
+    a1.legend(ncol=len(ORDEM_GRUPOS), frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, 1.10), fontsize=9)
+    for lado in ("top", "right", "left"):
+        a1.spines[lado].set_visible(False)
+
+    horizontes = list(variacao.columns)
+    largura = 0.26
+    cores_horizonte = {horizontes[0]: "#3d9be9", horizontes[1]: "#ed7d31",
+                       horizontes[2]: "#a6a6a6"}
+    centros = range(len(variacao))
+    for i, horizonte in enumerate(horizontes):
+        deslocamento = (i - 1) * largura
+        valores = variacao[horizonte] / 1000
+        a2.bar([c + deslocamento for c in centros], valores, width=largura,
+               color=cores_horizonte[horizonte], label=horizonte)
+        for c, v in zip(centros, valores):
+            a2.annotate(estilo.num_br(v, 1), xy=(c + deslocamento, v),
+                        xytext=(0, 3 if v >= 0 else -11),
+                        textcoords="offset points", ha="center", fontsize=8,
+                        color="#333333")
+
+    a2.set_xticks(list(centros))
+    a2.set_xticklabels(list(variacao.index), fontsize=9.5)
+    a2.axhline(0, color="gray", lw=0.8)
+    a2.set_ylabel("varia\u00e7\u00e3o do estoque, R$ bilh\u00f5es")
+    a2.legend(ncol=3, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, 1.14), fontsize=9)
+    a2.grid(axis="y", alpha=0.20)
+    for lado in ("top", "right"):
+        a2.spines[lado].set_visible(False)
 
 
 def desenha_por_papel(dados, fig):
@@ -1895,6 +2053,17 @@ def desenha_financeiro(dados, fig):
                 transform=ax.transAxes, fontsize=9.5, color=cor, weight="bold")
         ax.grid(axis="y", alpha=0.20)
         estilo.eixo_anual(ax, a_cada=3)
+
+
+def desenha_financeiro_do_papel(dados, fig, papel):
+    """Os mesmos oito paineis, restritos a um papel.
+
+    Mesmo desenho do grafico geral de proposito: quem ja aprendeu a ler aquele le
+    este sem reaprender nada, e a comparacao entre papeis fica possivel.
+    """
+    desenha_financeiro(dados, fig)
+    fig.suptitle(f"{papel}: financeiro por detentor", fontsize=11, weight="bold",
+                 y=0.98)
 ```
 
 - [x] **Passo 6: rodar e ver passar**
@@ -4254,10 +4423,12 @@ def html():
     return dashboard.monta()
 
 
-def test_o_registro_tem_os_dezesseis_graficos():
-    assert len(dashboard.REGISTRO) == 16
+def test_o_registro_tem_os_vinte_graficos():
+    # Eram dezesseis; as quatro quebras por papel entraram em 19/08/2026, recolhidas
+    # atras de uma setinha.
+    assert len(dashboard.REGISTRO) == 20
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 16, "id repetido no registro"
+    assert len(set(ids)) == 20, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -4271,14 +4442,40 @@ def test_os_grupos_saem_na_ordem_com_os_candidatos_por_ultimo():
     assert grupos_usados[-3:] == ["Candidatos"] * 3
 
 
-def test_nove_graficos_aceitam_janela_e_saem_vinte_e_cinco_svgs():
-    # A spec diz "sete dos dezesseis" e "23 SVGs", mas a tabela da secao 5 marca
-    # nove -- os sete principais mais dois candidatos. A contagem certa e a da
-    # tabela, e este teste a deriva do registro em vez de fixar o numero.
+def test_a_contagem_de_svgs_sai_do_registro():
+    # Cada grafico rende uma versao, mais uma por janela, vezes duas se tiver
+    # variante. A conta e derivada do registro de proposito: fixar o numero faria o
+    # teste passar depois de alguem esquecer de gravar uma versao.
     com_janela = [g for g in dashboard.REGISTRO if g.janela]
-    assert len(com_janela) == 9
-    total = len(dashboard.REGISTRO) + len(com_janela)
-    assert total == 25
+    com_variante = [g for g in dashboard.REGISTRO if g.variantes]
+    assert len(com_janela) == 13
+    assert len(com_variante) == 1
+
+    total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
+                for g in dashboard.REGISTRO)
+    assert total == 35
+
+
+def test_as_quatro_quebras_por_papel_ficam_recolhidas():
+    # Sao quatro graficos densos que respondem a mesma pergunta do quinto. Abertos,
+    # empurram metade do dashboard para baixo da dobra.
+    recolhidos = [g.id for g in dashboard.REGISTRO if g.recolhido]
+    assert recolhidos == ["detentores_lft", "detentores_ntnb",
+                          "detentores_ltn", "detentores_ntnf"]
+    for g in dashboard.REGISTRO:
+        if g.recolhido:
+            assert g.grupo == "Detentores"
+
+
+def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
+    # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
+    # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
+    assert html.count("<details>") == 4
+    assert html.count("<summary>") == 4
+    for gid in ("detentores_lft", "detentores_ntnb", "detentores_ltn",
+                "detentores_ntnf"):
+        assert f'<section id="{gid}" class="recolhida">' in html
+        assert f'data-grafico="{gid}"' in html
 
 
 def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):
@@ -4483,9 +4680,14 @@ from . import (custo, detentores, estilo, estoque, funding, leiloes, paf,
 # (rotulo_da_caixa, (valor_desmarcado, valor_marcado)) ou None. Hoje so o custo usa,
 # para incluir ou nao a DPFe. Um campo opcional custa menos que um sistema de opcoes,
 # e a lista continua legivel de cima a baixo.
+# 'recolhido' fecha a secao atras de uma setinha (<details>), aberta so por quem
+# quiser o detalhe. Existe porque a quebra por papel sao quatro graficos densos que
+# respondem a mesma pergunta do quinto: sem recolher, eles empurram metade do
+# dashboard para baixo da dobra.
 Grafico = collections.namedtuple(
-    "Grafico", "id grupo titulo fonte nota janela padrao figura variantes")
-Grafico.__new__.__defaults__ = (None,)
+    "Grafico",
+    "id grupo titulo fonte nota janela padrao figura variantes recolhido")
+Grafico.__new__.__defaults__ = (None, False)
 
 GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
           "Reserva", "Candidatos"]
@@ -4531,9 +4733,31 @@ def _fig_composicao(janela):
 
 
 def _fig_participacao(janela):
-    fig = _figura(5.0)
-    detentores.desenha_participacao(detentores.dados_participacao(), fig)
+    fig = _figura(8.4)
+    detentores.desenha_participacao(detentores.dados_participacao(),
+                                    detentores.dados_variacao(), fig)
     return fig
+
+
+# Os quatro papeis cuja quebra por detentor a dona do projeto pediu. Sao os quatro
+# que respondem por 98,9% do estoque -- OUTROS fica de fora porque e balde.
+PAPEIS_COM_QUEBRA = ("LFT", "NTN-B", "LTN", "NTN-F")
+
+
+def _fig_do_papel(papel):
+    """Fabrica a funcao de figura de um papel.
+
+    Uma funcao por papel, e nao uma funcao com parametro, porque o registro guarda
+    callables de assinatura (janela) -- e porque assim cada entrada da lista
+    literal continua legivel sozinha.
+    """
+    def figura(janela):
+        fig = _figura(6.4)
+        detentores.desenha_financeiro_do_papel(
+            detentores.dados_financeiro_do_papel(papel, janela), fig, papel)
+        return fig
+    figura.__name__ = f"_fig_papel_{papel.replace('-', '').lower()}"
+    return figura
 
 
 def _fig_por_papel(janela):
@@ -4642,8 +4866,10 @@ REGISTRO = [
     Grafico("detentores_participacao", "Detentores",
             "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
             "aba 2.7",
-            "Os oito detentores da aba agrupados em cinco. A varia\u00e7\u00e3o \u00e9 contra o "
-            "mesmo m\u00eas do ano anterior, em pontos percentuais.",
+            "O formato da p\u00e1gina 7 do RMD: uma coluna de 100% por ano fechado, mais "
+            "os dois \u00faltimos meses. Os oito detentores da aba agrupados em cinco. A "
+            "varia\u00e7\u00e3o vai em <b>reais</b>, e n\u00e3o em pontos percentuais: participa\u00e7\u00e3o "
+            "que cai com estoque subindo \u00e9 ru\u00eddo de composi\u00e7\u00e3o, n\u00e3o venda.",
             False, None, _fig_participacao),
     Grafico("detentores_papel", "Detentores",
             "Quem carrega cada papel",
@@ -4657,6 +4883,29 @@ REGISTRO = [
             "Cada painel tem escala pr\u00f3pria: os detentores diferem em ordem de "
             "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
             True, "5 anos", _fig_financeiro_detentor),
+    Grafico("detentores_lft", "Detentores",
+            "LFT: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura do gr\u00e1fico acima, restrita \u00e0 LFT. Quem carrega o papel "
+            "que responde por 51,2% do estoque.",
+            True, "5 anos", _fig_do_papel("LFT"), None, True),
+    Grafico("detentores_ntnb", "Detentores",
+            "NTN-B: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 NTN-B \u00b7 25,7% do estoque, e o papel em que "
+            "a Previd\u00eancia concentra 44,9%.",
+            True, "5 anos", _fig_do_papel("NTN-B"), None, True),
+    Grafico("detentores_ltn", "Detentores",
+            "LTN: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 LTN \u00b7 14,4% do estoque.",
+            True, "5 anos", _fig_do_papel("LTN"), None, True),
+    Grafico("detentores_ntnf", "Detentores",
+            "NTN-F: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 NTN-F \u00b7 7,4% do estoque, e o papel com maior "
+            "participa\u00e7\u00e3o estrangeira: 41,8%.",
+            True, "5 anos", _fig_do_papel("NTN-F"), None, True),
     Grafico("vencimentos_cronograma", "Vencimentos",
             "Cronograma de vencimentos",
             "aba 3.4",
@@ -4767,6 +5016,11 @@ label.variante { display: inline-flex; align-items: center; gap: 6px;
                  font-size: 12.5px; color: var(--fraco); margin: 0 0 6px;
                  cursor: pointer; user-select: none; }
 label.variante input { cursor: pointer; }
+section.recolhida { margin-top: 10px; }
+section.recolhida summary { font-size: 15px; font-weight: 600; cursor: pointer;
+                            padding: 7px 0; color: var(--tinta); }
+section.recolhida summary:hover { text-decoration: underline; }
+section.recolhida details[open] summary { margin-bottom: 8px; }
 """
 
 # Escrito a mao, sem biblioteca -- a lista permitida do projeto nao tem nenhuma de
@@ -4873,8 +5127,16 @@ def _bloco(grafico, recortes):
     Cada versao e um par (janela, variante). Sem variantes sao uma ou duas versoes;
     com variantes, o dobro -- e a caixa de marcar escolhe qual metade aparece.
     """
-    partes = [f'<section id="{grafico.id}">',
-              f"  <h2>{grafico.titulo}</h2>"]
+    # <details>/<summary> e HTML puro: a setinha nao custa uma linha de JavaScript,
+    # e o conteudo continua no arquivo -- quem procurar com Ctrl+F acha, e quem
+    # imprimir leva tudo.
+    if grafico.recolhido:
+        partes = [f'<section id="{grafico.id}" class="recolhida">',
+                  "  <details>",
+                  f"    <summary>{grafico.titulo}</summary>"]
+    else:
+        partes = [f'<section id="{grafico.id}">',
+                  f"  <h2>{grafico.titulo}</h2>"]
 
     if grafico.variantes:
         rotulo, (desmarcada, marcada) = grafico.variantes
@@ -4902,6 +5164,8 @@ def _bloco(grafico, recortes):
 
     partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')
     partes.append(f'  <p class="legenda">{grafico.nota}</p>')
+    if grafico.recolhido:
+        partes.append("  </details>")
     partes.append("</section>")
     return "\n".join(partes)
 

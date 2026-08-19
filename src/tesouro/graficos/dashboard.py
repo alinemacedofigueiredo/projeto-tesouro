@@ -28,9 +28,14 @@ from . import (custo, detentores, estilo, estoque, funding, leiloes, paf,
 # (rotulo_da_caixa, (valor_desmarcado, valor_marcado)) ou None. Hoje so o custo usa,
 # para incluir ou nao a DPFe. Um campo opcional custa menos que um sistema de opcoes,
 # e a lista continua legivel de cima a baixo.
+# 'recolhido' fecha a secao atras de uma setinha (<details>), aberta so por quem
+# quiser o detalhe. Existe porque a quebra por papel sao quatro graficos densos que
+# respondem a mesma pergunta do quinto: sem recolher, eles empurram metade do
+# dashboard para baixo da dobra.
 Grafico = collections.namedtuple(
-    "Grafico", "id grupo titulo fonte nota janela padrao figura variantes")
-Grafico.__new__.__defaults__ = (None,)
+    "Grafico",
+    "id grupo titulo fonte nota janela padrao figura variantes recolhido")
+Grafico.__new__.__defaults__ = (None, False)
 
 GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
           "Reserva", "Candidatos"]
@@ -76,9 +81,31 @@ def _fig_composicao(janela):
 
 
 def _fig_participacao(janela):
-    fig = _figura(5.0)
-    detentores.desenha_participacao(detentores.dados_participacao(), fig)
+    fig = _figura(8.4)
+    detentores.desenha_participacao(detentores.dados_participacao(),
+                                    detentores.dados_variacao(), fig)
     return fig
+
+
+# Os quatro papeis cuja quebra por detentor a dona do projeto pediu. Sao os quatro
+# que respondem por 98,9% do estoque -- OUTROS fica de fora porque e balde.
+PAPEIS_COM_QUEBRA = ("LFT", "NTN-B", "LTN", "NTN-F")
+
+
+def _fig_do_papel(papel):
+    """Fabrica a funcao de figura de um papel.
+
+    Uma funcao por papel, e nao uma funcao com parametro, porque o registro guarda
+    callables de assinatura (janela) -- e porque assim cada entrada da lista
+    literal continua legivel sozinha.
+    """
+    def figura(janela):
+        fig = _figura(6.4)
+        detentores.desenha_financeiro_do_papel(
+            detentores.dados_financeiro_do_papel(papel, janela), fig, papel)
+        return fig
+    figura.__name__ = f"_fig_papel_{papel.replace('-', '').lower()}"
+    return figura
 
 
 def _fig_por_papel(janela):
@@ -187,8 +214,10 @@ REGISTRO = [
     Grafico("detentores_participacao", "Detentores",
             "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
             "aba 2.7",
-            "Os oito detentores da aba agrupados em cinco. A varia\u00e7\u00e3o \u00e9 contra o "
-            "mesmo m\u00eas do ano anterior, em pontos percentuais.",
+            "O formato da p\u00e1gina 7 do RMD: uma coluna de 100% por ano fechado, mais "
+            "os dois \u00faltimos meses. Os oito detentores da aba agrupados em cinco. A "
+            "varia\u00e7\u00e3o vai em <b>reais</b>, e n\u00e3o em pontos percentuais: participa\u00e7\u00e3o "
+            "que cai com estoque subindo \u00e9 ru\u00eddo de composi\u00e7\u00e3o, n\u00e3o venda.",
             False, None, _fig_participacao),
     Grafico("detentores_papel", "Detentores",
             "Quem carrega cada papel",
@@ -202,6 +231,29 @@ REGISTRO = [
             "Cada painel tem escala pr\u00f3pria: os detentores diferem em ordem de "
             "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
             True, "5 anos", _fig_financeiro_detentor),
+    Grafico("detentores_lft", "Detentores",
+            "LFT: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura do gr\u00e1fico acima, restrita \u00e0 LFT. Quem carrega o papel "
+            "que responde por 51,2% do estoque.",
+            True, "5 anos", _fig_do_papel("LFT"), None, True),
+    Grafico("detentores_ntnb", "Detentores",
+            "NTN-B: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 NTN-B \u00b7 25,7% do estoque, e o papel em que "
+            "a Previd\u00eancia concentra 44,9%.",
+            True, "5 anos", _fig_do_papel("NTN-B"), None, True),
+    Grafico("detentores_ltn", "Detentores",
+            "LTN: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 LTN \u00b7 14,4% do estoque.",
+            True, "5 anos", _fig_do_papel("LTN"), None, True),
+    Grafico("detentores_ntnf", "Detentores",
+            "NTN-F: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 NTN-F \u00b7 7,4% do estoque, e o papel com maior "
+            "participa\u00e7\u00e3o estrangeira: 41,8%.",
+            True, "5 anos", _fig_do_papel("NTN-F"), None, True),
     Grafico("vencimentos_cronograma", "Vencimentos",
             "Cronograma de vencimentos",
             "aba 3.4",
@@ -306,6 +358,11 @@ label.variante { display: inline-flex; align-items: center; gap: 6px;
                  font-size: 12.5px; color: var(--fraco); margin: 0 0 6px;
                  cursor: pointer; user-select: none; }
 label.variante input { cursor: pointer; }
+section.recolhida { margin-top: 10px; }
+section.recolhida summary { font-size: 15px; font-weight: 600; cursor: pointer;
+                            padding: 7px 0; color: var(--tinta); }
+section.recolhida summary:hover { text-decoration: underline; }
+section.recolhida details[open] summary { margin-bottom: 8px; }
 """
 
 # Escrito a mao, sem biblioteca -- a lista permitida do projeto nao tem nenhuma de
@@ -412,8 +469,16 @@ def _bloco(grafico, recortes):
     Cada versao e um par (janela, variante). Sem variantes sao uma ou duas versoes;
     com variantes, o dobro -- e a caixa de marcar escolhe qual metade aparece.
     """
-    partes = [f'<section id="{grafico.id}">',
-              f"  <h2>{grafico.titulo}</h2>"]
+    # <details>/<summary> e HTML puro: a setinha nao custa uma linha de JavaScript,
+    # e o conteudo continua no arquivo -- quem procurar com Ctrl+F acha, e quem
+    # imprimir leva tudo.
+    if grafico.recolhido:
+        partes = [f'<section id="{grafico.id}" class="recolhida">',
+                  "  <details>",
+                  f"    <summary>{grafico.titulo}</summary>"]
+    else:
+        partes = [f'<section id="{grafico.id}">',
+                  f"  <h2>{grafico.titulo}</h2>"]
 
     if grafico.variantes:
         rotulo, (desmarcada, marcada) = grafico.variantes
@@ -441,6 +506,8 @@ def _bloco(grafico, recortes):
 
     partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')
     partes.append(f'  <p class="legenda">{grafico.nota}</p>')
+    if grafico.recolhido:
+        partes.append("  </details>")
     partes.append("</section>")
     return "\n".join(partes)
 

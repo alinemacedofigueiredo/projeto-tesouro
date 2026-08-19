@@ -14,10 +14,12 @@ def html():
     return dashboard.monta()
 
 
-def test_o_registro_tem_os_dezesseis_graficos():
-    assert len(dashboard.REGISTRO) == 16
+def test_o_registro_tem_os_vinte_graficos():
+    # Eram dezesseis; as quatro quebras por papel entraram em 19/08/2026, recolhidas
+    # atras de uma setinha.
+    assert len(dashboard.REGISTRO) == 20
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 16, "id repetido no registro"
+    assert len(set(ids)) == 20, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -31,14 +33,40 @@ def test_os_grupos_saem_na_ordem_com_os_candidatos_por_ultimo():
     assert grupos_usados[-3:] == ["Candidatos"] * 3
 
 
-def test_nove_graficos_aceitam_janela_e_saem_vinte_e_cinco_svgs():
-    # A spec diz "sete dos dezesseis" e "23 SVGs", mas a tabela da secao 5 marca
-    # nove -- os sete principais mais dois candidatos. A contagem certa e a da
-    # tabela, e este teste a deriva do registro em vez de fixar o numero.
+def test_a_contagem_de_svgs_sai_do_registro():
+    # Cada grafico rende uma versao, mais uma por janela, vezes duas se tiver
+    # variante. A conta e derivada do registro de proposito: fixar o numero faria o
+    # teste passar depois de alguem esquecer de gravar uma versao.
     com_janela = [g for g in dashboard.REGISTRO if g.janela]
-    assert len(com_janela) == 9
-    total = len(dashboard.REGISTRO) + len(com_janela)
-    assert total == 25
+    com_variante = [g for g in dashboard.REGISTRO if g.variantes]
+    assert len(com_janela) == 13
+    assert len(com_variante) == 1
+
+    total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
+                for g in dashboard.REGISTRO)
+    assert total == 35
+
+
+def test_as_quatro_quebras_por_papel_ficam_recolhidas():
+    # Sao quatro graficos densos que respondem a mesma pergunta do quinto. Abertos,
+    # empurram metade do dashboard para baixo da dobra.
+    recolhidos = [g.id for g in dashboard.REGISTRO if g.recolhido]
+    assert recolhidos == ["detentores_lft", "detentores_ntnb",
+                          "detentores_ltn", "detentores_ntnf"]
+    for g in dashboard.REGISTRO:
+        if g.recolhido:
+            assert g.grupo == "Detentores"
+
+
+def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
+    # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
+    # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
+    assert html.count("<details>") == 4
+    assert html.count("<summary>") == 4
+    for gid in ("detentores_lft", "detentores_ntnb", "detentores_ltn",
+                "detentores_ntnf"):
+        assert f'<section id="{gid}" class="recolhida">' in html
+        assert f'data-grafico="{gid}"' in html
 
 
 def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):

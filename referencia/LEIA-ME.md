@@ -13,6 +13,7 @@ download, e é versionado no git de propósito. Se você apagar, não volta.
 |---|---|
 | `paf_bandas.csv` | as bandas do PAF, 2003 a 2026. **É deste que os gráficos leem.** |
 | `paf_bandas_conferencia.csv` | a transcrição de outra tabela de bandas, 2016 a 2026, que existe só para cruzar contra o primeiro |
+| `detentores_pagina_rmd.csv` | a transcrição da página 7 do RMD de jun/26, que existe só para cruzar contra os detentores |
 
 ---
 
@@ -185,3 +186,39 @@ próprio e roda antes de qualquer leitura.
 Transcreva a linha nova aqui **e** acrescente as linhas correspondentes no
 `paf_bandas.csv`. Se transcrever só aqui, o teste de conferência acusa qual ano e
 qual indicador faltam — que é exatamente o serviço que este arquivo presta.
+
+---
+
+## `detentores_pagina_rmd.csv` — a página 7 do RMD, transcrita
+
+**Nenhum gráfico lê este arquivo.** Como o de conferência do PAF, ele existe para
+cruzar o nosso dado contra uma origem independente — aqui, a página de detentores
+que o RMD publica no corpo do relatório, e não no anexo de onde os nossos CSVs saem.
+
+Transcrito em 19/08/2026 de uma foto fornecida pela dona do projeto. Traz os dois
+painéis da página: a participação relativa (oito colunas × cinco grupos) e a
+variação do estoque (quatro grupos × três horizontes).
+
+### O que o cruzamento mostrou
+
+Está tudo em `tests/test_conferencia_detentores.py`, e o resultado **não** é "os dois
+batem":
+
+- **2025, mai-26 e jun-26 batem na casa decimal**, nos cinco grupos;
+- **2020 a 2024 divergem pouco** — até 0,73 p.p. em Instituições Financeiras e 0,58
+  em Fundos. Previdência e Não-residentes quase não se movem;
+- na variação, **"no ano" e "no mês" batem** para os quatro grupos. Isso prova que
+  jun/26, mai/26 e dez/25 são idênticos nas duas fontes;
+- **só a variação de 12 meses diverge**, e só em três grupos. Como os outros dois
+  horizontes batem, a diferença está na **base de junho/2025**: o jun/2025 que a
+  página usou não é o jun/2025 do anexo que temos.
+
+As diferenças somam +13,4 bi e trocam de sinal entre grupos — Previdência aparece
+com 154,1 bi a menos na nossa base e Fundos com 125,6 a mais. Isso tem cara de
+reclassificação entre grupos aplicada ao anexo depois de a página de jun/2025 ter
+sido publicada. Confirmar exigiria um anexo antigo, e não temos: `data/raw/rmd`
+guarda só o de jun/26. **Documentado, não perseguido** — é a decisão que já estava
+na spec, agora com o contorno medido.
+
+Os testes travam **onde bate e onde não bate**. Uma divergência que ninguém mede
+vira lenda; medida e travada, ela continua sendo um fato conhecido.

@@ -16,39 +16,82 @@ def part():
     return detentores.dados_participacao()
 
 
-def test_a_participacao_de_junho_de_2026_bate_com_o_medido(part):
-    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
-    assert round(part.loc["Inst. Financeiras", "hoje_pct"], 1) == 31.8
-    assert round(part.loc["Fundos", "hoje_pct"], 1) == 22.0
-    assert round(part.loc["Previd\u00eancia", "hoje_pct"], 1) == 22.5
-    assert round(part.loc["N\u00e3o-residentes", "hoje_pct"], 1) == 10.0
-    assert round(part.loc["Demais Grupos", "hoje_pct"], 1) == 13.8
-    assert round(part["valor_milhoes"].sum() / 1000, 1) == 8920.7
+def test_as_colunas_sao_os_anos_fechados_mais_os_dois_ultimos_meses(part):
+    # O formato da pagina 7 do RMD, pedido pela dona do projeto em 19/08/2026.
+    assert list(part.index) == ["2020", "2021", "2022", "2023", "2024", "2025",
+                                "mai-26", "jun-26"]
+    assert list(part.columns) == detentores.ORDEM_GRUPOS
 
 
-def test_os_cinco_grupos_somam_100(part):
-    assert len(part) == 5
-    assert abs(part["hoje_pct"].sum() - 100) < 1e-9
-    assert abs(part["ha12m_pct"].sum() - 100) < 1e-9
+def test_a_participacao_de_junho_de_2026_bate_com_a_pagina_do_rmd(part):
+    # Conferido contra a pagina 7 do RMD de jun/26, que a dona do projeto forneceu.
+    assert round(part.loc["jun-26", "Inst. Financeiras"], 1) == 31.8
+    assert round(part.loc["jun-26", "Fundos"], 1) == 22.0
+    assert round(part.loc["jun-26", "Previd\u00eancia"], 1) == 22.5
+    assert round(part.loc["jun-26", "N\u00e3o-residentes"], 1) == 10.0
+    assert round(part.loc["jun-26", "Demais Grupos"], 1) == 13.8
+    assert round(part.loc["mai-26", "Inst. Financeiras"], 1) == 31.5
+    assert round(part.loc["mai-26", "Fundos"], 1) == 21.7
 
 
-def test_a_variacao_de_12_meses_bate_com_o_medido(part):
-    # Em pontos percentuais, contra jun/2025. A Previdencia perdeu 0,57 p.p. e as
-    # Instituicoes Financeiras ganharam 0,46 -- o movimento do ano.
-    assert round(part.loc["Previd\u00eancia", "var_pp"], 2) == -0.57
-    assert round(part.loc["Inst. Financeiras", "var_pp"], 2) == 0.46
-    assert round(part.loc["Fundos", "var_pp"], 2) == -0.14
-    assert round(part.loc["N\u00e3o-residentes", "var_pp"], 2) == 0.11
-    assert round(part.loc["Demais Grupos", "var_pp"], 2) == 0.13
-    # A variacao e redistribuicao: a soma fecha em zero.
-    assert abs(part["var_pp"].sum()) < 1e-9
+def test_toda_coluna_soma_100(part):
+    assert len(part) == 8
+    assert (part.sum(axis=1) - 100).abs().max() < 1e-9
+
+
+def test_a_variacao_vai_em_reais_e_bate_com_a_pagina_do_rmd():
+    # A pagina traz os tres horizontes em R$ bi. "No ano" e "no mes" batem na casa
+    # decimal para os quatro; a de 12 meses diverge para tres deles, e a
+    # divergencia esta documentada em tests/test_conferencia_detentores.py.
+    v = detentores.dados_variacao() / 1000
+    assert list(v.columns) == ["em 12 meses", "no ano", "no m\u00eas"]
+    assert list(v.index) == detentores.PRINCIPAIS
+
+    assert round(v.loc["Inst. Financeiras", "no ano"], 1) == 101.1
+    assert round(v.loc["Inst. Financeiras", "no m\u00eas"], 1) == 92.1
+    assert round(v.loc["Fundos", "no ano"], 1) == 234.9
+    assert round(v.loc["Previd\u00eancia", "no ano"], 1) == 117.6
+    assert round(v.loc["N\u00e3o-residentes", "em 12 meses"], 1) == 142.0
+
+
+def test_a_variacao_falha_alto_se_faltar_o_mes_de_referencia(monkeypatch):
+    # Calcular contra o mes vizinho mais proximo daria numero plausivel e errado.
+    real = detentores._estoque_por_grupo()
+
+    def sem_dezembro():
+        return real.drop(index=pd.Timestamp("2025-12-31"))
+
+    monkeypatch.setattr(detentores, "_estoque_por_grupo", sem_dezembro)
+    with pytest.raises(LookupError) as erro:
+        detentores.dados_variacao()
+    assert "no ano" in str(erro.value)
 
 
 def test_o_rotulo_perde_o_numero_da_nota_de_rodape(part):
     # O CSV grava "Instituicoes Financeiras 1", com o numero da nota do RMD colado
-    # no nome. Nenhum indice pode carregar digito.
-    for nome in part.index:
+    # no nome. Nenhum rotulo de grupo pode carregar digito.
+    for nome in part.columns:
         assert not nome[-1].isdigit(), f"'{nome}' ainda tem o numero da nota"
+
+
+def test_a_quebra_por_papel_soma_o_estoque_do_papel():
+    # A quebra de um papel entre os oito detentores tem de somar o estoque daquele
+    # papel: 4.567,3 bi de LFT em jun/26.
+    lft = detentores.dados_financeiro_do_papel("LFT")
+    assert round(lft.iloc[-1].sum() / 1000, 1) == 4567.3
+    assert len(lft.columns) == 8
+    assert round(lft.iloc[-1]["Inst. Financeiras"] / 1000, 1) == 1666.0
+
+    ntnb = detentores.dados_financeiro_do_papel("NTN-B")
+    assert round(ntnb.iloc[-1].sum() / 1000, 1) == 2309.6
+    # A Previdencia carrega quase metade da NTN-B, e e o fato do papel.
+    assert round(ntnb.iloc[-1]["Previd\u00eancia"] / ntnb.iloc[-1].sum() * 100, 1) == 44.9
+
+
+def test_papel_que_nao_existe_falha_alto():
+    with pytest.raises(LookupError) as erro:
+        detentores.dados_financeiro_do_papel("NTN-Z")
+    assert "NTN-Z" in str(erro.value)
 
 
 # ---------------------------------------------------------------------------
