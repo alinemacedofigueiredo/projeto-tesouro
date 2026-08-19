@@ -2919,3 +2919,331 @@ git commit -m "Adiciona o custo do estoque contra a Selic e o IPCA"
 ```
 
 ---
+
+## Task 9: Reserva de liquidez — as duas versões
+
+**Files:**
+- Create: `src/tesouro/graficos/reserva.py`
+- Test: `tests/test_graficos_reserva.py`
+
+**Interfaces:**
+- Consumes: `estilo.COR`, `estilo.num_br`, `estilo.rotulo_mes`, `estilo.recorta`,
+  `estilo.eixo_anual`.
+- Produces:
+  - `JANELAS = {"5 anos": 5, "completa": None}`
+  - `dados_reserva(janela=None)` -> DataFrame indexado por data, colunas
+    `reserva, prudencial, folga` em R$ milhões e `indice` em meses.
+  - `dados_treze_meses()` -> os últimos treze meses, mesmas colunas.
+  - `desenha_treze_meses(dados, ax)`
+  - `desenha_reserva(dados, ax)`
+
+**Fonte:** `reserva_liquidez.csv` (`data, reserva_milhoes,
+valor_prudencial_milhoes, indice_liquidez_meses`), aba 6.1, 138 meses de jan/2015 a
+jun/2026.
+
+**Por que esta tarefa existe, e por que são dois gráficos.** A reserva de liquidez é
+o colchão que paga os vencimentos sem depender de emitir. O RMD a mostra em treze
+meses, e essa é a linguagem que a mesa e a diretoria já conhecem — serve para
+apresentação. Mas treze meses não dizem se 8,33 é alto ou baixo; cinco anos dizem. As
+duas versões **coexistem por decisão da usuária**, e não são redundância: uma é para
+mostrar, a outra é para saber.
+
+**Decisões tomadas com a usuária que o código deve respeitar:**
+
+- **A de treze meses segue o formato do RMD:** barra da reserva, barra do valor
+  prudencial, e o índice de liquidez em linha no eixo da direita.
+- **A de cinco anos sombreia a folga** entre a reserva e o valor prudencial, que é o
+  que sobra depois de honrar o colchão mínimo.
+- **Eixo duplo é permitido; eixo truncado não é.** A versão descartada começava o
+  eixo do índice em 5,7 e transformava uma variação de 2,6 meses num despencar. É a
+  armadilha 7 da spec, e o teste a trava.
+
+**Armadilhas medidas nesta tarefa:**
+
+1. **A folga é negativa nos dois primeiros meses da série.** Em jan/2015 a reserva
+   era 133,5 bi **menor** que o valor prudencial, e em fev/2015, 129,3 bi menor. Um
+   `fill_between` sem `where` e sem `interpolate=True` pinta esses dois meses como se
+   fossem folga positiva. O gráfico fica bonito e mente exatamente onde a informação
+   importa.
+2. **O valor prudencial oscila muito mês a mês** — 782,8 bi em jun/26 contra 166,9 em
+   mar/26. Não é erro de leitura: é a conta do próprio RMD. Não suavizar.
+3. **A série começa em jan/2015**, treze anos depois do resto do dashboard. Na janela
+   "completa" ela tem 138 meses enquanto a composição tem 307; alinhar os eixos entre
+   gráficos diferentes não faz sentido aqui.
+
+- [ ] **Passo 1: escrever os testes que falham**
+
+```python
+# tests/test_graficos_reserva.py
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
+
+from tesouro.graficos import estilo, reserva
+
+
+@pytest.fixture(scope="module")
+def dados():
+    return reserva.dados_reserva()
+
+
+def test_a_reserva_de_junho_de_2026_bate_com_o_medido(dados):
+    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
+    u = dados.iloc[-1]
+    assert round(u["reserva"] / 1000) == 1346
+    assert round(u["prudencial"] / 1000) == 783
+    assert round(u["indice"], 2) == 8.33
+
+
+def test_a_folga_e_a_reserva_menos_o_prudencial(dados):
+    assert round(dados.iloc[-1]["folga"] / 1000, 1) == 563.0
+    diferenca = dados["folga"] - (dados["reserva"] - dados["prudencial"])
+    assert diferenca.abs().max() < 1e-6
+
+
+def test_a_folga_e_negativa_nos_dois_primeiros_meses(dados):
+    # Em jan e fev/2015 a reserva ficou ABAIXO do valor prudencial. E o unico
+    # trecho da serie em que isso acontece, e e onde o desenho pode mentir.
+    negativos = dados[dados["folga"] < 0]
+    assert list(negativos.index) == [pd.Timestamp("2015-01-31"),
+                                     pd.Timestamp("2015-02-28")]
+    assert round(negativos.iloc[0]["folga"] / 1000, 1) == -133.5
+
+
+def test_a_versao_de_treze_meses_tem_treze_meses():
+    t = reserva.dados_treze_meses()
+    assert len(t) == 13
+    assert t.index.min() == pd.Timestamp("2025-06-30")
+    assert t.index.max() == pd.Timestamp("2026-06-30")
+    assert round(t["indice"].min(), 2) == 5.69
+    assert round(t["indice"].max(), 2) == 9.33
+
+
+def test_a_janela_de_cinco_anos_bate_com_o_medido():
+    c = reserva.dados_reserva(janela=5)
+    assert len(c) == 61
+    assert round(c["indice"].min(), 2) == 5.69
+    assert round(c["indice"].max(), 2) == 10.59
+    assert round(c["reserva"].min() / 1000, 1) == 743.9
+    assert round(c["reserva"].max() / 1000, 1) == 1345.8
+
+
+def test_as_duas_versoes_dizem_o_mesmo_no_mes_comum(dados):
+    # Coerencia entre graficos que dividem fonte: o mesmo mes tem de dar o mesmo
+    # numero nos dois.
+    t = reserva.dados_treze_meses()
+    for coluna in ("reserva", "prudencial", "indice"):
+        assert abs(t.iloc[-1][coluna] - dados.iloc[-1][coluna]) < 1e-9
+
+
+def test_o_eixo_do_indice_comeca_em_zero(dados):
+    # Armadilha 7 da spec: a versao descartada comecava o eixo do indice em 5,7 e
+    # transformava 2,6 meses de variacao num despencar. Eixo duplo pode; eixo
+    # truncado nao.
+    estilo.aplicar_estilo()
+    for desenha, entrada in ((reserva.desenha_treze_meses,
+                              reserva.dados_treze_meses()),
+                             (reserva.desenha_reserva,
+                              reserva.dados_reserva(janela=5))):
+        fig, ax = plt.subplots(figsize=(13, 6))
+        desenha(entrada, ax)
+        direito = [a for a in fig.axes if a is not ax]
+        limites = [a.get_ylim() for a in [ax] + direito]
+        plt.close(fig)
+        for baixo, _ in limites:
+            assert baixo == 0, f"{desenha.__name__} truncou um eixo em {baixo}"
+
+
+def test_a_folga_negativa_nao_e_pintada_como_folga(dados):
+    # Sem where= e interpolate=True, os dois meses de 2015 aparecem sombreados do
+    # mesmo jeito que os 136 de folga positiva.
+    estilo.aplicar_estilo()
+    fig, ax = plt.subplots(figsize=(13, 6))
+    reserva.desenha_reserva(dados, ax)
+    areas = [c for c in ax.collections]
+    plt.close(fig)
+    # Duas areas: a folga positiva e o deficit. Uma so significa que o sinal se
+    # perdeu no caminho.
+    assert len(areas) == 2
+```
+
+- [ ] **Passo 2: rodar e ver falhar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_reserva.py -v
+```
+
+Esperado: FAIL com `ImportError: cannot import name 'reserva'`.
+
+- [ ] **Passo 3: escrever as funções de dado**
+
+```python
+# src/tesouro/graficos/reserva.py
+"""Reserva de liquidez, aba 6.1, em duas versoes que coexistem.
+
+A de treze meses e a linguagem do RMD -- e o formato que a mesa e a diretoria ja
+conhecem, e serve para apresentar. A de cinco anos responde a pergunta que treze
+meses nao respondem: 8,33 e alto ou baixo? As duas ficam, por decisao da usuaria.
+
+ARMADILHA: a folga (reserva menos valor prudencial) e NEGATIVA em jan e fev/2015 --
+133,5 e 129,3 bi abaixo do colchao minimo. Sao os dois unicos meses da serie em que
+isso acontece, e um fill_between sem where= e sem interpolate=True pinta os dois
+como se fossem folga positiva. O grafico fica bonito e mente exatamente onde a
+informacao importa.
+
+Eixo duplo e permitido aqui; eixo truncado nao. A versao descartada comecava o eixo
+do indice em 5,7 e transformava 2,6 meses de variacao num despencar.
+"""
+
+import pandas as pd
+
+from .. import config
+from . import estilo
+
+JANELAS = {"5 anos": 5, "completa": None}
+
+_COR_RESERVA = "#1f3864"
+_COR_PRUDENCIAL = "#a6a6a6"
+_COR_INDICE = "#ed7d31"
+
+
+def dados_reserva(janela=None):
+    """Reserva, valor prudencial, folga e indice de liquidez, mes a mes."""
+    r = pd.read_csv(config.PROCESSED_DIR / "reserva_liquidez.csv",
+                    parse_dates=["data"]).set_index("data").sort_index()
+    saida = pd.DataFrame(index=r.index)
+    saida["reserva"] = r["reserva_milhoes"]
+    saida["prudencial"] = r["valor_prudencial_milhoes"]
+    saida["folga"] = saida["reserva"] - saida["prudencial"]
+    saida["indice"] = r["indice_liquidez_meses"]
+    return estilo.recorta(saida, janela)
+
+
+def dados_treze_meses():
+    """Os ultimos treze meses, que e o recorte que a pagina do RMD usa."""
+    return dados_reserva().tail(13)
+
+
+def desenha_treze_meses(dados, ax):
+    """O formato do RMD: duas barras por mes e o indice em linha a direita."""
+    posicoes = range(len(dados))
+    largura = 0.38
+    ax.bar([p - largura / 2 for p in posicoes], dados["reserva"] / 1000,
+           width=largura, color=_COR_RESERVA, label="reserva de liquidez")
+    ax.bar([p + largura / 2 for p in posicoes], dados["prudencial"] / 1000,
+           width=largura, color=_COR_PRUDENCIAL, label="valor prudencial")
+
+    ax.set_xticks(list(posicoes))
+    ax.set_xticklabels([estilo.rotulo_mes(d) for d in dados.index], fontsize=9)
+    ax.set_ylabel("R$ bilh\u00f5es")
+    ax.set_ylim(0, dados["reserva"].max() / 1000 * 1.25)
+    ax.grid(axis="y", alpha=0.25)
+
+    direita = ax.twinx()
+    direita.plot(list(posicoes), dados["indice"], color=_COR_INDICE, lw=2.4,
+                 marker="o", ms=4, label="\u00edndice de liquidez")
+    direita.set_ylabel("meses de vencimento cobertos")
+    # Comeca em zero SEMPRE: comecar no minimo da serie exagera a variacao.
+    direita.set_ylim(0, dados["indice"].max() * 1.35)
+
+    marcas, rotulos = ax.get_legend_handles_labels()
+    m2, r2 = direita.get_legend_handles_labels()
+    ax.legend(marcas + m2, rotulos + r2, ncol=3, frameon=False,
+              loc="upper center", bbox_to_anchor=(0.5, -0.10))
+
+
+def desenha_reserva(dados, ax):
+    """A serie longa, com a folga sombreada e o indice a direita.
+
+    O sombreado usa where= com interpolate=True: sem isso os dois meses de 2015 em
+    que a reserva ficou ABAIXO do prudencial aparecem pintados como folga.
+    """
+    ax.plot(dados.index, dados["reserva"] / 1000, color=_COR_RESERVA, lw=2.4,
+            label="reserva de liquidez")
+    ax.plot(dados.index, dados["prudencial"] / 1000, color=_COR_PRUDENCIAL,
+            lw=1.6, label="valor prudencial")
+
+    ax.fill_between(dados.index, dados["reserva"] / 1000,
+                    dados["prudencial"] / 1000,
+                    where=dados["folga"] >= 0, interpolate=True,
+                    color=_COR_RESERVA, alpha=0.18, label="folga")
+    ax.fill_between(dados.index, dados["reserva"] / 1000,
+                    dados["prudencial"] / 1000,
+                    where=dados["folga"] < 0, interpolate=True,
+                    color="#d62728", alpha=0.30, label="abaixo do prudencial")
+
+    ax.set_ylabel("R$ bilh\u00f5es")
+    ax.set_ylim(0, dados["reserva"].max() / 1000 * 1.20)
+    ax.grid(axis="y", alpha=0.25)
+    estilo.eixo_anual(ax)
+
+    direita = ax.twinx()
+    direita.plot(dados.index, dados["indice"], color=_COR_INDICE, lw=1.8, ls="--",
+                 label="\u00edndice de liquidez")
+    direita.set_ylabel("meses de vencimento cobertos")
+    direita.set_ylim(0, dados["indice"].max() * 1.30)
+    direita.annotate(estilo.num_br(dados["indice"].iloc[-1], 2),
+                     xy=(dados.index[-1], dados["indice"].iloc[-1]),
+                     xytext=(6, 0), textcoords="offset points", fontsize=9.5,
+                     weight="bold", color=_COR_INDICE, va="center")
+
+    marcas, rotulos = ax.get_legend_handles_labels()
+    m2, r2 = direita.get_legend_handles_labels()
+    ax.legend(marcas + m2, rotulos + r2, ncol=5, frameon=False,
+              loc="upper center", bbox_to_anchor=(0.5, -0.08))
+```
+
+- [ ] **Passo 4: rodar e ver passar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest tests/test_graficos_reserva.py -v
+```
+
+Esperado: 8 passed.
+
+- [ ] **Passo 5: confirmar que cada asserção tem dentes**
+
+Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
+falha, e desfaça:
+
+- troque `saida["reserva"] - saida["prudencial"]` por `saida["reserva"]` — o teste
+  da folga e o dos dois meses negativos devem falhar;
+- troque `.tail(13)` por `.tail(12)` — o teste dos treze meses deve falhar;
+- troque `direita.set_ylim(0, ...)` por `set_ylim(dados["indice"].min(), ...)` **nos
+  dois desenhos** — `test_o_eixo_do_indice_comeca_em_zero` deve falhar em cada um.
+  Rode as duas vezes: um desenho de cada vez, para confirmar que o teste pega os
+  dois e não só o primeiro;
+- apague o segundo `fill_between` (o do déficit) — o teste das duas áreas deve
+  falhar;
+- tire o `where=` do primeiro `fill_between` — o teste das duas áreas continua
+  passando (ainda há duas coleções) mas o desenho volta a mentir. **Este é o caso
+  que o teste não pega**, e por isso o passo seguinte existe.
+
+- [ ] **Passo 6: olhar os dois meses de 2015 com o olho**
+
+O teste conta áreas; ele não sabe qual cor cobre qual mês. Gere a figura da janela
+completa e confira que jan e fev/2015 aparecem em **vermelho**, não em azul:
+
+```
+$env:PYTHONPATH="src"; python -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; from tesouro.graficos import estilo, reserva; estilo.aplicar_estilo(); fig, ax = plt.subplots(figsize=(13, 6)); reserva.desenha_reserva(reserva.dados_reserva(), ax); fig.savefig('reserva_conferencia.svg')"
+```
+
+Abra `reserva_conferencia.svg`, confirme, e **apague o arquivo**. Ele não entra no
+repositório: o dashboard é quem grava figura, e num lugar só.
+
+- [ ] **Passo 7: rodar a suíte inteira e commitar**
+
+```
+$env:PYTHONPATH="src"; python -m pytest -q
+```
+
+Esperado: 381 passed, 1 skipped.
+
+```bash
+git add src/tesouro/graficos/reserva.py tests/test_graficos_reserva.py
+git commit -m "Adiciona as duas versoes da reserva de liquidez"
+```
+
+---
