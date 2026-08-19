@@ -116,3 +116,72 @@ def test_o_ano_aberto_nao_tem_realizado(bom):
     assert len(vincendo) == 17
     assert sorted(vincendo["ano"].unique()) == list(range(2016, 2027))
     assert vincendo["realizado"].isna().all()
+
+# ---------------------------------------------------------------------------
+# paf_bandas_conferencia.csv -- a transcricao da tabela que a dona do projeto
+# mantem a parte, usada para cruzar o paf_bandas.csv contra fonte independente.
+#
+# Estes testes SAO a validacao daquele arquivo: nao ha entrada dele no
+# valida_referencia.main(), de proposito. Divergencia entre as duas tabelas
+# significa "alguem precisa olhar", nao "o numero na tela esta errado" -- a banda
+# desenhada sai do paf_bandas.csv, que tem validador proprio e roda antes de
+# qualquer leitura.
+# ---------------------------------------------------------------------------
+
+# Como cada coluna da transcricao vira um dos indicadores do paf_bandas.csv.
+# O estoque e o unico com conversao: a tabela dela esta em R$ trilhoes.
+_DE_PARA = {
+    "estoque_bilhoes": ("estoque_tri_min", "estoque_tri_max", 1000.0),
+    "prefixado_pct": ("prefixado_min", "prefixado_max", 1.0),
+    "indice_precos_pct": ("ipca_min", "ipca_max", 1.0),
+    "taxa_flutuante_pct": ("flutuante_min", "flutuante_max", 1.0),
+    "cambio_pct": ("cambio_min", "cambio_max", 1.0),
+    "prazo_medio_anos": ("prazo_min", "prazo_max", 1.0),
+    "vincendo_12m_pct": ("vincendo_min", "vincendo_max", 1.0),
+}
+
+
+@pytest.fixture(scope="module")
+def conferencia():
+    return pd.read_csv(v.caminho_paf().parent / "paf_bandas_conferencia.csv")
+
+
+def test_a_transcricao_cobre_2016_a_2026_com_as_seis_revisoes(conferencia):
+    assert len(conferencia) == 17
+    assert sorted(conferencia["ano"].unique()) == list(range(2016, 2027))
+    revisados = sorted(conferencia[conferencia["versao"] == "revisado"]["ano"])
+    assert revisados == [2016, 2018, 2020, 2021, 2024, 2025]
+    # O rotulo guarda o mes da revisao, que o paf_bandas.csv nao tem espaco para
+    # carregar -- e a unica informacao que so existe aqui.
+    assert set(conferencia[conferencia["versao"] == "revisado"]["rotulo"]) == {
+        "out/16 (revisão)", "set/18 (revisão)", "ago/20 (revisão)",
+        "mai/21 (revisão)", "dez/24 (revisão)", "set/25 (revisão)",
+    }
+
+
+def test_toda_banda_minima_e_menor_que_a_maxima(conferencia):
+    for indicador, (cmin, cmax, _) in _DE_PARA.items():
+        assert (conferencia[cmin] < conferencia[cmax]).all(), indicador
+
+
+def test_a_transcricao_confirma_o_paf_bandas_linha_a_linha(conferencia, bom):
+    # O cruzamento que motivou versionar este arquivo: 119 comparacoes entre duas
+    # origens independentes -- a planilha oficial do PAF, digitada em paf_bandas.csv
+    # ao longo do projeto, e a tabela que a dona do projeto mantem a parte.
+    #
+    # Em 19/08/2026 as 119 bateram. Se um dia divergirem, e porque uma das duas
+    # mudou: o teste diz qual ano, qual indicador e os dois valores.
+    chave = bom.set_index(["ano", "versao", "indicador"])
+    comparadas = 0
+    for _, r in conferencia.iterrows():
+        for indicador, (cmin, cmax, fator) in _DE_PARA.items():
+            k = (int(r["ano"]), r["versao"], indicador)
+            assert k in chave.index, f"paf_bandas.csv nao tem {k}"
+            n = chave.loc[k]
+            esperado = (r[cmin] * fator, r[cmax] * fator)
+            assert abs(n["minimo"] - esperado[0]) < 0.001, (
+                f"{k}: paf_bandas {n['minimo']} x transcricao {esperado[0]}")
+            assert abs(n["maximo"] - esperado[1]) < 0.001, (
+                f"{k}: paf_bandas {n['maximo']} x transcricao {esperado[1]}")
+            comparadas += 1
+    assert comparadas == 119

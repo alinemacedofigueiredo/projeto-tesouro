@@ -7,6 +7,15 @@ download, e é versionado no git de propósito. Se você apagar, não volta.
 
 ---
 
+## Os dois arquivos desta pasta
+
+| arquivo | o que é |
+|---|---|
+| `paf_bandas.csv` | as bandas do PAF, 2003 a 2026. **É deste que os gráficos leem.** |
+| `paf_bandas_conferencia.csv` | a transcrição de outra tabela de bandas, 2016 a 2026, que existe só para cruzar contra o primeiro |
+
+---
+
 ## `paf_bandas.csv` — as metas do PAF, ano a ano
 
 O PAF (Plano Anual de Financiamento) define, para cada ano, uma faixa de mínimo e
@@ -136,3 +145,43 @@ o estoque. No CSV isso não acontece, porque cada coluna tem nome.
 
 O arquivo original está guardado em `paf/` e não deve ser editado — ele é o registro
 de onde este CSV veio.
+
+---
+
+## `paf_bandas_conferencia.csv` — a transcrição de conferência
+
+**Nenhum gráfico lê este arquivo.** Ele existe para uma coisa só: cruzar o
+`paf_bandas.csv` contra uma origem independente.
+
+Em 19/08/2026 a dona do projeto forneceu uma foto de uma tabela de bandas que ela
+mantém à parte, cobrindo **2016 a 2026** com as seis revisões do período. Este
+arquivo é a transcrição daquela foto, e foi dele que saíram as linhas de
+`vincendo_12m_pct`.
+
+### O formato é o da tabela dela, não o do `paf_bandas.csv`
+
+Uma linha por versão do PAF e uma coluna por indicador, como a tabela é exibida —
+para que dê para conferir contra a foto de uma passada de olho. Duas consequências:
+
+- **o estoque está em R$ trilhões**, como na tabela dela, e não em bilhões. A
+  conversão vive no teste que compara, não no dado;
+- **a coluna `rotulo` guarda o mês da revisão** (`ago/20 (revisão)`), que é a única
+  informação aqui que não existe no `paf_bandas.csv` — ele tem `versao = revisado`,
+  mas não a data.
+
+### O que trava este arquivo
+
+Três testes em `tests/test_valida_referencia.py`. O principal compara **119 pares**
+de valores contra o `paf_bandas.csv` — sete indicadores × dezessete versões. Em
+19/08/2026 os 119 bateram.
+
+Não há entrada deste arquivo no `valida_referencia.main()`, e isso é deliberado:
+divergência entre as duas tabelas significa "alguém precisa olhar", não "o número na
+tela está errado". A banda desenhada sai do `paf_bandas.csv`, que tem validador
+próprio e roda antes de qualquer leitura.
+
+### Se você atualizar a tabela
+
+Transcreva a linha nova aqui **e** acrescente as linhas correspondentes no
+`paf_bandas.csv`. Se transcrever só aqui, o teste de conferência acusa qual ano e
+qual indicador faltam — que é exatamente o serviço que este arquivo presta.
