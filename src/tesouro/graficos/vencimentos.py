@@ -203,3 +203,68 @@ def desenha_faixas(dados, banda, fig):
                  loc="left", color=estilo.COR["neutro"])
     estilo.grade_fina(a2, 10, 5)
     estilo.eixo_anual(a2, a_cada=2)
+
+
+# A aba 2.2 traz nove nomes de titulo. Eles viram seis familias, e a NTN-B1 fica
+# SEPARADA da NTN-B de proposito: tudo que vence depois de 2060 e NTN-B1 RendA+, e
+# juntar as duas apagaria a cauda inteira do grafico.
+_FAMILIA = {"LFT": "LFT",
+            "LFT-TD1 Reserva": "LFT",
+            "LTN": "LTN",
+            "NTN-B": "NTN-B",
+            "NTN-B Principal": "NTN-B",
+            "NTN-B1 EducA+": "NTN-B1",
+            "NTN-B1 RendA+": "NTN-B1",
+            "NTN-C": "NTN-C",
+            "NTN-F": "NTN-F"}
+
+ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B", "NTN-B1", "NTN-C"]
+
+_COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
+                "NTN-B": "NTN-B", "NTN-B1": "NTN-C", "NTN-C": "Outros"}
+
+
+def dados_perfil_completo():
+    """Vencimentos por ano ate 2084, por familia de titulo, em R$ milhoes.
+
+    Vem da aba 2.2, papel a papel -- diferente do cronograma, que vem da 3.4 e para
+    em 60 meses. Os dois nao fecham: 8.904,1 aqui contra 8.920,7 la, 16,6 bi de
+    diferenca cuja causa esta em aberto e travada por teste.
+
+    ARMADILHA: papeis ja vencidos ficam no CSV com financeiro zero e ano de
+    vencimento no passado. Sem filtrar, o eixo comeca em 2010 com quatorze anos
+    vazios.
+    """
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    u = e[(e["data"] == e["data"].max()) & (e["financeiro_milhoes"] > 0)].copy()
+    u["ano"] = u["vencimento"].dt.year
+    u["familia"] = [_FAMILIA[t] for t in u["titulo"]]
+
+    piv = u.pivot_table(index="ano", columns="familia",
+                        values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
+    for familia in ORDEM_FAMILIAS:
+        if familia not in piv.columns:
+            piv[familia] = 0.0
+    return piv[ORDEM_FAMILIAS]
+
+
+def desenha_perfil_completo(dados, ax):
+    """Barras empilhadas por ano, do proximo ao ultimo.
+
+    O eixo do tempo e categorico e nao continuo: entre 2060 e 2084 ha quatro anos
+    com divida e vinte sem, e um eixo continuo gastaria metade da largura com
+    espaco vazio.
+    """
+    posicoes = range(len(dados))
+    base = pd.Series(0.0, index=dados.index)
+    for familia in dados.columns:
+        ax.bar(list(posicoes), dados[familia] / 1000, bottom=base / 1000,
+               width=0.78, color=estilo.COR[_COR_FAMILIA[familia]], label=familia)
+        base = base + dados[familia]
+
+    ax.set_xticks(list(posicoes))
+    ax.set_xticklabels([str(a) for a in dados.index], rotation=90, fontsize=8)
+    ax.set_ylabel("R$ bilh\u00f5es a vencer")
+    ax.legend(ncol=6, frameon=False, loc="upper right")
+    ax.grid(axis="y", alpha=0.25)

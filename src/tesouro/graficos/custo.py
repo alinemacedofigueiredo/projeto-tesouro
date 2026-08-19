@@ -107,3 +107,52 @@ def desenha_custo(dados, ax):
     estilo.eixo_anual(ax, a_cada=2)
     ax.legend(ncol=4, frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.08))
+
+
+def dados_custo_emissao(janela=None):
+    """Custo das emissoes dos ultimos 12 meses contra o custo do estoque, DPMFi.
+
+    O custo de emissao sozinho nao diz nada; contra o do estoque mostra a direcao:
+    em jun/26 o Tesouro emite a 14,20% e carrega a 13,19%, entao a divida encarece
+    sem que nenhuma decisao nova seja tomada.
+
+    A serie de emissoes comeca em dez/2010, cinco anos depois da do estoque, e por
+    isso este grafico e mais curto que o principal.
+    """
+    c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
+    agregado = c[(c["nivel"] == "DPMFi")
+                 & c["entidade"].isna() & c["titulo"].isna()]
+    piv = agregado.pivot_table(index="data", columns="medida",
+                               values="custo_aa_pct")
+
+    saida = pd.DataFrame(index=piv.index)
+    saida["emissao"] = piv["emissoes_12m"]
+    saida["estoque"] = piv["acum_12m"]
+    saida = saida.dropna(subset=["emissao"])
+    return estilo.recorta(saida, janela)
+
+
+def desenha_custo_emissao(dados, ax):
+    """As duas linhas, com a diferenca sombreada entre elas."""
+    ax.plot(dados.index, dados["emissao"], color="#c00000", lw=2.4,
+            label="custo das emiss\u00f5es em 12m")
+    ax.plot(dados.index, dados["estoque"], color="#1f3864", lw=2.4,
+            label="custo do estoque em 12m")
+    ax.fill_between(dados.index, dados["emissao"], dados["estoque"],
+                    where=dados["emissao"] >= dados["estoque"], interpolate=True,
+                    color="#c00000", alpha=0.14)
+    ax.fill_between(dados.index, dados["emissao"], dados["estoque"],
+                    where=dados["emissao"] < dados["estoque"], interpolate=True,
+                    color="#1f3864", alpha=0.14)
+
+    for coluna, cor in (("emissao", "#c00000"), ("estoque", "#1f3864")):
+        ax.annotate(estilo.num_br(dados[coluna].iloc[-1], 2),
+                    xy=(dados.index[-1], dados[coluna].iloc[-1]), xytext=(6, 0),
+                    textcoords="offset points", fontsize=9.5, weight="bold",
+                    color=cor, va="center")
+
+    ax.set_ylabel("% ao ano")
+    estilo.grade_fina(ax, 2, 1)
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.legend(ncol=2, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.08))

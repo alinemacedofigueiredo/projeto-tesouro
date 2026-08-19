@@ -3368,9 +3368,14 @@ leitura. Guardar custa pouco; reconstruir depois custa a conversa toda de novo.
    para em jun/26. Sem cortar na última competência do RMD, a cobertura de 2026 dá
    **120%** — o gráfico compara oito meses de leilão contra seis de RMD e parece que
    os leilões emitiram mais do que a emissão total.
-2. **A cobertura não é 100% e é por isso que este gráfico é candidato.** Nos anos
-   fechados ela fica entre **93,0% e 97,3%**; a emissão por indexador da aba 1.2
-   cobre 100%. É a diferença que fez a usuária preferir o gráfico principal.
+2. **A cobertura não é 100% e é por isso que este gráfico é candidato.** Na janela
+   de doze anos ela vai de **90,5% (2015) a 97,3% (2020)**; a emissão por indexador
+   da aba 1.2 cobre 100%. É a diferença que fez a usuária preferir o gráfico
+   principal. A spec fala em "93% a 97%" porque mediu de 2017 em diante — a janela
+   maior alcança 2015, que é o pior ano.
+5. **A NTN-D e a NTN-C morrem antes da janela.** A NTN-D não é emitida desde 2002 e
+   a NTN-C desde 2006. Se o corte de colunas vier antes do corte de anos, as duas
+   sobrevivem como colunas de zero e o desenho quebra procurando cor para elas.
 3. **A diferença de 16,6 bi entre a 2.2 e a 3.4 continua sem explicação.** O perfil
    soma 8.904,1 bi e o cronograma 8.920,7. Os dois gráficos coexistem por decisão, e
    a diferença é **travada por teste com o valor atual**, para que mudar sem querer
@@ -3498,13 +3503,20 @@ def test_os_leiloes_sao_cortados_na_ultima_competencia_do_rmd(anual):
     assert anual.loc[2026, "cobertura_pct"] < 100
 
 
-def test_a_cobertura_dos_anos_fechados_fica_entre_93_e_98(anual):
-    # A razao de este grafico ser candidato: a aba 1.2 cobre 100% da emissao, os
-    # leiloes cobrem de 93,0% a 97,3%.
+def test_a_cobertura_dos_anos_fechados_fica_entre_90_e_98(anual):
+    # A razao de este grafico ser candidato: a aba 1.2 cobre 100% da emissao e os
+    # leiloes nao. Na janela de 12 anos a cobertura vai de 90,5% (2015) a 97,3%
+    # (2020) -- a spec fala em "93% a 97%" porque mediu de 2017 em diante.
     fechados = anual[anual.index < 2026]["cobertura_pct"]
-    assert fechados.min() >= 93.0
-    assert fechados.max() <= 97.5
+    assert round(fechados.min(), 1) == 90.5
+    assert round(fechados.max(), 1) == 97.3
     assert round(fechados.loc[2024], 1) == 93.0
+    # E nenhum papel entra no desenho sem cor: a NTN-D e a NTN-C sairiam como
+    # coluna de zero se o corte de colunas viesse antes do corte de anos.
+    from tesouro.graficos import estilo
+    for papel in anual.columns:
+        if papel not in ("total_milhoes", "cobertura_pct"):
+            assert papel in estilo.COR, f"sem cor para {papel}"
 
 
 def test_a_nota_de_cobertura_aparece_no_desenho(anual):
@@ -3659,7 +3671,8 @@ def desenha_custo_emissao(dados, ax):
 
 A usuaria pediu a composicao da emissao por papel, viu esta versao e preferiu a por
 indexador (o grafico principal, no funding.py): pela aba 1.2 a cobertura e 100% da
-emissao do RMD, e por aqui fica entre 93,0% e 97,3%. Este ficou guardado, e a
+emissao do RMD, e por aqui vai de 90,5% (2015) a 97,3% (2020). Este ficou
+guardado, e a
 cobertura de cada ano vai escrita no proprio grafico -- e a razao da recusa, e
 esconde-la seria esconder o defeito.
 
@@ -3700,8 +3713,12 @@ def dados_emissao_anual_papel(anos=12):
     venda["ano"] = venda["data_leilao"].dt.year
     piv = venda.pivot_table(index="ano", columns="titulo",
                             values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
-    piv = piv.loc[:, piv.sum() > 0]
+    # O corte de colunas vem DEPOIS do corte de anos, e a ordem importa: a NTN-D
+    # nao e emitida desde 2002 e a NTN-C desde 2006. Filtrando antes, as duas
+    # sobrevivem como colunas de zero dentro da janela mostrada -- e o desenho
+    # quebra procurando cor para um papel que a paleta nao tem.
     piv = piv[piv.index >= piv.index.max() - anos + 1]
+    piv = piv.loc[:, piv.sum() > 0]
 
     f = pd.read_csv(config.PROCESSED_DIR / "funding_por_indexador.csv",
                     parse_dates=["data"])
@@ -4286,7 +4303,7 @@ REGISTRO = [
     Grafico("emissao_papel", "Candidatos",
             "Composi\u00e7\u00e3o anual da emiss\u00e3o por papel, dos leil\u00f5es",
             "leiloes.csv",
-            "Recusado como gr\u00e1fico principal: os leil\u00f5es cobrem de 93,0% a 97,3% "
+            "Recusado como gr\u00e1fico principal: os leil\u00f5es cobrem de 90,5% a 97,3% "
             "da emiss\u00e3o que o RMD registra, contra 100% da aba 1.2.",
             True, "5 anos", _fig_emissao_papel),
 ]
