@@ -159,7 +159,11 @@ def main(argv=None):
         print("\nCorrija e rode de novo. O LEIA-ME.md da pasta explica cada coluna.")
         return 1
     df = pd.read_csv(caminho_paf())
-    abertos = sorted(df[df["realizado"].isna()]["ano"].unique())
+    # So os obrigatorios contam aqui: as linhas do vincendo entram sem realizado
+    # de proposito (nenhum realizado deste arquivo e lido), e sem este filtro a
+    # mensagem passaria a listar todo ano que tem vincendo como "ainda aberto".
+    obrigatorios = df[df["indicador"].isin(INDICADORES)]
+    abertos = sorted(obrigatorios[obrigatorios["realizado"].isna()]["ano"].unique())
     print(f"referencia/paf_bandas.csv: ok "
           f"({len(df)} linhas, {df['ano'].min()} a {df['ano'].max()})")
     if abertos:

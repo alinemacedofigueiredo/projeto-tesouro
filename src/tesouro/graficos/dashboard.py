@@ -205,9 +205,9 @@ REGISTRO = [
     Grafico("vencimentos_faixas", "Vencimentos",
             "Composi\u00e7\u00e3o da DPF por horizonte, com a banda do PAF",
             "aba 3.1 e aba 5.7",
-            "A banda vem da aba 5.7 (2003 a 2022) e de referencia/paf_bandas.csv "
-            "(2026). Em 2023, 2024 e 2025 nenhuma das duas tem banda, e nada "
-            "\u00e9 desenhado ali.",
+            "A banda do vincendo em 12 meses vem da aba 5.7 (2003 a 2022) e de "
+            "referencia/paf_bandas.csv (2016 a 2026). Onde h\u00e1 revis\u00e3o, vale a "
+            "revisada, que \u00e9 a que estava em vigor no fechamento.",
             False, None, _fig_faixas),
     Grafico("prazo_medio", "Prazo",
             "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",

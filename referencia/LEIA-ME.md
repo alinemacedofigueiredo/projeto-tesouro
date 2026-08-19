@@ -48,19 +48,22 @@ Todo ano precisa dos seis. Faltar um é erro, e o validador acusa.
 anos que a 5.7 não alcança — exigi-lo em todo ano obrigaria a redigitar vinte anos de
 dado que já temos por parser.
 
-**Hoje há uma lacuna: 2023, 2024 e 2025.** A 5.7 termina em 2022 e este arquivo
-começa em 2026. Nesses três anos o gráfico de composição por horizonte não desenha
-banda nenhuma — o buraco é a lacuna, não um defeito. Para fechá-la, acrescente uma
-linha por ano, no formato:
+**Cobertura atual: 2016 a 2026**, incluindo as revisões de out/16, set/18, ago/20,
+mai/21, dez/24 e set/25. Com a 5.7 cobrindo 2003 a 2022, não sobra ano sem banda.
+
+Para acrescentar um ano, uma linha no formato:
 
 ```
-2025,original,vincendo_12m_pct,<mínimo>,<máximo>,
+2027,original,vincendo_12m_pct,<mínimo>,<máximo>,
 ```
 
 O `realizado` fica vazio: nenhuma coluna `realizado` deste arquivo é lida por nada.
-Se um dia um ano aqui coincidir com um ano da 5.7, um teste confere que as duas
-fontes dão a mesma banda — divergência aparece como teste vermelho, e não como
-gráfico errado.
+
+**Nos sete anos em que este arquivo e a 5.7 se sobrepõem (2016 a 2022), um teste
+confere que as duas dão a mesma banda vigente.** Divergência aparece como teste
+vermelho, e não como gráfico errado. Em 2020 as duas contam histórias diferentes
+sobre o caminho: a 5.7 guarda uma linha só, com 24%–28%, que é a revisão de ago/20; a
+original era 20%–23%, e só este arquivo a tem. A banda desenhada é a mesma.
 
 **Nota histórica:** até 2010 o PAF chamava a taxa flutuante de "Selic". É o mesmo
 indicador, e aqui ele aparece sempre como `taxa_flutuante_pct`.

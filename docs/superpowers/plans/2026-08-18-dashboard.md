@@ -2126,34 +2126,46 @@ def test_o_vincendo_de_hoje_esta_dentro_da_banda_de_2026():
     assert b.loc[2026, "minimo"] <= hoje <= b.loc[2026, "maximo"]
 
 
-def test_os_anos_sem_banda_do_vincendo_estao_declarados():
-    # A 5.7 vai ate 2022 e o arquivo de referencia comeca em 2026: 2023, 2024 e 2025
-    # nao tem banda de vincendo em fonte nenhuma. Sao os anos que faltam digitar da
-    # planilha do PAF. Declarados aqui para que a lacuna seja visivel e para que o
-    # teste avise quando ela for preenchida.
+def test_a_banda_do_vincendo_nao_tem_buraco():
+    # A 5.7 cobre 2003 a 2022 e o arquivo de referencia cobre 2016 a 2026. Juntas,
+    # nao sobra ano sem banda -- e o desenho nao tem trecho vazio.
     b = vencimentos.banda_vincendo_12m()
-    faltando = [a for a in range(2003, 2027) if a not in b.index]
-    assert faltando == [2023, 2024, 2025]
+    assert [a for a in range(2003, 2027) if a not in b.index] == []
 
 
-def test_as_duas_fontes_concordam_onde_compartilham_o_ano():
-    # HOJE NAO HA ANO COMPARTILHADO -- a 5.7 termina em 2022 e a referencia comeca
-    # em 2026 -- e por isso o laco abaixo nao roda. A contagem esta afirmada de
-    # proposito: no dia em que alguem digitar 2003-2022 na planilha de referencia,
-    # este teste falha e obriga a olhar a comparacao, em vez de deixar um laco vazio
-    # passando para sempre.
+def test_as_duas_fontes_concordam_nos_sete_anos_que_compartilham():
+    # Cruzamento contra fonte independente, e nao formalidade: a 5.7 vem do anexo do
+    # RMD por parser, e as linhas de 2016 a 2026 do arquivo de referencia foram
+    # digitadas de uma tabela de bandas que a dona do projeto mantem a parte. Duas
+    # origens diferentes, sete anos em comum, mesma banda vigente nos sete.
     from tesouro.graficos import paf
 
     da_57 = vencimentos.banda_da_57()
     da_referencia = paf.bandas("vincendo_12m_pct")
     compartilhados = sorted(set(da_57.index) & set(da_referencia.index))
-    assert len(compartilhados) == 0, (
-        "as duas fontes passaram a compartilhar ano(s): "
-        f"{compartilhados}. Troque este assert pela comparacao abaixo."
-    )
+    assert compartilhados == [2016, 2017, 2018, 2019, 2020, 2021, 2022]
     for ano in compartilhados:
-        assert da_57.loc[ano, "minimo"] == da_referencia.loc[ano, "minimo"]
-        assert da_57.loc[ano, "maximo"] == da_referencia.loc[ano, "maximo"]
+        assert da_57.loc[ano, "minimo"] == da_referencia.loc[ano, "minimo"], ano
+        assert da_57.loc[ano, "maximo"] == da_referencia.loc[ano, "maximo"], ano
+
+
+def test_a_57_perdeu_a_banda_ORIGINAL_de_2020_e_a_referencia_a_guarda():
+    # A armadilha 5 da spec, com um caso medido. A aba 5.7 guarda UMA linha por ano
+    # e registra a banda revisada como se fosse a original: para 2020 ela traz
+    # 24-28, que e a revisao de ago/20. A original era 20-23, e so o arquivo de
+    # referencia a tem.
+    #
+    # A banda DESENHADA nao muda -- as duas dao 24-28, que e a que estava em vigor no
+    # fechamento. O que se perde na 5.7 e a memoria de que a meta mudou no meio do
+    # ano, e mudou muito: de "ate 23%" para "ate 28%".
+    from tesouro.graficos import paf
+
+    da_57 = vencimentos.banda_da_57()
+    assert (da_57.loc[2020, "minimo"], da_57.loc[2020, "maximo"]) == (24.0, 28.0)
+
+    b = paf.bandas("vincendo_12m_pct")
+    assert (b.loc[2020, "minimo"], b.loc[2020, "maximo"]) == (24.0, 28.0)
+    assert (b.loc[2020, "minimo_original"], b.loc[2020, "maximo_original"]) == (20.0, 23.0)
 
 
 def test_a_banda_nao_e_desenhada_onde_nao_existe():
@@ -2168,10 +2180,9 @@ def test_a_banda_nao_e_desenhada_onde_nao_existe():
     de_cima = list(fig.axes[0].collections)
     plt.close(fig)
     assert len(de_cima) == 4, "as quatro faixas da area empilhada"
-    # Uma banda por ano com banda: 2006 a 2022 (dezessete, da aba 5.7) mais 2026
-    # (do arquivo de referencia). 2023 a 2025 nao tem banda em fonte nenhuma e
-    # nada e desenhado ali -- o buraco no desenho e a lacuna, nao um defeito.
-    assert len(faixas_desenhadas) == 18
+    # Uma banda por ano visivel: 2006 (inicio da nossa serie) a 2026, sem buraco,
+    # desde que a tabela de bandas fechou a lacuna de 2023 a 2025.
+    assert len(faixas_desenhadas) == 21
 ```
 
 - [x] **Passo 2: rodar e ver falhar**
@@ -2204,10 +2215,14 @@ ARMADILHA 2: a aba do cronograma e a 3.4; a 3.1 e a de faixas. As duas falam de
 vencimento e ja foram confundidas num rascunho.
 
 ARMADILHA 3: a banda de vincendo em 12 meses vem de DUAS fontes. A aba 5.7 do anexo
-de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv alcanca 2026 e guarda o
-indicador vincendo_12m_pct, que e opcional por ano justamente porque a 5.7 ja cobre o
-passado. Onde os dois tem o mesmo ano, tem de dar a mesma banda -- e isso e teste,
-nao confianca.
+de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv cobre 2016 a 2026 pelo
+indicador vincendo_12m_pct. As duas se sobrepoem em sete anos e dao a mesma banda
+vigente nos sete -- conferido por teste, nao por confianca.
+
+Em 2020 elas contam historias diferentes sobre COMO se chegou la: a 5.7 guarda uma
+linha so, com 24-28, que e a revisao de ago/20; a original era 20-23, e so o arquivo
+de referencia a tem. A banda desenhada e a mesma; o que a 5.7 perde e a memoria de
+que a meta subiu no meio do ano.
 """
 
 import pandas as pd
@@ -2423,7 +2438,8 @@ def desenha_faixas(dados, banda, fig):
                 textcoords="offset points", fontsize=9, weight="bold",
                 color=_COR_FAIXA["At\u00e9 12 meses"], va="center")
     a2.set_ylabel("% vincendo em 12 meses")
-    a2.set_title("banda do PAF publicada na aba 5.7 at\u00e9 2022", fontsize=9,
+    a2.set_title("banda do PAF; onde houve revis\u00e3o, vale a que estava em vigor no "
+                 "fechamento do ano", fontsize=9,
                  loc="left", color=estilo.COR["neutro"])
     estilo.grade_fina(a2, 10, 5)
     estilo.eixo_anual(a2, a_cada=2)
@@ -4348,9 +4364,9 @@ REGISTRO = [
     Grafico("vencimentos_faixas", "Vencimentos",
             "Composi\u00e7\u00e3o da DPF por horizonte, com a banda do PAF",
             "aba 3.1 e aba 5.7",
-            "A banda vem da aba 5.7 (2003 a 2022) e de referencia/paf_bandas.csv "
-            "(2026). Em 2023, 2024 e 2025 nenhuma das duas tem banda, e nada "
-            "\u00e9 desenhado ali.",
+            "A banda do vincendo em 12 meses vem da aba 5.7 (2003 a 2022) e de "
+            "referencia/paf_bandas.csv (2016 a 2026). Onde h\u00e1 revis\u00e3o, vale a "
+            "revisada, que \u00e9 a que estava em vigor no fechamento.",
             False, None, _fig_faixas),
     Grafico("prazo_medio", "Prazo",
             "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",

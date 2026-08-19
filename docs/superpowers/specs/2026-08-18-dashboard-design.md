@@ -226,13 +226,23 @@ busca isso no site do Bacen; nós não precisamos. É por isso que esta branch n
 **O validador do PAF é pré-requisito de execução.** Se `referencia/paf_bandas.csv`
 estiver quebrado, o dashboard **falha** em vez de desenhar banda errada.
 
-**A banda do vincendo em 12 meses tem duas fontes, e uma lacuna.** A aba 5.7 do RMD
-publica de 2003 a 2022; a planilha do PAF publica também o ano corrente, e por isso
-`paf_bandas.csv` ganhou um sétimo indicador, `vincendo_12m_pct`, **opcional por ano**
-— só precisa entrar o que a 5.7 não alcança. Hoje há 2026 (18% a 22%, informado pela
-dona do projeto em 19/08/2026) e faltam **2023, 2024 e 2025**: nesses três anos o
-gráfico não desenha banda, e o buraco é a lacuna, não um defeito. Onde as duas fontes
-tiverem o mesmo ano, um teste confere que elas concordam.
+**A banda do vincendo em 12 meses tem duas fontes.** A aba 5.7 do RMD publica de
+2003 a 2022; a tabela de bandas que a dona do projeto mantém à parte cobre 2016 a
+2026, e por isso `paf_bandas.csv` ganhou um sétimo indicador, `vincendo_12m_pct`,
+**opcional por ano** — só precisa entrar o que a 5.7 não alcança. Juntas, as duas não
+deixam ano sem banda. Nos **sete anos em que se sobrepõem (2016 a 2022) um teste
+confere que dão a mesma banda vigente** — e dão.
+
+**A tabela da dona do projeto confirmou a nossa.** Em 19/08/2026 ela forneceu uma
+foto dessa tabela, com 2016 a 2026 e as seis revisões do período. Cruzada contra o
+`paf_bandas.csv`: **103 comparações, 103 iguais, zero divergências** — duas origens
+independentes para os seis indicadores obrigatórios.
+
+**E confirmou a armadilha 5 com um caso medido.** Em 2020 a aba 5.7 guarda uma linha
+só, com **24%–28%** — que é a revisão de ago/20. A banda **original** era 20%–23%, e
+só a tabela da dona do projeto a tem. A banda desenhada não muda, porque as duas dão
+a vigente; o que a 5.7 perde é a memória de que a meta subiu no meio do ano da
+pandemia.
 
 ---
 
@@ -302,6 +312,8 @@ Medidas durante os rascunhos. Cada uma produziria gráfico plausível e errado.
 5. **A aba 5.7 do RMD guarda uma linha por ano** e registra a banda revisada como se
    fosse a original. A planilha do PAF guarda as duas e tem oito anos revisados
    contra quatro na 5.7. As fontes concordam; a do PAF é mais rica e é a oficial.
+   **Caso medido em 19/08/2026:** o vincendo em 12 meses de 2020 aparece na 5.7 como
+   24%–28%, que é a revisão de ago/20; a original era 20%–23%.
 6. **Barras emparelhadas de emissão e resgate ao longo de 236 meses são ilegíveis** —
    eu li o meu próprio gráfico errado.
 7. **Eixo duplo não é o problema; eixo truncado é.** A versão descartada da reserva

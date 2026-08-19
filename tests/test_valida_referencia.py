@@ -101,5 +101,18 @@ def test_pega_coluna_ausente(bom, tmp_path):
 
 def test_o_ano_aberto_nao_tem_realizado(bom):
     # Invariante do arquivo: o ano corrente ainda nao fechou.
-    abertos = bom[bom["realizado"].isna()]["ano"].unique()
+    #
+    # So os SEIS obrigatorios entram na conta. As linhas do setimo indicador
+    # (vincendo_12m_pct) nascem sem realizado de proposito -- nenhum realizado deste
+    # arquivo e lido por nada, e o do vincendo, quando interessa, sai da aba 5.7.
+    obrigatorios = bom[bom["indicador"].isin(v.INDICADORES)]
+    abertos = obrigatorios[obrigatorios["realizado"].isna()]["ano"].unique()
     assert list(abertos) == [bom["ano"].max()]
+
+    # E o setimo nao tem realizado em nenhum ano, que e o combinado.
+    # Dezessete linhas: 2016 a 2026, mais as seis revisoes (out/16, set/18, ago/20,
+    # mai/21, dez/24, set/25).
+    vincendo = bom[bom["indicador"] == "vincendo_12m_pct"]
+    assert len(vincendo) == 17
+    assert sorted(vincendo["ano"].unique()) == list(range(2016, 2027))
+    assert vincendo["realizado"].isna().all()

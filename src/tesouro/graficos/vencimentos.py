@@ -13,10 +13,14 @@ ARMADILHA 2: a aba do cronograma e a 3.4; a 3.1 e a de faixas. As duas falam de
 vencimento e ja foram confundidas num rascunho.
 
 ARMADILHA 3: a banda de vincendo em 12 meses vem de DUAS fontes. A aba 5.7 do anexo
-de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv alcanca 2026 e guarda o
-indicador vincendo_12m_pct, que e opcional por ano justamente porque a 5.7 ja cobre o
-passado. Onde os dois tem o mesmo ano, tem de dar a mesma banda -- e isso e teste,
-nao confianca.
+de jun/26 termina em "PAF 2022"; o referencia/paf_bandas.csv cobre 2016 a 2026 pelo
+indicador vincendo_12m_pct. As duas se sobrepoem em sete anos e dao a mesma banda
+vigente nos sete -- conferido por teste, nao por confianca.
+
+Em 2020 elas contam historias diferentes sobre COMO se chegou la: a 5.7 guarda uma
+linha so, com 24-28, que e a revisao de ago/20; a original era 20-23, e so o arquivo
+de referencia a tem. A banda desenhada e a mesma; o que a 5.7 perde e a memoria de
+que a meta subiu no meio do ano.
 """
 
 import pandas as pd
@@ -226,7 +230,8 @@ def desenha_faixas(dados, banda, fig):
                 textcoords="offset points", fontsize=9, weight="bold",
                 color=_COR_FAIXA["At\u00e9 12 meses"], va="center")
     a2.set_ylabel("% vincendo em 12 meses")
-    a2.set_title("banda do PAF publicada na aba 5.7 at\u00e9 2022", fontsize=9,
+    a2.set_title("banda do PAF; onde houve revis\u00e3o, vale a que estava em vigor no "
+                 "fechamento do ano", fontsize=9,
                  loc="left", color=estilo.COR["neutro"])
     estilo.grade_fina(a2, 10, 5)
     estilo.eixo_anual(a2, a_cada=2)
