@@ -2642,12 +2642,20 @@ Esperado: 8 passed.
 Para **cada** âncora, quebre a linha de produção que ela protege, rode, confirme a
 falha, e desfaça:
 
-- tire o `p["titulo"].isna()` do filtro — a âncora de junho e o sanduíche devem
-  falhar, porque entram as linhas por título;
+- tire o `p["titulo"].isna()` do filtro — **nada falha**, e isso foi medido: no
+  `prazo_medio_por_titulo.csv` de hoje não existe uma única linha com `entidade`
+  vazia e `titulo` preenchido, então `entidade.isna()` sozinho já seleciona as 711
+  linhas agregadas. O segundo filtro é defesa contra um layout que ainda não
+  apareceu, não uma condição que o dado atual exercite. Fica, e quem lê deve saber
+  que nenhum teste o protege;
 - troque `COM_ROTULO` por `("DPF",)` — o teste dos rótulos deve falhar;
 - iguale as duas grossuras (`grossura = 2.6` sempre) — o teste da linha de contexto
   deve falhar;
-- tire o `if ano not in banda.index: continue` — o teste das 21 faixas deve falhar;
+- o `if ano not in banda.index: continue` **não tem como ser exercitado aqui**: o
+  `paf_bandas.csv` cobre 2003 a 2026 e a série vai de 2005 a 2026, então todo ano
+  visível tem banda. A guarda existe para o dia em que a série passar do fim da
+  planilha. Quem quiser vê-la funcionando, olhe a Task 6, onde a banda acaba em 2022
+  e o teste pega;
 - troque `ax.set_ylim(0, ...)` por `ax.set_ylim(0, 4.5)` — o teste do eixo deve
   falhar, porque a DPFe em 6,93 sai pela borda;
 - devolva a coluna `realizado` no `paf.bandas` — os dois testes que afirmam
