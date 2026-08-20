@@ -132,6 +132,39 @@ erro medido acima não vale para ela, porque além desse prazo o mercado já é 
 
 ---
 
+## As janelas
+
+São **curtas**, porque leilão se move em semanas e não em anos. Em "5 anos" cabem
+250 barras de três pixels, e a barra de hoje some no meio delas.
+
+| janela | pontos (NTN-B por dia) | começa em |
+|---|---|---|
+| 20 leilões | 20 | mar/2026 |
+| no ano | 31 | jan/2026 |
+| **12 meses** (a que abre) | 51 | ago/2025 |
+| desde o ano anterior | 82 | jan/2025 |
+| 5 anos | 249 | ago/2021 |
+
+**O contador é 20 e não 50, por medição.** O Tesouro leiloa quase toda semana, então
+50 pregões são ~50 semanas e a janela colapsa sobre "12 meses" — medi 50 contra 51
+pontos, com um dia de diferença no início. Duas janelas iguais é uma janela à toa.
+
+Nos dois gráficos **por semana**, "20 leilões" conta pontos do gráfico, e ali um
+ponto é uma semana — são as últimas 20 semanas. Está dito na nota daqueles dois.
+
+## O que foi cortado, e por quê
+
+A primeira versão oferecia todas as opções e não decidia nenhuma: 13 gráficos × 5
+janelas × 4 páginas = **260 SVGs**. Agora são **11 × 5 × 3 = 165**, e cada página
+fica em **4,9 MB** em vez de 9,67.
+
+- **a janela "completa"** — custava 5,9 MB dos 9,67, **61% do arquivo**, para
+  desenhar 702 barras de um pixel. A série longa fica no dashboard do RMD;
+- **a opção A de quantidade × taxa** — repetia o idioma de dois eixos que já
+  aparece sete vezes. Sobrou a dispersão, que responde uma pergunta que nenhum outro
+  gráfico responde;
+- **a quarta página** — "venda e compra, só 1ª volta".
+
 ## O que ainda depende de você
 
 1. **Qual endereço do portal traz o resultado do dia.** O comando lista todos os

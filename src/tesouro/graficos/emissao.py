@@ -65,8 +65,13 @@ HACHURA_OFERTADO = ""
 
 ESTAGIO_MAIS_FIRME = "planilha"
 
+# A LEGENDA NAO DIZ DE ONDE VEIO A TAXA, e ha um motivo. A proveniencia varia linha
+# a linha -- ela digita a taxa de alguns papeis e deixa outros em branco -- e uma
+# barra somada pode ter as duas dentro. Afirmar "a taxa e a do leilao anterior" na
+# legenda seria mentira nos dias em que ela digitou todas, que foi o primeiro dia de
+# uso. Quem diz e o aviso do topo da pagina, que conta as duas.
 _ROTULO_DO_ESTAGIO = {
-    "ofertado": "ofertado hoje \u00b7 teto, e a taxa \u00e9 a do leil\u00e3o anterior",
+    "ofertado": "ofertado hoje \u00b7 TETO: a quantidade ainda vai cair",
     "aceito": "aceito hoje (API) \u00b7 muda quando a planilha sair",
 }
 
@@ -389,36 +394,12 @@ def desenha_empilhado(dados, ax):
               loc="upper center", bbox_to_anchor=(0.5, -0.10))
 
 
-def desenha_quantidade_e_taxa(dados, ax, rotulo):
-    """OPCAO A: barra de quantidade, linha de taxa media no eixo da direita.
-
-    Mesmo idioma dos demais graficos de dois eixos, entao quem ja le aqueles le este
-    sem reaprender nada. Responde "quanto e a que preco", dia a dia.
-    """
-    largura = _largura(dados.index)
-    ax.bar(dados.index, dados["quantidade"] / 1e6, width=largura,
-           color="#8faadc", alpha=0.8, label="quantidade aceita")
-    ax.set_ylabel("milh\u00f5es de t\u00edtulos")
-    ax.grid(axis="y", alpha=0.20)
-
-    direita = ax.twinx()
-    direita.plot(dados.index, dados["taxa_media_pct"], color="#c00000", lw=1.8,
-                 label="taxa m\u00e9dia (ponderada pelo financeiro)")
-    direita.set_ylabel("% ao ano")
-    direita.spines["top"].set_visible(False)
-
-    estilo.eixo_anual(ax, a_cada=1 if len(dados) < 400 else 2)
-    ax.set_title(rotulo, fontsize=11, weight="bold", loc="left", pad=10)
-    marcas, rotulos = ax.get_legend_handles_labels()
-    m2, r2 = direita.get_legend_handles_labels()
-    ax.legend(marcas + m2, rotulos + r2, ncol=2, frameon=False,
-              loc="upper center", bbox_to_anchor=(0.5, -0.10))
-
-
 def desenha_taxa_contra_quantidade(dados, ax, rotulo):
-    """OPCAO B: dispersao -- taxa no eixo Y, quantidade no X, cor pelo tempo.
+    """Dispersao: taxa no eixo Y, quantidade no X, cor pelo tempo.
 
-    Responde outra pergunta, e e a pergunta interessante: o Tesouro coloca MAIS
+    Havia uma OPCAO A -- duas series, no mesmo idioma dos graficos de dois eixos --
+    e ela foi cortada em 20/08/2026. Repetia um idioma que ja aparece sete vezes na
+    pagina, e nao respondia a pergunta que esta responde: o Tesouro coloca MAIS
     quando a taxa esta alta? Num grafico de duas linhas isso so aparece se as duas
     subirem juntas por acaso; aqui a relacao e o proprio desenho.
 

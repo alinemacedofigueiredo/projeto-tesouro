@@ -93,8 +93,8 @@ def _guardar_e_desenhar(tabela, estagio, refazer_graficos):
     leiloes_dv.gravar(ate_o_estagio="ofertado")
 
     if refazer_graficos:
-        print("4. regravando as quatro paginas de emissao...")
-        for caminho_html in painel_emissoes.grava_as_quatro():
+        print("4. regravando as paginas de emissao...")
+        for caminho_html in painel_emissoes.grava_todas():
             print(f"   {caminho_html}")
 
     marca = "contorno claro" if estagio == "ofertado" else "hachura"

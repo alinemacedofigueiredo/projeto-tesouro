@@ -112,7 +112,7 @@ def main(argumentos=None):
         caminho = dashboard.grava()
         print(f"dashboard gravado em {caminho}")
         from .graficos import painel_emissoes
-        painel_emissoes.grava_as_quatro()
+        painel_emissoes.grava_todas()
         # Os nomes saem da tabela de combinacoes, e nao do retorno da funcao: o
         # pipeline nao precisa do valor de volta para dizer o que gravou, e
         # depender dele acoplaria o log ao formato do retorno.

@@ -131,9 +131,14 @@ def dv_por_leilao(ate_o_estagio="planilha"):
     # que a suposicao seja refeita com o historico de hoje toda vez que este CSV for
     # regravado -- e nao congelada no dia em que o arquivo foi baixado.
     de_oferta = l[ESTAGIO] == "ofertado"
+    l["taxa_suposta"] = False
     if de_oferta.any():
         preenchidas = leilao_ofertado.preencher(l[de_oferta], base=l[~de_oferta])
         l = pd.concat([l[~de_oferta], preenchidas], ignore_index=True)
+        # A marca precisa CHEGAR AO CSV: sem ela, a pagina nao consegue dizer se a
+        # taxa daquela barra foi digitada por quem sabe o mercado ou emprestada do
+        # leilao anterior. E a diferenca entre 0 e 11 bp de erro.
+        l["taxa_suposta"] = l["taxa_suposta"].fillna(False).astype(bool)
     vna = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
 
     # Venda e Compra, e as versoes extraordinarias das duas. Troca fica de fora: ela
@@ -205,7 +210,7 @@ def dv_por_leilao(ate_o_estagio="planilha"):
         _familia(t, p) for t, p in zip(d["titulo"], d["prazo_anos"])
     ]
 
-    colunas = [ESTAGIO,
+    colunas = [ESTAGIO, "taxa_suposta",
                "data_leilao", "data_liquidacao", "titulo", "familia", "operacao",
                "volta", "data_vencimento", "prazo_anos", "vertice_anos",
                "quantidade", "financeiro_milhoes", "taxa_media_pct",

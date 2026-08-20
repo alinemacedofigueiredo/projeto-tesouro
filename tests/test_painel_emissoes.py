@@ -1,35 +1,38 @@
-"""As quatro paginas de emissao, uma por combinacao de compra e segunda volta."""
+"""As tres paginas de emissao, uma por combinacao de compra e segunda volta."""
 import re
 
 import matplotlib
 matplotlib.use("Agg")
 import pytest
 
-from tesouro.graficos import emissao, painel_emissoes
+from tesouro.graficos import emissao, estilo, painel_emissoes
 
 
-def test_sao_quatro_combinacoes_e_cada_uma_tem_arquivo_proprio():
-    assert len(painel_emissoes.COMBINACOES) == 4
+def test_sao_tres_combinacoes_e_cada_uma_tem_arquivo_proprio():
+    # Eram quatro ate 20/08/2026. Saiu "venda e compra, so 1a volta": recompra sem
+    # segunda volta e o recorte de que ninguem sentiu falta.
+    assert len(painel_emissoes.COMBINACOES) == 3
     combos = {(c, v) for c, v, _, _ in painel_emissoes.COMBINACOES}
-    assert combos == {(False, True), (False, False), (True, True), (True, False)}
+    assert combos == {(False, True), (False, False), (True, True)}
+    assert (True, False) not in combos
     arquivos = [a for _, _, a, _ in painel_emissoes.COMBINACOES]
-    assert len(set(arquivos)) == 4
+    assert len(set(arquivos)) == 3
     # A combinacao padrao e a que fica com o nome curto: e a que se abre primeiro.
     assert painel_emissoes.COMBINACOES[0][2] == "emissoes.html"
 
 
-def test_as_quatro_combinacoes_dao_numeros_diferentes():
+def test_as_tres_combinacoes_dao_numeros_diferentes():
     # Se duas dessem o mesmo numero, uma delas seria pagina a toa. Medido no ultimo
     # ano: a segunda volta responde por ~90 bi de financeiro e a compra por ~49.
     totais = {}
-    for com_compra in (False, True):
-        for com_2a in (True, False):
-            d = emissao.por_semana(janela=1, com_compra=com_compra,
-                                   com_segunda_volta=com_2a)
-            totais[(com_compra, com_2a)] = round(
-                d["financeiro_milhoes"].sum() / 1000, 1)
+    for com_compra, com_2a in {(c, v) for c, v, _, _
+                               in painel_emissoes.COMBINACOES}:
+        d = emissao.por_semana(janela=1, com_compra=com_compra,
+                               com_segunda_volta=com_2a)
+        totais[(com_compra, com_2a)] = round(
+            d["financeiro_milhoes"].sum() / 1000, 1)
 
-    assert len(set(totais.values())) == 4, totais
+    assert len(set(totais.values())) == 3, totais
     # Tirar a segunda volta reduz; incluir compra tambem reduz, porque ela entra
     # com sinal negativo.
     assert totais[(False, False)] < totais[(False, True)]
@@ -38,10 +41,10 @@ def test_as_quatro_combinacoes_dao_numeros_diferentes():
 
 def test_o_registro_muda_com_a_combinacao():
     # A nota de rodape de cada grafico diz qual recorte a pagina mostra. Se ela nao
-    # mudasse, as quatro paginas seriam indistinguiveis para quem le.
+    # mudasse, as tres paginas seriam indistinguiveis para quem le.
     so_venda = painel_emissoes.registro(com_compra=False, com_2a=True)
     com_compra = painel_emissoes.registro(com_compra=True, com_2a=True)
-    assert len(so_venda) == len(com_compra) == 13
+    assert len(so_venda) == len(com_compra) == 11
     assert "S\u00f3 venda" in so_venda[0].nota
     assert "compra" in com_compra[0].nota
     assert so_venda[0].nota != com_compra[0].nota
@@ -54,15 +57,15 @@ def pagina(tmp_path_factory):
     return caminho.read_text(encoding="utf-8")
 
 
-def test_a_pagina_traz_os_treze_graficos_e_os_tres_grupos(pagina):
+def test_a_pagina_traz_os_onze_graficos_e_os_tres_grupos(pagina):
     for g in painel_emissoes.registro():
         assert f'id="{g.id}"' in pagina, g.id
     for grupo in painel_emissoes.GRUPOS:
         assert grupo in pagina
-    assert pagina.count("<section") == 13
+    assert pagina.count("<section") == 11
 
 
-def test_a_barra_liga_as_quatro_paginas(pagina):
+def test_a_barra_liga_as_tres_paginas(pagina):
     # Sem a barra, quem abre uma nao sabe que as outras existem. Os links sao
     # relativos, entao continuam funcionando com duplo clique e sem servidor.
     assert 'id="combinacoes"' in pagina
@@ -78,7 +81,24 @@ def test_a_pagina_nao_tem_referencia_externa(pagina):
     # Procurar "http://" cru acusa duas coisas que nao buscam nada: o xmlns do SVG
     # e os dois URIs de metadado RDF que o matplotlib escreve (purl.org e
     # matplotlib.org). Sao texto dentro do arquivo, nao requisicao.
-    assert not re.search(r'(?:src|href)\s*=\s*"(?!#)[^"]*//', pagina)
+    #
+    # A VERSAO ANTERIOR DESTE TESTE PASSAVA POR SORTE. Ela era
+    #     re.search(r'(?:src|href)\s*=\s*"(?!#)[^"]*//', pagina)
+    # e a barra de cor da dispersao entra como data:image/png;base64 -- cujo
+    # alfabeto inclui "/". Bastava a base64 conter "//" em qualquer posicao para o
+    # teste acusar referencia externa onde nao ha nenhuma. Ele acusou em 20/08/2026,
+    # quando as janelas mudaram e a barra de cor mudou de tamanho.
+    #
+    # Agora a checagem e por ESQUEMA, e nao por procurar duas barras no meio do
+    # texto: o que importa e o valor apontar para outra maquina.
+    externos = [m.group(1) for m in
+                re.finditer(r'(?:src|href|xlink:href)\s*=\s*"([^"]*)"', pagina)
+                if "://" in m.group(1)]
+    assert externos == [], externos[:3]
+
+    # E a pagina de fato embute imagem, em vez de apontar para ela: a barra de cor
+    # das duas dispersoes. Se isto deixar de valer, o teste acima ficou vazio.
+    assert 'data:image/png;base64,' in pagina
     assert "<link" not in pagina
     assert not re.search(r"<script[^>]+src=", pagina)
     # E os links entre as quatro paginas sao RELATIVOS, que e o que os faz
@@ -155,10 +175,17 @@ def test_a_legenda_explica_so_os_estagios_presentes():
     assert emissao._legenda_dos_estagios(None) == []
 
 
-def test_o_rotulo_da_oferta_diz_que_e_teto():
-    # A palavra importa: sem ela, a barra mais alta do grafico parece emissao
+def test_o_rotulo_da_oferta_diz_que_e_teto_e_nao_de_onde_veio_a_taxa():
+    # A palavra TETO importa: sem ela, a barra mais alta do grafico parece emissao
     # recorde quando e so o anuncio. O Tesouro aceita 83,9% do que oferta.
-    assert "teto" in emissao._ROTULO_DO_ESTAGIO["ofertado"]
+    rotulo = emissao._ROTULO_DO_ESTAGIO["ofertado"]
+    assert "TETO" in rotulo
+
+    # E o rotulo NAO fala de taxa. A proveniencia varia linha a linha, e uma frase
+    # fixa mentiria nos dias em que ela digita todas -- foi o que aconteceu no
+    # primeiro dia de uso. Quem conta e o aviso do topo da pagina.
+    assert "leil\u00e3o anterior" not in rotulo
+    assert "taxa" not in rotulo.lower()
 
 
 def test_a_barra_somada_recebe_o_estagio_menos_firme():
@@ -249,3 +276,137 @@ def test_csv_sem_a_coluna_estagio_nao_quebra_a_pagina(tmp_path, monkeypatch):
                  ).to_csv(tmp_path / "dv_emitido_por_leilao.csv", index=False)
     monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
     assert painel_emissoes._aviso_do_provisorio() == ""
+
+
+# --------------------------------------------------------------------------
+# As janelas do leilao. O dashboard do RMD fala em anos porque estoque se move
+# em anos; leilao se move em semanas, e a barra de hoje tem de ser visivel.
+# --------------------------------------------------------------------------
+
+def test_as_janelas_sao_curtas_e_nenhuma_e_a_serie_inteira():
+    nomes = [n for n, _ in painel_emissoes.JANELAS]
+    assert nomes == ["20 leil\u00f5es", "no ano", "12 meses",
+                     "desde o ano anterior", "5 anos"]
+    # A "completa" saiu: 5,9 MB dos 9,67 da pagina, para 702 barras de um pixel.
+    assert None not in [j for _, j in painel_emissoes.JANELAS]
+    # E a que abre e "12 meses", que fecha um ciclo do PAF.
+    assert painel_emissoes.JANELA_PADRAO in nomes
+
+
+def test_a_escada_de_janelas_e_crescente_e_sem_degrau_repetido():
+    # O contador e 20 e nao 50 POR MEDICAO: o Tesouro leiloa quase toda semana,
+    # entao 50 pregoes colapsam sobre "12 meses" -- mediram-se 50 contra 51 pontos,
+    # com um dia de diferenca no inicio. Duas janelas iguais e uma janela a toa.
+    d = emissao.por_dia("NTN-B")
+    tamanhos = [len(estilo.recorta(d, j)) for _, j in painel_emissoes.JANELAS]
+    assert tamanhos == sorted(tamanhos)
+    assert len(set(tamanhos)) == len(tamanhos)
+    # E cada degrau e sensivelmente maior que o anterior, e nao um empate disfarcado.
+    for antes, depois in zip(tamanhos, tamanhos[1:]):
+        assert depois >= antes * 1.25, (antes, depois)
+
+
+def test_ultimos_conta_pontos_e_desdejaneiro_conta_calendario():
+    import pandas as pd
+
+    idx = pd.date_range("2023-01-04", "2026-08-19", freq="W")
+    d = pd.DataFrame({"x": range(len(idx))}, index=idx)
+
+    assert len(estilo.recorta(d, estilo.Ultimos(20))) == 20
+
+    # DesdeJaneiro(0) e o ano da ULTIMA DATA DA SERIE, e nao o de hoje. Ancorar em
+    # datetime.today() faria o grafico mudar de conteudo conforme o dia em que roda,
+    # e a reprodutibilidade e testada.
+    #
+    # A SERIE DESTE TESTE TERMINA EM 2024, DE PROPOSITO: com ela terminando no ano
+    # corrente as duas ancoras dao o mesmo resultado, e o teste passaria mesmo com a
+    # linha errada -- foi o que aconteceu na primeira versao dele.
+    velha = pd.date_range("2022-01-05", "2024-11-27", freq="W")
+    antiga = pd.DataFrame({"x": range(len(velha))}, index=velha)
+
+    no_ano = estilo.recorta(antiga, estilo.DesdeJaneiro(0))
+    assert not no_ano.empty
+    assert no_ano.index.min().year == 2024
+    assert no_ano.index.min().month == 1
+
+    desde_o_anterior = estilo.recorta(antiga, estilo.DesdeJaneiro(1))
+    assert desde_o_anterior.index.min().year == 2023
+
+
+def test_ultimos_nao_e_lido_como_o_par_de_datas():
+    # A ARMADILHA: namedtuple E tuple. Se recorta() testasse a forma (de, ate)
+    # antes de Ultimos, um Ultimos(20) seria desempacotado como (de, ate) e
+    # estouraria -- ou pior, recortaria por uma data absurda.
+    import pandas as pd
+
+    idx = pd.date_range("2026-01-01", periods=40, freq="D")
+    d = pd.DataFrame({"x": range(40)}, index=idx)
+    assert len(estilo.recorta(d, estilo.Ultimos(20))) == 20
+    assert estilo.recorta(d, estilo.Ultimos(20)).index.max() == idx[-1]
+
+
+def test_a_nota_do_grafico_semanal_avisa_que_ali_o_ponto_e_a_semana():
+    # "20 leiloes" conta PONTOS do grafico. Nos dois graficos por semana um ponto e
+    # uma semana, entao a janela mostra 20 semanas -- e o rotulo mentiria em
+    # silencio sem esta nota.
+    por_semana = [g for g in painel_emissoes.registro()
+                  if g.grupo == "Por semana"]
+    assert len(por_semana) == 2
+    for g in por_semana:
+        assert "semana" in g.nota
+        assert "20 leil\u00f5es" in g.nota
+
+
+def test_de_quantidade_e_taxa_sobrou_so_a_dispersao():
+    # A opcao A repetia o idioma de dois eixos que ja aparece sete vezes na pagina.
+    # Guardar as duas "para decidir depois" e uma forma de nunca decidir.
+    grupo = [g for g in painel_emissoes.registro()
+             if g.grupo == "Quantidade e taxa"]
+    assert len(grupo) == 2
+    assert all("taxa contra quantidade" in g.titulo for g in grupo)
+    assert not hasattr(emissao, "desenha_quantidade_e_taxa")
+
+
+# --------------------------------------------------------------------------
+# De onde veio a taxa da barra de oferta. Contada, e nao afirmada.
+# --------------------------------------------------------------------------
+
+def _recorte(supostas, total):
+    import pandas as pd
+    return pd.DataFrame({"taxa_suposta": [True] * supostas
+                                          + [False] * (total - supostas)})
+
+
+def test_a_nota_da_taxa_conta_em_vez_de_afirmar():
+    # O DEFEITO QUE ISTO CONSERTA: a legenda dizia "a taxa e a do leilao anterior"
+    # fixo. No primeiro dia de uso ela digitou as tres taxas, e a legenda mentiu.
+    toda_dela = painel_emissoes._nota_da_taxa(_recorte(0, 3), "ofertado")
+    assert "sua" in toda_dela
+    assert "emprestada" not in toda_dela
+
+    toda_emprestada = painel_emissoes._nota_da_taxa(_recorte(3, 3), "ofertado")
+    assert "emprestada" in toda_emprestada
+    assert "11 bp" in toda_emprestada
+
+    misturada = painel_emissoes._nota_da_taxa(_recorte(1, 3), "ofertado")
+    assert "2 de 3" in misturada
+    assert "sua" in misturada and "emprestada" in misturada
+
+
+def test_a_nota_da_taxa_nao_aparece_no_estagio_do_resultado():
+    # No aceito a taxa e a publicada: nao ha o que contar, e a frase seria ruido.
+    assert painel_emissoes._nota_da_taxa(_recorte(0, 3), "aceito") == ""
+
+
+def test_a_marca_de_taxa_suposta_chega_ao_csv():
+    # Ela nasce em leilao_ofertado.preencher() e precisa atravessar leiloes_dv ate o
+    # CSV -- senao a pagina nao tem como saber de onde veio a taxa da barra.
+    import pandas as pd
+    from tesouro import config
+
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv")
+    assert "taxa_suposta" in d.columns
+    # E no que veio da planilha do Tesouro ela e sempre falsa: ali a taxa e a que
+    # ele publicou, nunca uma suposicao nossa.
+    da_planilha = d[d["estagio"] == "planilha"]
+    assert not da_planilha["taxa_suposta"].fillna(False).astype(bool).any()

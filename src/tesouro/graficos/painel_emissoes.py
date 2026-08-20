@@ -1,26 +1,81 @@
 """A pagina de emissoes: os graficos de leilao da entrega 3.
 
-Pagina PROPRIA, e nao um grupo dentro do dashboard do RMD. O motivo e medido: sao
-treze graficos, e cada um pede duas janelas e as combinacoes de compra e segunda
-volta. A matriz inteira daria 104 SVGs e 15,6 MB, contra o limiar de 10 que a spec
-fixou -- e engordaria a pagina do RMD sem necessidade, porque quem olha uma
-raramente olha a outra ao mesmo tempo.
+Pagina PROPRIA, e nao um grupo dentro do dashboard do RMD -- quem olha uma raramente
+olha a outra ao mesmo tempo, e a matriz de graficos daqui engordaria aquela sem
+necessidade.
 
-O QUE ESTA PAGINA NAO FAZ, e e decisao a tomar: as combinacoes de compra e segunda
-volta ficam FORA do HTML. Duas janelas ja sao 26 SVGs e 3,9 MB; as quatro
-combinacoes seriam 15,6 MB. Elas existem na linha de comando -- cada rodada gera a
-pagina de um recorte -- e a versao gravada por padrao e "so venda, com segunda
-volta", que e a leitura de quanto risco entrou no mercado.
+O QUE FOI CORTADO EM 20/08/2026, e por que. A primeira versao oferecia todas as
+opcoes e nao decidia nenhuma: 13 graficos x 5 janelas x 4 paginas = 260 SVGs.
+Guardar as duas versoes de um grafico "para decidir depois" e uma forma de nunca
+decidir, e o custo era medido.
 
-Trocar isso por caixas de marcar no proprio HTML exige interatividade de verdade
-(desenhar no navegador em vez de embutir SVG pronto), que e a decisao adiada da
-secao 10 da spec do dashboard.
+  - a janela COMPLETA saiu. Ela sozinha custava 5,9 MB dos 9,67 da pagina -- 61% do
+    arquivo -- para desenhar 702 barras de um pixel, em que nada se le. A serie
+    longa fica no dashboard do RMD, que e onde ela tem sentido;
+  - as janelas passaram a ser CURTAS, porque leilao se move em semanas e nao em
+    anos: 20 leiloes, no ano, 12 meses, desde o ano anterior, 5 anos;
+  - de QUANTIDADE E TAXA sobrou so a dispersao. A versao de duas series repetia o
+    idioma de dois eixos que ja aparece sete vezes na pagina; a dispersao responde
+    uma pergunta que nenhum outro grafico responde -- o Tesouro coloca mais quando
+    a taxa esta alta?
+  - das quatro combinacoes de compra e segunda volta sobraram TRES. A que saiu e
+    "venda e compra, so 1a volta": recompra sem segunda volta e o recorte de que
+    ninguem sentiu falta.
+
+Sao 11 graficos x 5 janelas x 3 paginas = 165 SVGs, e cada pagina fica em ~4,8 MB.
+
+O QUE ESTA PAGINA CONTINUA NAO FAZENDO: as combinacoes de compra e segunda volta sao
+tres ARQUIVOS, e nao caixas de marcar no HTML. Poe-las na mesma pagina exige
+interatividade de verdade (desenhar no navegador em vez de embutir SVG pronto), que
+e a decisao adiada da secao 10 da spec do dashboard. Os arquivos ficam ligados por
+uma barra de links relativos no topo, que funciona com duplo clique e sem servidor.
 """
 import pandas as pd
 
-from . import dashboard, emissao
+from . import dashboard, emissao, estilo
 
 GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Quantidade e taxa"]
+
+# AS JANELAS DO LEILAO SAO CURTAS, e as do dashboard do RMD nao servem aqui.
+#
+# Estoque de divida se move em anos; leilao se move em semanas. Em "5 anos" cabem
+# umas 250 barras de tres pixels, e a barra de hoje -- a que motivou esta pagina
+# existir -- some no meio delas.
+#
+# O CONTADOR E 20, E NAO 50, POR MEDICAO. O Tesouro leiloa quase toda semana, entao
+# 50 pregoes sao ~50 semanas e a janela colapsa sobre "12 meses": medido na serie
+# diaria de NTN-B, "50 leiloes" comeca em 19/08/2025 e "12 meses" em 12/08/2025 --
+# um ponto de diferenca. Vinte da ~5 meses, que e uma janela de verdade.
+#
+# A escada sai com cada degrau ~1,5x o anterior (NTN-B por dia):
+#   20 leiloes 20 | no ano 31 | 12 meses 51 | desde o ano anterior 82 | completa 702
+#
+# A ordem e do mais curto para o mais longo, que e a ordem em que se olha: primeiro
+# o que aconteceu agora, depois o contexto.
+JANELAS = (
+    ("20 leil\u00f5es", estilo.Ultimos(20)),
+    ("no ano", estilo.DesdeJaneiro(0)),
+    ("12 meses", 1),
+    ("desde o ano anterior", estilo.DesdeJaneiro(1)),
+    ("5 anos", 5),
+)
+
+# A JANELA "COMPLETA" FOI CORTADA em 20/08/2026, e por medicao: ela sozinha custava
+# 5,9 MB dos 9,67 da pagina -- 61% do arquivo -- para desenhar 702 barras de um
+# pixel, em que nada se le. A serie longa continua no dashboard do RMD, que e onde
+# ela tem sentido. Quem precisar dela aqui passa recortes=[("completa", None)].
+
+# A janela que abre. "12 meses" e nao "20 leiloes": vinte pregoes sao ~5 meses e nao
+# fecham um ciclo do PAF -- o ano rolado e a referencia com que ela compara. Quem
+# quer so o que aconteceu agora troca num clique.
+JANELA_PADRAO = "12 meses"
+
+# NOS GRAFICOS SEMANAIS, um ponto e uma semana. Entao "20 leiloes" ali sao as
+# ultimas 20 SEMANAS, e nao os ultimos 20 pregoes. Dito na nota daqueles dois
+# graficos, para que o rotulo da janela nao minta em silencio.
+_NOTA_SEMANAL = ("A janela <b>20 leil\u00f5es</b> conta pontos do gr\u00e1fico, e "
+                 "aqui cada ponto \u00e9 uma <b>semana</b> \u2014 ent\u00e3o ela "
+                 "mostra as \u00faltimas 20 semanas.")
 
 # O eixo do DV aponta para CIMA por padrao: com ele para baixo, a linha mora no teto
 # do grafico e a comparacao com a barra some. Os rotulos continuam negativos, entao o
@@ -74,30 +129,23 @@ def _fig_empilhado(com_compra, com_2a):
     return figura
 
 
-def _fig_qtd_taxa(recorte, com_2a, dispersao=False):
+def _fig_qtd_taxa(recorte, com_2a):
     def figura(janela):
-        fig = dashboard._figura(6.4 if dispersao else 5.6)
+        fig = dashboard._figura(6.4)
         dados = emissao.quantidade_e_taxa(recorte, janela, com_2a)
-        if dispersao:
-            emissao.desenha_taxa_contra_quantidade(
-                dados, fig.subplots(),
-                f"{recorte} \u00b7 taxa contra quantidade, cada ponto \u00e9 um dia")
-        else:
-            emissao.desenha_quantidade_e_taxa(
-                dados, fig.subplots(),
-                f"{recorte} \u00b7 quantidade aceita e taxa m\u00e9dia")
+        emissao.desenha_taxa_contra_quantidade(
+            dados, fig.subplots(),
+            f"{recorte} \u00b7 taxa contra quantidade, cada ponto \u00e9 um dia")
         return fig
     return figura
 
 
-# As quatro combinacoes, com o arquivo de cada uma. Cada pagina diz qual e, e aponta
+# As tres combinacoes, com o arquivo de cada uma. Cada pagina diz qual e, e aponta
 # para as outras tres: sem isso, quem abre uma nao sabe que as outras existem.
 COMBINACOES = [
     (False, True, "emissoes.html", "s\u00f3 venda, com 2\u00aa volta"),
     (False, False, "emissoes-1a-volta.html", "s\u00f3 venda, s\u00f3 1\u00aa volta"),
     (True, True, "emissoes-com-compra.html", "venda e compra, com 2\u00aa volta"),
-    (True, False, "emissoes-com-compra-1a-volta.html",
-     "venda e compra, s\u00f3 1\u00aa volta"),
 ]
 
 
@@ -134,7 +182,7 @@ def registro(com_compra=False, com_2a=True):
             "NTN-B \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
             f"Curta e longa somadas. {nota_aceito} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B")),
+            True, JANELA_PADRAO, _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B")),
     Grafico("emissao_ntnb_curta", "Por dia de leil\u00e3o",
             "NTN-B curta \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
@@ -142,27 +190,27 @@ def registro(com_compra=False, com_2a=True):
             "esperando a defini\u00e7\u00e3o do Tesouro. O dado gravado carrega o "
             "v\u00e9rtice que ele mesmo publica (3, 5, 7, 10, 15, 20, 25, 30, 35 e 40 "
             f"anos), ent\u00e3o mudar a fronteira \u00e9 uma linha. {nota_aceito}",
-            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B curta")),
+            True, JANELA_PADRAO, _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B curta")),
     Grafico("emissao_ntnb_longa", "Por dia de leil\u00e3o",
             "NTN-B longa \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
             f"Acima de 5 anos. {nota_aceito} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B longa")),
+            True, JANELA_PADRAO, _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B longa")),
     Grafico("emissao_ntnf", "Por dia de leil\u00e3o",
             "NTN-F \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
             f"{nota_aceito} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-F")),
+            True, JANELA_PADRAO, _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-F")),
     Grafico("emissao_ltn", "Por dia de leil\u00e3o",
             "LTN \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
             f"{nota_aceito} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="LTN")),
+            True, JANELA_PADRAO, _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="LTN")),
     Grafico("emissao_pre", "Por dia de leil\u00e3o",
             "LTN + NTN-F \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
             f"O prefixado inteiro. {nota_aceito} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="LTN + NTN-F")),
+            True, JANELA_PADRAO, _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="LTN + NTN-F")),
     Grafico("emissao_lft", "Por dia de leil\u00e3o",
             "LFT \u00b7 s\u00f3 financeiro",
             "leiloes.csv",
@@ -170,48 +218,33 @@ def registro(com_compra=False, com_2a=True):
             "(premissa de duration zero) \u2014 ent\u00e3o o segundo eixo n\u00e3o "
             "existe, e a m\u00e9dia m\u00f3vel de 3 meses entra no lugar dele. "
             f"{nota_aceito}",
-            True, "5 anos", _fig_lft(com_compra, com_2a)),
+            True, JANELA_PADRAO, _fig_lft(com_compra, com_2a)),
     Grafico("emissao_semanal", "Por semana",
             "Soma da semana \u00b7 financeiro e DV",
             "dv_emitido_por_leilao.csv",
             "Sem a LFT: o gr\u00e1fico tem dois eixos e ela s\u00f3 tem um dos dois "
-            f"n\u00fameros. {nota_aceito} {_NOTA_DV}",
-            True, "5 anos", _fig_semanal(com_compra, com_2a)),
+            f"n\u00fameros. {nota_aceito} {_NOTA_DV} {_NOTA_SEMANAL}",
+            True, JANELA_PADRAO, _fig_semanal(com_compra, com_2a)),
     Grafico("emissao_empilhado", "Por semana",
             "Financeiro da semana, por papel",
             "leiloes.csv",
             "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, e ela "
-            f"\u00e9 mais da metade dele. {nota_aceito}",
-            True, "5 anos", _fig_empilhado(com_compra, com_2a)),
-    Grafico("qtd_taxa_pre_linha", "Quantidade e taxa",
-            "LTN + NTN-F \u00b7 quantidade e taxa (op\u00e7\u00e3o A: duas s\u00e9ries)",
-            "leiloes.csv",
-            "Mesmo idioma dos gr\u00e1ficos de dois eixos acima. A taxa \u00e9 a "
-            "m\u00e9dia <b>ponderada pelo financeiro</b> do dia \u2014 a simples "
-            "trataria um lote de 100 milh\u00f5es e um de 10 bilh\u00f5es como iguais.",
-            True, "5 anos", _fig_qtd_taxa("LTN + NTN-F", com_2a)),
+            f"\u00e9 mais da metade dele. {nota_aceito} {_NOTA_SEMANAL}",
+            True, JANELA_PADRAO, _fig_empilhado(com_compra, com_2a)),
     Grafico("qtd_taxa_pre_disp", "Quantidade e taxa",
-            "LTN + NTN-F \u00b7 taxa contra quantidade (op\u00e7\u00e3o B: "
-            "dispers\u00e3o)",
+            "LTN + NTN-F \u00b7 taxa contra quantidade",
             "leiloes.csv",
             "Cada ponto \u00e9 um dia de leil\u00e3o; a cor \u00e9 o ano. Responde "
             "outra pergunta: o Tesouro coloca mais quando a taxa est\u00e1 alta? Num "
             "gr\u00e1fico de duas s\u00e9ries isso s\u00f3 apareceria por acaso.",
-            True, "5 anos", _fig_qtd_taxa("LTN + NTN-F", com_2a, dispersao=True)),
-    Grafico("qtd_taxa_ntnb_linha", "Quantidade e taxa",
-            "NTN-B \u00b7 quantidade e taxa (op\u00e7\u00e3o A: duas s\u00e9ries)",
-            "leiloes.csv",
-            "A taxa da NTN-B \u00e9 <b>real</b>, e as duas s\u00e9ries dividem o dia "
-            "com v\u00e9rtices muito diferentes \u2014 a m\u00e9dia ponderada mistura "
-            "3 e 40 anos numa linha s\u00f3.",
-            True, "5 anos", _fig_qtd_taxa("NTN-B", com_2a)),
+            True, JANELA_PADRAO, _fig_qtd_taxa("LTN + NTN-F", com_2a)),
     Grafico("qtd_taxa_ntnb_disp", "Quantidade e taxa",
-            "NTN-B \u00b7 taxa contra quantidade (op\u00e7\u00e3o B: dispers\u00e3o)",
+            "NTN-B \u00b7 taxa contra quantidade",
             "leiloes.csv",
             "Aqui a dispers\u00e3o mostra o regime mudando de lugar na nuvem: a taxa "
             "real sai de 5% em 2023 para 8% em 2026, e o tamanho do lote quase "
             "n\u00e3o acompanha.",
-            True, "5 anos", _fig_qtd_taxa("NTN-B", com_2a, dispersao=True)),
+            True, JANELA_PADRAO, _fig_qtd_taxa("NTN-B", com_2a)),
     ]
 
 
@@ -232,6 +265,27 @@ def _barra_das_combinacoes(arquivo_atual):
     return "\n".join(partes)
 
 
+def _nota_da_taxa(recorte, estagio):
+    """De onde veio a taxa daquelas linhas: digitada, emprestada, ou as duas.
+
+    So faz sentido no estagio da oferta. E precisa ser contada, e nao afirmada: ela
+    digita a taxa de alguns papeis e deixa outros em branco, e uma frase fixa
+    mentiria em metade dos dias.
+    """
+    if estagio != "ofertado":
+        return ""
+    supostas = int(recorte["taxa_suposta"].fillna(False).astype(bool).sum())
+    total = len(recorte)
+    if supostas == 0:
+        return (". A <b>taxa \u00e9 sua</b>, digitada na planilha de entrada \u2014 "
+                "s\u00f3 a quantidade \u00e9 que ainda vai cair")
+    if supostas == total:
+        return (". A taxa foi <b>emprestada</b> do leil\u00e3o anterior de cada "
+                "papel, que erra 11 bp na mediana")
+    return (f". Em {total - supostas} de {total} linhas a taxa \u00e9 sua; nas "
+            f"outras {supostas} ela foi emprestada do leil\u00e3o anterior")
+
+
 def _aviso_do_provisorio():
     """A faixa que aparece SO quando ha leilao provisorio na base.
 
@@ -249,26 +303,30 @@ def _aviso_do_provisorio():
     caminho = config.PROCESSED_DIR / "dv_emitido_por_leilao.csv"
     if not caminho.exists():
         return ""
-    d = pd.read_csv(caminho, usecols=lambda c: c in ("estagio", "data_leilao"))
+    d = pd.read_csv(caminho, usecols=lambda c: c in ("estagio", "data_leilao",
+                                                     "taxa_suposta"))
     if "estagio" not in d.columns:
         return ""
+    if "taxa_suposta" not in d.columns:
+        d["taxa_suposta"] = False
 
     partes = []
     for estagio, texto in (
         ("ofertado",
-         "<b>ofertado, ainda n\u00e3o aceito</b> \u2014 a barra \u00e9 um <b>teto</b>: "
-         "a quantidade anunciada, que historicamente cai para 83,9% dela, e a taxa "
-         "\u00e9 a do leil\u00e3o anterior do mesmo papel. Aparece com contorno claro"),
+         "<b>ofertado, ainda n\u00e3o aceito</b> \u2014 a barra \u00e9 um "
+         "<b>teto</b>: a quantidade anunciada, que historicamente cai para 83,9% "
+         "dela. Aparece com contorno claro"),
         ("aceito",
          "<b>aceito, ainda n\u00e3o na planilha</b> \u2014 a quantidade j\u00e1 \u00e9 "
          "final, mas a taxa publicada na hora pode ser preliminar, e ent\u00e3o o "
          "DV01 muda. Aparece hachurado"),
     ):
-        dias = sorted(set(d.loc[d["estagio"] == estagio, "data_leilao"].astype(str)))
+        recorte = d[d["estagio"] == estagio]
+        dias = sorted(set(recorte["data_leilao"].astype(str)))
         if not dias:
             continue
         quais = ", ".join(dia[:10] for dia in dias)
-        partes.append(f"<li>{quais}: {texto}.</li>")
+        partes.append(f"<li>{quais}: {texto}{_nota_da_taxa(recorte, estagio)}.</li>")
 
     if not partes:
         return ""
@@ -280,7 +338,7 @@ def _aviso_do_provisorio():
 
 
 def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
-    """Grava UMA das quatro paginas e devolve o caminho."""
+    """Grava UMA das tres paginas e devolve o caminho."""
     from .. import config
 
     arquivo = next((a for c, v, a, _ in COMBINACOES
@@ -289,10 +347,14 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     rotulo = next(r for c, v, _, r in COMBINACOES
                   if c == com_compra and v == com_2a)
 
-    escrito = dashboard.grava(caminho, recortes, registro(com_compra, com_2a),
+    # As janelas do leilao, e nao as do dashboard do RMD: se recortes vier vazio,
+    # quem manda e JANELAS daqui. Sem esta linha a pagina herdaria "5 anos" e
+    # "completa", que e a escala de estoque.
+    escrito = dashboard.grava(caminho, recortes or list(JANELAS),
+                              registro(com_compra, com_2a),
                               GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}")
     # A barra entra depois da montagem, logo antes do <main>: assim o montador do
-    # dashboard continua sem saber que existem quatro paginas.
+    # dashboard continua sem saber que existem tres paginas.
     html = escrito.read_text(encoding="utf-8")
     html = html.replace(
         "<main>",
@@ -304,8 +366,8 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     return escrito
 
 
-def grava_as_quatro(recortes=None):
-    """Grava as quatro combinacoes. Devolve a lista de caminhos."""
+def grava_todas(recortes=None):
+    """Grava as tres combinacoes. Devolve a lista de caminhos."""
     return [grava(None, recortes, com_compra, com_2a)
             for com_compra, com_2a, _, _ in COMBINACOES]
 

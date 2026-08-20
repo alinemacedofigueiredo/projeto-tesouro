@@ -44,7 +44,7 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     from tesouro import leiloes_dv
     alvos.append((leiloes_dv, "gravar"))
     from tesouro.graficos import painel_emissoes
-    alvos.append((painel_emissoes, "grava_as_quatro"))
+    alvos.append((painel_emissoes, "grava_todas"))
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
@@ -133,7 +133,7 @@ def test_pipeline_grava_as_dez_etapas_na_ordem_certa(monkeypatch):
         "tesouro.figuras.gravar_todas",
         "tesouro.leiloes_dv.gravar",
         "tesouro.graficos.dashboard.grava",
-        "tesouro.graficos.painel_emissoes.grava_as_quatro",
+        "tesouro.graficos.painel_emissoes.grava_todas",
     ]
 
 

@@ -92,20 +92,53 @@ def salvar_svg(figura, destino, bbox_inches="tight"):
                    metadata={"Date": None})
 
 
+# DUAS JANELAS QUE O LEILAO PEDE E O ESTOQUE NAO.
+#
+# O dashboard do RMD fala em anos, porque estoque de divida se move em anos. Leilao
+# se move em semanas: "5 anos" mostra 250 barras de 3 pixels, e a barra de hoje --
+# a que motivou a pagina existir -- some no meio delas.
+#
+# Sao namedtuple e nao string para que recorta() as reconheca por tipo, e nao por
+# decifrar texto. ATENCAO: namedtuple E tuple, entao recorta() precisa testa-las
+# ANTES da forma (de, ate) -- senao um Ultimos(50) seria lido como o par (50,).
+import collections
+
+Ultimos = collections.namedtuple("Ultimos", "quantidade")
+DesdeJaneiro = collections.namedtuple("DesdeJaneiro", "anos_atras")
+
+
 def recorta(df, janela):
     """Recorte de um DataFrame indexado por data.
 
-    'janela' vem em tres formas:
+    'janela' vem em cinco formas:
       None                       -> a serie inteira
       um numero de anos          -> os ultimos N anos
       um par (de, ate)           -> o intervalo pedido na linha de comando
+      Ultimos(n)                 -> as ultimas N linhas, seja qual for a data
+      DesdeJaneiro(k)            -> desde 1o de janeiro de k anos atras (0 = no ano)
 
     A terceira existe para que --de/--ate chegue as dez funcoes de dado sem mudar
-    a assinatura de nenhuma delas: todas ja chamam esta funcao.
+    a assinatura de nenhuma delas: todas ja chamam esta funcao. As duas ultimas
+    existem para os graficos de leilao, cuja escala e de semanas e nao de anos.
     """
     import pandas as pd
     if janela is None:
         return df
+
+    # ANTES do teste de tuple: namedtuple e tuple, e a ordem inversa leria
+    # Ultimos(50) como o par (de, ate) = (50,) e estouraria no desempacotamento.
+    if isinstance(janela, Ultimos):
+        # A ultima linha e a mais recente porque o indice vem ordenado das funcoes
+        # de dado -- todas terminam num groupby, que ordena.
+        return df.tail(janela.quantidade)
+
+    if isinstance(janela, DesdeJaneiro):
+        # Ancorado no fim da SERIE, e nao em datetime.today(): um grafico que muda
+        # de conteudo conforme o dia em que roda quebra a reprodutibilidade, que e
+        # testada. Com a serie terminando hoje, da no mesmo.
+        ano = df.index.max().year - janela.anos_atras
+        return df[df.index >= pd.Timestamp(year=ano, month=1, day=1)]
+
     if isinstance(janela, tuple):
         de, ate = janela
         recorte = df[(df.index >= de) & (df.index <= ate)]
