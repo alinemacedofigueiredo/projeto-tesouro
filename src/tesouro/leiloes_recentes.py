@@ -179,6 +179,17 @@ def gravar_recentes(candidatos, estagio="aceito", base=None):
     sobrevivem = antigos.loc[antigos.index.isin(manter)]
     entram = novos.loc[~novos.index.isin(manter)]
 
+    # O QUE O ESTAGIO NOVO NAO SABE, O ANTIGO AINDA SABE. O arquivo do resultado
+    # traz a quantidade ACEITA e nao repete a ofertada; sem este preenchimento, a
+    # quantidade que ela digitou de manha sumiria a tarde -- e com ela a leitura de
+    # quanto do ofertado o Tesouro colocou naquele dia, que so voltaria quando a
+    # planilha chegasse dias depois.
+    comuns = entram.index.intersection(antigos.index)
+    if len(comuns):
+        entram = entram.copy()
+        entram.loc[comuns] = entram.loc[comuns].fillna(
+            antigos.loc[comuns].drop(columns=[COLUNA_ESTAGIO]))
+
     juntos = pd.concat([sobrevivem, entram]).reset_index(drop=True)
     juntos = juntos.sort_values(["data_leilao", "titulo"]).reset_index(drop=True)
 

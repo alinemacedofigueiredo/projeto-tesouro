@@ -156,6 +156,29 @@ def _mapear_colunas(bruto, estagio):
     return mapa
 
 
+def _para_data(valores):
+    """Datas brasileiras E datas ISO, sem confundir uma com a outra.
+
+    dayfirst=True e obrigatorio no formato brasileiro: 03/08 lido como marco poe o
+    leilao no mes errado e NAO levanta nada -- as duas leituras sao datas validas.
+    Mas o mesmo dayfirst aplicado a "2055-05-15" faz o pandas avisar, porque ali o
+    ano vem primeiro e a bandeira nao se aplica.
+
+    Entao a forma decide: o que comeca com quatro digitos e um hifen e ISO; o resto
+    e brasileiro.
+    """
+    texto = valores.astype(str).str.strip()
+    iso = texto.str.match(r"^\d{4}-\d{2}-\d{2}")
+    saida = pd.Series(pd.NaT, index=valores.index, dtype="datetime64[ns]")
+    if iso.any():
+        saida[iso] = pd.to_datetime(texto[iso], format="ISO8601",
+                                    errors="coerce")
+    if (~iso).any():
+        saida[~iso] = pd.to_datetime(valores[~iso], dayfirst=True,
+                                     errors="coerce")
+    return saida
+
+
 def normalizar(caminho, estagio=None):
     """O arquivo do dia, no esquema do leiloes.csv, mais o estagio em que ele esta.
 
@@ -182,10 +205,7 @@ def normalizar(caminho, estagio=None):
 
     for coluna in _DATAS:
         if coluna in saida:
-            # dayfirst: o portal escreve data brasileira, e 03/08 lido como marco
-            # daria um leilao no mes errado sem levantar nada.
-            saida[coluna] = pd.to_datetime(saida[coluna], dayfirst=True,
-                                           errors="coerce")
+            saida[coluna] = _para_data(saida[coluna])
     for coluna in _NUMEROS:
         if coluna in saida:
             saida[coluna] = pd.to_numeric(saida[coluna], errors="coerce")

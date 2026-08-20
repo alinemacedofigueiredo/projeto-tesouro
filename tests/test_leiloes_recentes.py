@@ -215,3 +215,27 @@ def test_estagio_desconhecido_ao_gravar_levanta(base, monkeypatch, tmp_path):
     monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
     with pytest.raises(LookupError, match="nao existe"):
         lr.gravar_recentes(_leilao(base, "2026-09-15", 1), "chutado", base)
+
+
+def test_o_estagio_novo_herda_o_que_ele_nao_sabe(base, monkeypatch, tmp_path):
+    # O ARQUIVO DO RESULTADO traz a quantidade ACEITA e nao repete a ofertada. Sem
+    # herdar, a quantidade que ela digitou de manha sumiria a tarde -- e com ela a
+    # leitura de quanto do ofertado o Tesouro colocou naquele dia, que so voltaria
+    # dias depois, quando a planilha chegasse.
+    from tesouro import config
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+
+    manha = _leilao(base, "2026-09-15", 1_000_000)
+    manha["taxa_media_pct"] = 7.02
+    lr.gravar_recentes(manha, "ofertado", base)
+
+    tarde = _leilao(base, "2026-09-15", None, 620_000)
+    tarde["taxa_media_pct"] = 7.06
+    lr.gravar_recentes(tarde, "aceito", base)
+
+    g = lr.carregar_recentes()
+    assert len(g) == 1
+    assert g.iloc[0]["oferta_qtd"] == 1_000_000    # herdado da manha
+    assert g.iloc[0]["venda_qtd"] == 620_000       # do resultado
+    # E o que o estagio novo SABE vence: a taxa do resultado, e nao a da manha.
+    assert g.iloc[0]["taxa_media_pct"] == 7.06
