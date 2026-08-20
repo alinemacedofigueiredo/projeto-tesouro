@@ -102,11 +102,18 @@ def main(argumentos=None):
     from . import figuras
     figuras.gravar_todas()
 
+    print("\n--- dv por leilao ---")
+    from . import leiloes_dv
+    leiloes_dv.gravar()
+
     print("\n--- dashboard ---")
     try:
         from .graficos import dashboard
         caminho = dashboard.grava()
         print(f"dashboard gravado em {caminho}")
+        from .graficos import painel_emissoes
+        caminho = painel_emissoes.grava()
+        print(f"pagina de emissoes gravada em {caminho}")
     except Exception as erro:               # noqa: BLE001
         # O paf.bandas levanta de proposito quando referencia/paf_bandas.csv esta
         # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico

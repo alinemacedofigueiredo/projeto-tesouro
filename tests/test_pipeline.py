@@ -40,6 +40,11 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     # pintava de vermelho o teste de rede, que nao tem nada com isso.
     from tesouro.graficos import dashboard
     alvos.append((dashboard, "grava"))
+    # E o DV por leilao, que entrou com a entrega 3 e roda antes do dashboard.
+    from tesouro import leiloes_dv
+    alvos.append((leiloes_dv, "gravar"))
+    from tesouro.graficos import painel_emissoes
+    alvos.append((painel_emissoes, "grava"))
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
@@ -99,7 +104,7 @@ def test_sem_coleta_nao_importa_nenhum_coletor_no_topo_do_modulo():
 
 
 # ---------------------------------------------------------------------------
-# Contrato: as OITO etapas de gravacao rodam, e nesta ordem -- e o que
+# Contrato: as DEZ etapas de gravacao rodam, e nesta ordem -- e o que
 # produz os 22 CSVs (17 da camada de dados + taxa_por_papel, vna,
 # dv_por_papel, decay_por_papel, resultado_mensal) mais as figuras. A
 # contagem exata de linhas/CSVs foi conferida a mao contra o dado real
@@ -111,7 +116,7 @@ def test_sem_coleta_nao_importa_nenhum_coletor_no_topo_do_modulo():
 # por ultimo).
 # ---------------------------------------------------------------------------
 
-def test_pipeline_grava_as_oito_etapas_na_ordem_certa(monkeypatch):
+def test_pipeline_grava_as_dez_etapas_na_ordem_certa(monkeypatch):
     chamadas = []
     _stub_gravacoes(monkeypatch, chamadas)
 
@@ -126,7 +131,9 @@ def test_pipeline_grava_as_oito_etapas_na_ordem_certa(monkeypatch):
         "tesouro.dv.gravar_decay",
         "tesouro.dv.gravar_resultado",
         "tesouro.figuras.gravar_todas",
+        "tesouro.leiloes_dv.gravar",
         "tesouro.graficos.dashboard.grava",
+        "tesouro.graficos.painel_emissoes.grava",
     ]
 
 

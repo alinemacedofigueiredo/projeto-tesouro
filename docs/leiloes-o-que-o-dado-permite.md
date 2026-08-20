@@ -116,6 +116,28 @@ Fica registrado para ninguém construir.
 
 ---
 
+## O que foi feito depois deste levantamento, em 19-20/08/2026
+
+**O VNA não precisou ser aproximado.** O PU da NTN-B é exatamente linear no VNA
+(`PU = VNA × cotação`, e a cotação depende só da taxa e das datas). Como o Tesouro
+publica o financeiro e a quantidade de cada leilão, o VNA daquele dia se recupera por
+divisão — é o VNA que **ele** usou para liquidar, na data exata, sem interpolar nem
+projetar IPCA.
+
+Medido: o VNA recuperado difere do de fim de mês em 0,16% na mediana e 0,66% no
+percentil 95 — exatamente o tamanho do erro que o VNA mensal produzia no preço, o que
+confirma que era ele a fonte. A correção é material: o DV da NTN-B longa vai de
+−1.142,9 para −1.225,7.
+
+**A precificação foi validada contra o Tesouro, 5.600 vezes.** Para LTN e NTN-F, que
+não dependem de VNA nenhum, `quantidade × PU` reproduz o financeiro publicado com
+mediana de erro **0,0000%** e máximo de 0,13%. É o teste mais forte do módulo, e ele
+não afirma nenhum número escolhido por nós.
+
+**A escala da quantidade estava errada e o cruzamento pegou.** `venda_qtd` está em
+títulos, não em milhares — com a escala errada o DV saía mil vezes maior, e mil vezes
+maior ainda parece número, só que grande demais.
+
 ## O que ainda não foi medido
 
 - **demanda**: `oferta_qtd` contra `venda_qtd` — quanto foi ofertado e quanto saiu.

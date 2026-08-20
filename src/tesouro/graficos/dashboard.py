@@ -554,10 +554,10 @@ def _bloco(grafico, recortes):
     return "\n".join(partes)
 
 
-def _indice():
-    linhas = ['<nav id="indice">', "  <h1>D\u00edvida P\u00fablica Federal</h1>"]
-    for grupo in GRUPOS:
-        do_grupo = [g for g in REGISTRO if g.grupo == grupo]
+def _indice(registro, grupos, titulo):
+    linhas = ['<nav id="indice">', f"  <h1>{titulo}</h1>"]
+    for grupo in grupos:
+        do_grupo = [g for g in registro if g.grupo == grupo]
         if not do_grupo:
             continue
         linhas.append(f'  <div class="grupo">{grupo}</div>')
@@ -567,14 +567,22 @@ def _indice():
     return "\n".join(linhas)
 
 
-def monta(recortes=None):
+def monta(recortes=None, registro=None, grupos=None, titulo=None):
     """O HTML inteiro, com os SVGs embutidos.
 
     'recortes' e uma lista de pares (nome, janela). Com um par so, o botao de
     periodo nao aparece -- e o caso do --de/--ate na linha de comando.
+
+    'registro', 'grupos' e 'titulo' existem para que a mesma montagem sirva uma
+    segunda pagina -- a de emissoes da entrega 3, que nao cabe nesta: medido, a
+    matriz de graficos dela daria 15,6 MB contra o limiar de 10. O padrao continua
+    sendo o dashboard do RMD.
     """
     estilo.aplicar_estilo()
     recortes = list(recortes) if recortes else list(JANELAS)
+    registro = REGISTRO if registro is None else registro
+    grupos = GRUPOS if grupos is None else grupos
+    titulo = titulo or "D\u00edvida P\u00fablica Federal"
 
     botoes = ""
     if len(recortes) > 1:
@@ -583,21 +591,22 @@ def monta(recortes=None):
             f"{nome}</button>" for nome, _ in recortes)
         botoes = f'<div id="troca-periodo">{marcas}</div>'
 
-    corpo = "\n".join(_bloco(g, recortes) for g in REGISTRO)
+    corpo = "\n".join(_bloco(g, recortes) for g in registro)
 
     return (
         "<!doctype html>\n<html lang=\"pt-br\">\n<head>\n"
         '<meta charset="utf-8">\n'
-        "<title>D\u00edvida P\u00fablica Federal</title>\n"
+        f"<title>{titulo}</title>\n"
         f"<style>{_CSS}</style>\n</head>\n<body>\n"
-        f"{_indice()}\n<main>\n{botoes}\n{corpo}\n</main>\n"
+        f"{_indice(registro, grupos, titulo)}\n<main>\n{botoes}\n{corpo}\n</main>\n"
         f"<script>{_JS}</script>\n</body>\n</html>\n"
     )
 
 
-def grava(caminho=None, recortes=None):
+def grava(caminho=None, recortes=None, registro=None, grupos=None, titulo=None):
     """Grava o dashboard e devolve o caminho."""
     caminho = caminho or (config.PROCESSED_DIR / "dashboard.html")
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    caminho.write_text(monta(recortes), encoding="utf-8")
+    caminho.write_text(monta(recortes, registro, grupos, titulo),
+                       encoding="utf-8")
     return caminho
