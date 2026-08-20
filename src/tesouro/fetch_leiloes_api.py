@@ -12,9 +12,19 @@ DUAS CAMADAS, de proposito:
   - `normalizar()` traduz o que foi guardado para o esquema do leiloes.csv, e nao
     toca na rede. Da para desenvolver e testar sem conexao nenhuma.
 
-Este modulo NUNCA e necessario para rodar os parsers. Sem rede, o pipeline continua
-funcionando com a planilha -- e os graficos de leilao ficam com o dado de ontem, que
-e exatamente o que eles tinham antes de este arquivo existir.
+DUAS VIAS PARA O MESMO ARQUIVO, e o codigo tenta as duas na ordem:
+
+  1. a rede, com o pacote de certificados da instituicao (SSL_CERT_FILE);
+  2. se ela falhar, o que alguem tiver salvo A MAO em data/raw/leiloes_api/.
+
+A segunda nao e plano B improvisado: e a mesma pasta onde a primeira grava. Uma
+pessoa que abra a URL no navegador e salve ali produz exatamente o que o coletor
+produziria, e o resto do caminho nao sabe a diferenca. Num banco, onde liberar
+certificado pode levar semanas, essa e a via que funciona amanha de manha.
+
+Este modulo NUNCA e necessario para rodar os parsers. Sem rede e sem arquivo salvo, o
+pipeline continua funcionando com a planilha -- e os graficos de leilao ficam com o
+dado de ontem, que e exatamente o que eles tinham antes de este arquivo existir.
 
 CERTIFICADO. Numa rede que inspeciona TLS -- e a de um banco inspeciona -- o Python
 recusa a conexao com CERTIFICATE_VERIFY_FAILED, porque nao conhece a autoridade que
@@ -104,3 +114,49 @@ def baixar(url_do_recurso, destino=None, quando=None):
         conteudo = resposta.read()
     gravar_atomico(conteudo, caminho)
     return caminho
+
+
+def salvos_a_mao(pasta=None):
+    """Os arquivos que alguem colocou em data/raw/leiloes_api/, do mais novo ao mais
+    velho.
+
+    Aceita json, csv, xls e xlsx: o que a pessoa conseguir salvar do portal. Quem
+    decide se o conteudo serve e o normalizador, nao esta funcao.
+    """
+    pasta = Path(pasta) if pasta else (config.RAW_DIR / PASTA)
+    if not pasta.exists():
+        return []
+    achados = [c for c in pasta.iterdir()
+               if c.suffix.lower() in (".json", ".csv", ".xls", ".xlsx")]
+    return sorted(achados, key=lambda c: c.stat().st_mtime, reverse=True)
+
+
+def obter(url_do_recurso=None, pasta=None, quando=None):
+    """O arquivo do dia, pela rede ou pelo que estiver salvo a mao.
+
+    Devolve (caminho, via), onde via e "rede" ou "salvo a mao". Levanta so quando as
+    DUAS falham -- e a mensagem entao diz o que tentou e o que fazer.
+
+    A ordem importa: a rede primeiro, porque ela traz o dado de agora; o arquivo
+    salvo depois, porque ele pode ser de ontem. Quem chama recebe a via junto e pode
+    decidir se aquele dado serve.
+    """
+    erro_de_rede = None
+    if url_do_recurso:
+        try:
+            return baixar(url_do_recurso, pasta, quando), "rede"
+        except Exception as erro:                     # noqa: BLE001
+            erro_de_rede = erro
+
+    achados = salvos_a_mao(pasta)
+    if achados:
+        return achados[0], "salvo a mao"
+
+    destino = Path(pasta) if pasta else (config.RAW_DIR / PASTA)
+    raise FileNotFoundError(
+        f"nao consegui o arquivo de leiloes por nenhuma das duas vias.\n\n"
+        f"Pela rede: {erro_de_rede or 'nenhuma URL informada'}\n\n"
+        f"E nao ha nada salvo a mao em {destino}.\n\n"
+        "Para destravar sem depender da rede, abra a URL do portal no navegador, "
+        "salve o arquivo naquela pasta (json, csv, xls ou xlsx) e rode de novo."
+    )

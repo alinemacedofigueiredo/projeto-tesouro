@@ -16,6 +16,8 @@ Trocar isso por caixas de marcar no proprio HTML exige interatividade de verdade
 (desenhar no navegador em vez de embutir SVG pronto), que e a decisao adiada da
 secao 10 da spec do dashboard.
 """
+import pandas as pd
+
 from . import dashboard, emissao
 
 GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Quantidade e taxa"]
@@ -230,6 +232,40 @@ def _barra_das_combinacoes(arquivo_atual):
     return "\n".join(partes)
 
 
+def _aviso_do_provisorio():
+    """A faixa que aparece SO quando ha leilao provisorio na base.
+
+    Ela diz a data do que ainda nao foi confirmado. A hachura no grafico diz "esta
+    barra e provisoria"; esta faixa diz QUAL DIA, e isso e o que permite conferir
+    contra a planilha quando ela sair.
+
+    Quando nao ha nada provisorio, a faixa nao existe -- pagina de historico nao
+    precisa de aviso sobre uma coisa que nao esta la.
+    """
+    from .. import config
+
+    caminho = config.PROCESSED_DIR / "dv_emitido_por_leilao.csv"
+    if not caminho.exists():
+        return ""
+    d = pd.read_csv(caminho, usecols=lambda c: c in ("origem", "data_leilao"))
+    if "origem" not in d.columns:
+        return ""
+    dias = sorted(set(d.loc[d["origem"] == "api", "data_leilao"].astype(str)))
+    if not dias:
+        return ""
+    quais = ", ".join(dia[:10] for dia in dias)
+    return (
+        '<div id="provisorio">'
+        "<b>Provis\u00f3rio:</b> "
+        f"{len(dias)} dia(s) de leil\u00e3o vieram da API e a planilha do Tesouro "
+        f"ainda n\u00e3o confirmou \u2014 {quais}. "
+        "Eles aparecem <b>hachurados</b> nos gr\u00e1ficos. A taxa publicada na hora "
+        "pode ser preliminar, e ent\u00e3o o DV01 muda quando a planilha sair. "
+        "A linha some sozinha quando isso acontecer."
+        "</div>"
+    )
+
+
 def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     """Grava UMA das quatro paginas e devolve o caminho."""
     from .. import config
@@ -245,8 +281,12 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     # A barra entra depois da montagem, logo antes do <main>: assim o montador do
     # dashboard continua sem saber que existem quatro paginas.
     html = escrito.read_text(encoding="utf-8")
-    html = html.replace("<main>", _barra_das_combinacoes(arquivo) + "\n<main>", 1)
-    html = html.replace("</style>", _CSS_COMBINACOES + "</style>", 1)
+    html = html.replace(
+        "<main>",
+        _barra_das_combinacoes(arquivo) + "\n" + _aviso_do_provisorio() + "\n<main>",
+        1)
+    html = html.replace("</style>",
+                        _CSS_COMBINACOES + _CSS_PROVISORIO + "</style>", 1)
     escrito.write_text(html, encoding="utf-8")
     return escrito
 
@@ -256,6 +296,12 @@ def grava_as_quatro(recortes=None):
     return [grava(None, recortes, com_compra, com_2a)
             for com_compra, com_2a, _, _ in COMBINACOES]
 
+
+_CSS_PROVISORIO = """
+#provisorio { margin: 0 auto 14px; max-width: 1180px; padding: 10px 14px;
+  border-left: 4px solid #555; background: #f4f4f4; font-size: 0.92em;
+  line-height: 1.45; color: #333; }
+"""
 
 _CSS_COMBINACOES = """
 #combinacoes { margin: 0 0 14px; font-size: 13px; display: flex;

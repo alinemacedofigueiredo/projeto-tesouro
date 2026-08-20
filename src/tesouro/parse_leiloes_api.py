@@ -1,0 +1,163 @@
+"""Traduz o arquivo do dia -- venha ele da API ou salvo a mao -- para o esquema do
+leiloes.csv.
+
+O PROBLEMA QUE ESTE MODULO RESOLVE: eu nao vi a resposta real da API antes de
+escrever isto (a rede da maquina intercepta TLS). Escrever um leitor que so aceita um
+formato exato seria adivinhar, e adivinhacao neste projeto vira defeito
+plausivel-e-errado.
+
+A SAIDA E SER TOLERANTE NA ENTRADA E RIGOROSO NA SAIDA:
+
+  - aceita JSON no formato do CKAN (`result.records`), JSON de lista pura, CSV e
+    Excel. Um deles vai ser o que o portal entrega;
+  - mapeia os nomes de coluna por uma tabela de sinonimos, porque o portal escreve
+    "Data do Leilao", "DataLeilao" ou "data_leilao" conforme o endpoint;
+  - e quando NAO consegue mapear, levanta dizendo quais colunas encontrou e quais
+    faltaram. Nunca devolve tabela pela metade.
+
+Sem esse rigor na saida, um leilao entraria com data errada ou financeiro faltando, e
+o grafico do dia mostraria um numero que ninguem consegue explicar.
+"""
+import json
+from pathlib import Path
+
+import pandas as pd
+
+# As colunas que o leiloes.csv tem, e os nomes por que o portal pode chama-las.
+# A comparacao e feita sem acento, sem espaco e em minusculas -- entao "Data do
+# Leilao", "DATA_LEILAO" e "dataLeilao" caem todos no mesmo lugar.
+SINONIMOS = {
+    "data_leilao": ("dataleilao", "datadoleilao", "dtleilao", "data"),
+    "titulo": ("titulo", "papel", "tipotitulo", "sigla"),
+    "tipo_leilao": ("tipoleilao", "tipo", "operacao", "tipooperacao"),
+    "volta": ("volta", "numerovolta", "rodada"),
+    "data_liquidacao": ("dataliquidacao", "dtliquidacao", "liquidacao"),
+    "data_vencimento": ("datavencimento", "dtvencimento", "vencimento",
+                        "maturidade"),
+    "oferta_qtd": ("ofertaqtd", "quantidadeofertada", "qtdofertada", "oferta"),
+    "taxa_media_pct": ("taxamediapct", "taxamedia", "taxamediaaa"),
+    "taxa_corte_pct": ("taxacortepct", "taxacorte", "taxadecorte"),
+    "venda_qtd": ("vendaqtd", "quantidadeaceita", "qtdaceita", "quantidadevendida",
+                  "qtdvendida", "aceito"),
+    "financeiro_milhoes": ("financeiromilhoes", "financeiro", "valorfinanceiro",
+                           "volumefinanceiro"),
+}
+
+# Sem estas, a linha nao serve para nada: nao da para saber que leilao e, nem
+# calcular DV, nem somar financeiro.
+OBRIGATORIAS = ("data_leilao", "titulo", "tipo_leilao", "data_liquidacao",
+                "data_vencimento", "venda_qtd", "financeiro_milhoes")
+
+_DATAS = ("data_leilao", "data_liquidacao", "data_vencimento")
+_NUMEROS = ("oferta_qtd", "taxa_media_pct", "taxa_corte_pct", "venda_qtd",
+            "financeiro_milhoes")
+
+
+def _simplificar(nome):
+    """Tira acento, espaco, pontuacao e caixa, para comparar nome de coluna."""
+    import unicodedata
+
+    normal = unicodedata.normalize("NFKD", str(nome))
+    sem_acento = "".join(c for c in normal if not unicodedata.combining(c))
+    return "".join(c for c in sem_acento.lower() if c.isalnum())
+
+
+def _tabela_do_arquivo(caminho):
+    """Le o arquivo bruto como DataFrame, seja ele qual for."""
+    caminho = Path(caminho)
+    sufixo = caminho.suffix.lower()
+
+    if sufixo == ".json":
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+        # CKAN datastore: {"result": {"records": [...]}}
+        registros = dados.get("result", {}).get("records") \
+            if isinstance(dados, dict) else None
+        if registros is None and isinstance(dados, dict):
+            # Alguns endpoints devolvem {"result": [...]} ou {"records": [...]}
+            for chave in ("result", "records", "data", "items"):
+                valor = dados.get(chave)
+                if isinstance(valor, list):
+                    registros = valor
+                    break
+        if registros is None and isinstance(dados, list):
+            registros = dados
+        if registros is None:
+            raise LookupError(
+                f"{caminho.name}: nao encontrei a lista de registros no JSON. "
+                f"Procurei em result.records, result, records, data e items; "
+                f"as chaves do arquivo sao "
+                f"{sorted(dados)[:12] if isinstance(dados, dict) else type(dados)}."
+            )
+        return pd.DataFrame(registros)
+
+    if sufixo == ".csv":
+        return pd.read_csv(caminho, sep=None, engine="python")
+    if sufixo in (".xls", ".xlsx"):
+        return pd.read_excel(caminho)
+
+    raise LookupError(
+        f"{caminho.name}: extensao {sufixo!r} nao reconhecida. "
+        f"Salve como json, csv, xls ou xlsx."
+    )
+
+
+def _mapear_colunas(bruto):
+    """De coluna do arquivo para coluna do leiloes.csv. Levanta se faltar essencial."""
+    disponiveis = {_simplificar(c): c for c in bruto.columns}
+    mapa = {}
+    for destino, nomes in SINONIMOS.items():
+        for candidato in nomes:
+            if candidato in disponiveis:
+                mapa[destino] = disponiveis[candidato]
+                break
+
+    faltando = [c for c in OBRIGATORIAS if c not in mapa]
+    if faltando:
+        raise LookupError(
+            f"nao consegui mapear {faltando} para as colunas do arquivo.\n\n"
+            f"O arquivo tem estas colunas: {list(bruto.columns)}\n\n"
+            f"Se algum desses nomes for o certo, acrescente-o a SINONIMOS em "
+            f"parse_leiloes_api.py -- e o unico lugar que precisa saber como o "
+            f"portal escreve cada coisa."
+        )
+    return mapa
+
+
+def normalizar(caminho):
+    """O arquivo do dia, no esquema do leiloes.csv.
+
+    Devolve um DataFrame com as mesmas colunas que o parser da planilha produz, para
+    que leiloes_recentes.novidades() possa compara-los pela chave.
+    """
+    bruto = _tabela_do_arquivo(caminho)
+    if bruto.empty:
+        raise LookupError(f"{Path(caminho).name}: o arquivo nao tem nenhuma linha.")
+
+    mapa = _mapear_colunas(bruto)
+    saida = pd.DataFrame({destino: bruto[origem] for destino, origem in mapa.items()})
+
+    for coluna in _DATAS:
+        if coluna in saida:
+            # dayfirst: o portal escreve data brasileira, e 03/08 lido como marco
+            # daria um leilao no mes errado sem levantar nada.
+            saida[coluna] = pd.to_datetime(saida[coluna], dayfirst=True,
+                                           errors="coerce")
+    for coluna in _NUMEROS:
+        if coluna in saida:
+            saida[coluna] = pd.to_numeric(saida[coluna], errors="coerce")
+
+    sem_data = saida["data_leilao"].isna().sum()
+    if sem_data:
+        raise LookupError(
+            f"{Path(caminho).name}: {sem_data} linha(s) sem data de leilao "
+            f"legivel. Uma linha sem data nao tem como ser comparada com o "
+            f"historico, e deixa-la passar duplicaria o leilao."
+        )
+
+    # As colunas que o leiloes.csv tem e o arquivo do dia nao traz ficam vazias, e
+    # nao ausentes: assim a concatenacao com o historico nao muda o formato.
+    for coluna in ("venda_bacen_qtd", "financeiro_bacen_milhoes", "referencia"):
+        if coluna not in saida:
+            saida[coluna] = None
+
+    return saida

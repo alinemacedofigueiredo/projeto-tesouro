@@ -46,10 +46,22 @@ _COR_FINANCEIRO = "#3d9be9"
 _COR_DV = "#c00000"
 
 
+# A hachura marca o leilao que ainda nao foi confirmado pela planilha do Tesouro.
+# E hachura, e nao cor, porque no grafico empilhado a cor JA significa papel --
+# roubar uma cor para significar proveniencia criaria duas leituras para o mesmo
+# sinal.
+HACHURA_PROVISORIO = "///"
+
+
 def _base(com_compra=False, com_segunda_volta=True):
     """O CSV do DV por leilao, com os dois filtros de escolha aplicados."""
     d = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv",
                     parse_dates=["data_leilao", "data_liquidacao"])
+    # CSVs gravados antes de a API existir nao tem a coluna. Sem este default, todo
+    # grafico quebraria ao ler um arquivo antigo -- e o certo e ele continuar
+    # lendo, dizendo que tudo ali e definitivo, porque e.
+    if "origem" not in d.columns:
+        d["origem"] = "planilha"
     if not com_compra:
         d = d[d["operacao"] == "venda"]
     if not com_segunda_volta:
@@ -76,6 +88,9 @@ def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True):
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
         leiloes=("titulo", "size"),
+        # Um dia inteiro fica marcado se QUALQUER linha dele veio da API: o
+        # financeiro somado daquele dia ja depende de um numero que pode mudar.
+        provisorio=("origem", lambda s: bool((s == "api").any())),
     )
     # A LFT nao tem DV: a soma de uma coluna toda vazia devolve zero, e zero aqui
     # seria uma afirmacao sobre o risco dela. Volta a ser vazio.
@@ -96,6 +111,7 @@ def por_semana(janela=None, com_compra=False, com_segunda_volta=True):
     saida = d.groupby(semana).agg(
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
+        provisorio=("origem", lambda s: bool((s == "api").any())),
     )
     saida.index.name = "semana"
     return estilo.recorta(saida, janela)
@@ -115,7 +131,10 @@ def financeiro_semanal_por_papel(janela=None, com_compra=False,
     for familia in ORDEM_FAMILIAS:
         if familia not in piv.columns:
             piv[familia] = 0.0
-    return estilo.recorta(piv[ORDEM_FAMILIAS], janela)
+    piv = piv[ORDEM_FAMILIAS]
+    piv["provisorio"] = d.groupby(semana)["origem"].apply(
+        lambda s: bool((s == "api").any())).reindex(piv.index).fillna(False)
+    return estilo.recorta(piv, janela)
 
 
 def quantidade_e_taxa(recorte, janela=None, com_segunda_volta=True):
@@ -148,6 +167,34 @@ def quantidade_e_taxa(recorte, janela=None, com_segunda_volta=True):
     return estilo.recorta(saida, janela)
 
 
+def _hachura(dados):
+    """A lista de hachuras, uma por barra: vazia no definitivo, listrada no da API.
+
+    Devolve None quando NAO ha nada provisorio, para que o SVG do historico
+    continue byte a byte o mesmo de antes -- a reprodutibilidade e testada.
+    """
+    if "provisorio" not in dados.columns:
+        return None
+    marcas = dados["provisorio"].fillna(False).astype(bool)
+    if not marcas.any():
+        return None
+    return [HACHURA_PROVISORIO if m else "" for m in marcas]
+
+
+def _legenda_do_provisorio(hachuras):
+    """A entrada de legenda que explica a hachura, ou nada quando nao ha hachura.
+
+    Sem a entrada, a listra e um enfeite: quem olha nao tem como saber que aquela
+    barra pode mudar de altura amanha.
+    """
+    if hachuras is None:
+        return []
+    from matplotlib.patches import Patch
+    return [Patch(facecolor="white", edgecolor="#555555",
+                  hatch=HACHURA_PROVISORIO,
+                  label="leil\u00e3o do dia (API) \u00b7 muda quando a planilha sair")]
+
+
 def _largura(indice):
     """Largura da barra em dias, para o eixo de datas nao virar um borrao."""
     if len(indice) < 2:
@@ -168,8 +215,10 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=False):
     proporcional ao numero.
     """
     largura = _largura(dados.index)
+    hachuras = _hachura(dados)
     ax.bar(dados.index, dados["financeiro_milhoes"] / 1000, width=largura,
-           color=_COR_FINANCEIRO, alpha=0.75, label="financeiro aceito")
+           color=_COR_FINANCEIRO, alpha=0.75, label="financeiro aceito",
+           hatch=hachuras, edgecolor="#1f4e79" if hachuras else "none")
     ax.set_ylabel("R$ bilh\u00f5es aceitos")
     ax.axhline(0, color="gray", lw=0.8)
 
@@ -204,7 +253,9 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=False):
     if direita is not None:
         m2, r2 = direita.get_legend_handles_labels()
         marcas, rotulos = marcas + m2, rotulos + r2
-    ax.legend(marcas, rotulos, ncol=2, frameon=False, loc="upper center",
+    extras = _legenda_do_provisorio(hachuras)
+    ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
+              ncol=2 + len(extras), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.10))
 
 
@@ -216,8 +267,10 @@ def desenha_lft(dados, ax, meses_da_media=3):
     quer ver na LFT e o ritmo, nao o risco.
     """
     largura = _largura(dados.index)
+    hachuras = _hachura(dados)
     ax.bar(dados.index, dados["financeiro_milhoes"] / 1000, width=largura,
-           color=estilo.COR["LFT"], alpha=0.75, label="financeiro aceito")
+           color=estilo.COR["LFT"], alpha=0.75, label="financeiro aceito",
+           hatch=hachuras, edgecolor="#555555" if hachuras else "none")
 
     # A media movel e de dias de leilao, nao de dias corridos: e a serie que existe.
     # 3 meses ~ 13 leiloes semanais.
@@ -232,26 +285,35 @@ def desenha_lft(dados, ax, meses_da_media=3):
     estilo.eixo_anual(ax, a_cada=1 if len(dados) < 400 else 2)
     ax.set_title("LFT \u00b7 s\u00f3 financeiro: ela n\u00e3o tem DV, por decis\u00e3o de modelagem",
                  fontsize=11, weight="bold", loc="left", pad=10)
-    ax.legend(ncol=2, frameon=False, loc="upper center",
+    marcas, rotulos = ax.get_legend_handles_labels()
+    extras = _legenda_do_provisorio(hachuras)
+    ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
+              ncol=2 + len(extras), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.10))
 
 
 def desenha_empilhado(dados, ax):
     """Financeiro da semana, empilhado por familia de papel."""
     largura = _largura(dados.index)
+    hachuras = _hachura(dados)
     base = pd.Series(0.0, index=dados.index)
     for familia in ORDEM_FAMILIAS:
         altura = dados[familia] / 1000
         ax.bar(dados.index, altura, bottom=base, width=largura,
-               color=estilo.COR[_COR_FAMILIA[familia]], label=familia)
+               color=estilo.COR[_COR_FAMILIA[familia]], label=familia,
+               hatch=hachuras, edgecolor="#333333" if hachuras else "none",
+               linewidth=0.4 if hachuras else 0)
         base = base + altura
 
     ax.set_ylabel("R$ bilh\u00f5es aceitos na semana")
     ax.axhline(0, color="gray", lw=0.8)
     ax.grid(axis="y", alpha=0.20)
     estilo.eixo_anual(ax, a_cada=1 if len(dados) < 200 else 2)
-    ax.legend(ncol=len(ORDEM_FAMILIAS), frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, -0.10))
+    marcas, rotulos = ax.get_legend_handles_labels()
+    extras = _legenda_do_provisorio(hachuras)
+    ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
+              ncol=len(ORDEM_FAMILIAS) + len(extras), frameon=False,
+              loc="upper center", bbox_to_anchor=(0.5, -0.10))
 
 
 def desenha_quantidade_e_taxa(dados, ax, rotulo):

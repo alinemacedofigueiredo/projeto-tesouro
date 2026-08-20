@@ -62,7 +62,37 @@ o mesmo leilão de entrar duas vezes no gráfico.
 
 ---
 
-## O que falta, e por quê
+## O que estava faltando, e foi fechado em 20/08/2026
+
+**Faltava a tradução do que a API devolve para o esquema do `leiloes.csv`** — e eu
+não conseguia ver uma resposta real, porque a rede desta máquina intercepta TLS.
+
+A saída não foi adivinhar um formato: foi escrever um leitor **tolerante na entrada e
+rigoroso na saída** (`src/tesouro/parse_leiloes_api.py`, onze testes).
+
+- **aceita** JSON do CKAN (`result.records`), JSON de lista pura, `records`, CSV, XLS
+  e XLSX;
+- **mapeia** os nomes de coluna por tabela de sinônimos, ignorando acento, espaço e
+  caixa — "Data do Leilão", "DATA_LEILAO" e "dataLeilao" caem no mesmo lugar;
+- **lê a data como brasileira**, porque 08/03/2026 lido ao contrário põe o leilão num
+  mês errado sem levantar nada — as duas leituras são datas válidas;
+- **recusa em voz alta** quando falta coluna essencial, dizendo quais colunas o
+  arquivo realmente tem. Nunca devolve tabela pela metade.
+
+As três linhas protegidas foram quebradas uma a uma para confirmar que a asserção
+falha.
+
+E `fetch_leiloes_api.obter()` agora tenta **as duas vias**: a rede primeiro, o arquivo
+salvo à mão depois. Só levanta quando as duas falham — e aí a mensagem diz o que
+tentou e o que fazer.
+
+**Como rodar:** `docs/leilao-do-dia-como-rodar.md`.
+
+---
+
+## O contexto que motivou tudo isto
+
+### O problema de certificado, que continua de pé
 
 **Falta a tradução do que a API devolve para o esquema do `leiloes.csv`.** Ela é
 pequena — mapear nomes de coluna e converter tipos — mas escrevê-la sem ver uma
