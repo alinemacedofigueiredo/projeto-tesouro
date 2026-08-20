@@ -43,10 +43,22 @@ SINONIMOS = {
                            "volumefinanceiro"),
 }
 
-# Sem estas, a linha nao serve para nada: nao da para saber que leilao e, nem
-# calcular DV, nem somar financeiro.
-OBRIGATORIAS = ("data_leilao", "titulo", "tipo_leilao", "data_liquidacao",
-                "data_vencimento", "venda_qtd", "financeiro_milhoes")
+# O QUE E OBRIGATORIO DEPENDE DO MOMENTO, e este e o ponto do modulo.
+#
+# No arquivo da OFERTA nao existe taxa, nem quantidade aceita, nem financeiro --
+# nada disso aconteceu ainda. Exigi-los ali recusaria justamente o arquivo que se
+# quer ver primeiro. No arquivo do RESULTADO eles existem, e ai sao obrigatorios:
+# aceitar um resultado sem financeiro seria deixar entrar uma barra menor sem
+# ninguem saber por que.
+COMUNS = ("data_leilao", "titulo", "tipo_leilao", "data_liquidacao",
+          "data_vencimento")
+OBRIGATORIAS_POR_ESTAGIO = {
+    "ofertado": COMUNS + ("oferta_qtd",),
+    "aceito": COMUNS + ("venda_qtd", "financeiro_milhoes"),
+}
+
+# Compatibilidade: era o nome antigo, de quando so existia o estagio do resultado.
+OBRIGATORIAS = OBRIGATORIAS_POR_ESTAGIO["aceito"]
 
 _DATAS = ("data_leilao", "data_liquidacao", "data_vencimento")
 _NUMEROS = ("oferta_qtd", "taxa_media_pct", "taxa_corte_pct", "venda_qtd",
@@ -101,7 +113,27 @@ def _tabela_do_arquivo(caminho):
     )
 
 
-def _mapear_colunas(bruto):
+def detectar_estagio(bruto):
+    """Se o arquivo e de oferta ou de resultado, olhando o que ele traz.
+
+    A pergunta nao e "que nome tem o arquivo" -- o portal pode chama-lo de qualquer
+    coisa -- e sim "ja existe quantidade ACEITA aqui dentro?". Se existe e tem
+    numero, o leilao ja aconteceu.
+
+    Uma coluna de aceito TODA vazia conta como oferta: alguns editais trazem a
+    coluna preparada com as celulas em branco, e trata-la como resultado geraria um
+    leilao de tamanho zero, que e um numero e nao uma ausencia.
+    """
+    disponiveis = {_simplificar(c): c for c in bruto.columns}
+    for nome in SINONIMOS["venda_qtd"]:
+        if nome in disponiveis:
+            valores = pd.to_numeric(bruto[disponiveis[nome]], errors="coerce")
+            if valores.notna().any():
+                return "aceito"
+    return "ofertado"
+
+
+def _mapear_colunas(bruto, estagio):
     """De coluna do arquivo para coluna do leiloes.csv. Levanta se faltar essencial."""
     disponiveis = {_simplificar(c): c for c in bruto.columns}
     mapa = {}
@@ -111,10 +143,11 @@ def _mapear_colunas(bruto):
                 mapa[destino] = disponiveis[candidato]
                 break
 
-    faltando = [c for c in OBRIGATORIAS if c not in mapa]
+    faltando = [c for c in OBRIGATORIAS_POR_ESTAGIO[estagio] if c not in mapa]
     if faltando:
         raise LookupError(
-            f"nao consegui mapear {faltando} para as colunas do arquivo.\n\n"
+            f"o arquivo parece ser de {estagio!r}, e nesse estagio {faltando} "
+            f"sao obrigatorias -- nao consegui mapea-las.\n\n"
             f"O arquivo tem estas colunas: {list(bruto.columns)}\n\n"
             f"Se algum desses nomes for o certo, acrescente-o a SINONIMOS em "
             f"parse_leiloes_api.py -- e o unico lugar que precisa saber como o "
@@ -123,17 +156,28 @@ def _mapear_colunas(bruto):
     return mapa
 
 
-def normalizar(caminho):
-    """O arquivo do dia, no esquema do leiloes.csv.
+def normalizar(caminho, estagio=None):
+    """O arquivo do dia, no esquema do leiloes.csv, mais o estagio em que ele esta.
 
-    Devolve um DataFrame com as mesmas colunas que o parser da planilha produz, para
-    que leiloes_recentes.novidades() possa compara-los pela chave.
+    Devolve (tabela, estagio). A tabela tem as mesmas colunas que o parser da
+    planilha produz, para que leiloes_recentes.novidades() possa compara-la pela
+    chave; o estagio e "ofertado" ou "aceito".
+
+    O estagio e detectado do conteudo, e nao pedido a quem chama. Passar estagio=
+    explicitamente serve para o caso em que o arquivo engana -- e ai a exigencia de
+    colunas passa a ser a daquele estagio, e a mensagem de erro diz qual foi.
     """
     bruto = _tabela_do_arquivo(caminho)
     if bruto.empty:
         raise LookupError(f"{Path(caminho).name}: o arquivo nao tem nenhuma linha.")
 
-    mapa = _mapear_colunas(bruto)
+    estagio = estagio or detectar_estagio(bruto)
+    if estagio not in OBRIGATORIAS_POR_ESTAGIO:
+        raise LookupError(
+            f"estagio {estagio!r} nao existe aqui; use 'ofertado' ou 'aceito'."
+        )
+
+    mapa = _mapear_colunas(bruto, estagio)
     saida = pd.DataFrame({destino: bruto[origem] for destino, origem in mapa.items()})
 
     for coluna in _DATAS:
@@ -156,8 +200,15 @@ def normalizar(caminho):
 
     # As colunas que o leiloes.csv tem e o arquivo do dia nao traz ficam vazias, e
     # nao ausentes: assim a concatenacao com o historico nao muda o formato.
-    for coluna in ("venda_bacen_qtd", "financeiro_bacen_milhoes", "referencia"):
+    #
+    # taxa_media_pct entra VAZIA no estagio da oferta, e nao zerada. Zero e uma taxa
+    # -- e uma taxa de zero por cento precifica um titulo pelo valor de face. Vazia
+    # e o que ela e: ainda nao existe. Quem preenche e leilao_ofertado.py, e marca
+    # que preencheu.
+    for coluna in ("venda_qtd", "financeiro_milhoes", "taxa_media_pct",
+                   "taxa_corte_pct", "oferta_qtd", "volta",
+                   "venda_bacen_qtd", "financeiro_bacen_milhoes", "referencia"):
         if coluna not in saida:
             saida[coluna] = None
 
-    return saida
+    return saida, estagio

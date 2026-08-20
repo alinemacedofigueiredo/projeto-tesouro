@@ -44,7 +44,7 @@ def _grava_json(tmp_path, registros, embrulho="ckan"):
 
 
 def test_le_o_formato_do_ckan(tmp_path):
-    tabela = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
+    tabela, _ = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
     assert len(tabela) == 1
     assert tabela.iloc[0]["titulo"] == "NTN-B"
 
@@ -54,7 +54,7 @@ def test_le_json_de_lista_pura_e_de_records(tmp_path):
     # precisam funcionar, senao a pessoa que salvar o arquivo a mao acerta ou erra
     # por sorte.
     for embrulho in ("ckan", "lista", "records"):
-        tabela = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL], embrulho))
+        tabela, _ = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL], embrulho))
         assert len(tabela) == 1, embrulho
 
 
@@ -63,23 +63,23 @@ def test_le_csv_e_excel(tmp_path):
 
     csv = tmp_path / "leiloes.csv"
     bruto.to_csv(csv, index=False, encoding="utf-8")
-    assert len(p.normalizar(csv)) == 1
+    assert len(p.normalizar(csv)[0]) == 1
 
     xlsx = tmp_path / "leiloes.xlsx"
     bruto.to_excel(xlsx, index=False)
-    assert len(p.normalizar(xlsx)) == 1
+    assert len(p.normalizar(xlsx)[0]) == 1
 
 
 def test_a_data_e_lida_como_brasileira(tmp_path):
     # 08/03/2026 e 8 de marco, nao 3 de agosto. Lido ao contrario, o leilao aparece
     # no mes errado do grafico e NADA levanta -- as duas leituras sao datas validas.
     linha = dict(LINHA_DO_PORTAL, **{"Data do Leil\u00e3o": "08/03/2026"})
-    tabela = p.normalizar(_grava_json(tmp_path, [linha]))
+    tabela, _ = p.normalizar(_grava_json(tmp_path, [linha]))
     assert tabela.iloc[0]["data_leilao"] == pd.Timestamp("2026-03-08")
 
 
 def test_os_numeros_viram_numero(tmp_path):
-    tabela = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
+    tabela, _ = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
     assert tabela.iloc[0]["financeiro_milhoes"] == pytest.approx(2100.5)
     assert tabela.iloc[0]["venda_qtd"] == 480000
     assert tabela.iloc[0]["taxa_media_pct"] == pytest.approx(7.1234)
@@ -132,10 +132,80 @@ def test_a_saida_serve_de_entrada_para_a_mesclagem(tmp_path):
     # olhando.
     from tesouro import leiloes_recentes as lr
 
-    tabela = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
+    tabela, _ = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
     assert set(lr.CHAVE) <= set(tabela.columns)
 
     # E a comparacao com o historico de fato roda, e diz que este leilao de 2026 e
     # novidade.
     base = lr.carregar_base()
     assert len(lr.novidades(tabela, base)) == 1
+
+
+# --------------------------------------------------------------------------
+# Os dois arquivos: o da OFERTA, que nao tem taxa nem aceito nem financeiro, e o
+# do RESULTADO, que tem. O leitor descobre qual e olhando o conteudo.
+# --------------------------------------------------------------------------
+
+# O edital: quantidade ofertada, e mais nada. Nada disso aconteceu ainda.
+LINHA_DE_OFERTA = {
+    "Data do Leil\u00e3o": "20/08/2026",
+    "T\u00edtulo": "NTN-B",
+    "Tipo Leil\u00e3o": "Venda",
+    "Volta": 1,
+    "Data Liquida\u00e7\u00e3o": "21/08/2026",
+    "Data Vencimento": "15/08/2032",
+    "Oferta Qtd": 600000,
+}
+
+
+def test_o_arquivo_da_oferta_e_reconhecido_e_aceito(tmp_path):
+    # Sem isto, o arquivo que ela quer ver PRIMEIRO seria recusado por falta de
+    # financeiro -- um numero que ainda nao existe no mundo.
+    tabela, estagio = p.normalizar(_grava_json(tmp_path, [LINHA_DE_OFERTA]))
+    assert estagio == "ofertado"
+    assert len(tabela) == 1
+    assert tabela.iloc[0]["oferta_qtd"] == 600000
+
+
+def test_o_arquivo_do_resultado_e_reconhecido_como_aceito(tmp_path):
+    _, estagio = p.normalizar(_grava_json(tmp_path, [LINHA_DO_PORTAL]))
+    assert estagio == "aceito"
+
+
+def test_coluna_de_aceito_toda_vazia_conta_como_oferta(tmp_path):
+    # Alguns editais trazem a coluna preparada com as celulas em branco. Trata-la
+    # como resultado geraria um leilao de tamanho ZERO -- que e um numero, e nao uma
+    # ausencia, e entraria no grafico como se o Tesouro nao tivesse colocado nada.
+    linha = dict(LINHA_DE_OFERTA, **{"Venda Qtd": None, "Financeiro": None})
+    _, estagio = p.normalizar(_grava_json(tmp_path, [linha]))
+    assert estagio == "ofertado"
+
+
+def test_a_oferta_entra_com_taxa_vazia_e_nao_zerada(tmp_path):
+    # Zero E uma taxa: zero por cento precifica o titulo pelo valor de face. Vazia e
+    # o que ela e -- ainda nao existe.
+    tabela, _ = p.normalizar(_grava_json(tmp_path, [LINHA_DE_OFERTA]))
+    assert pd.isna(tabela.iloc[0]["taxa_media_pct"])
+    assert pd.isna(tabela.iloc[0]["venda_qtd"])
+    assert pd.isna(tabela.iloc[0]["financeiro_milhoes"])
+
+
+def test_oferta_sem_quantidade_ofertada_e_recusada(tmp_path):
+    # No estagio da oferta, a quantidade ofertada e a UNICA coisa que o arquivo tem
+    # de trazer. Sem ela nao ha barra nenhuma para desenhar.
+    linha = {k: v for k, v in LINHA_DE_OFERTA.items() if k != "Oferta Qtd"}
+    with pytest.raises(LookupError) as erro:
+        p.normalizar(_grava_json(tmp_path, [linha]))
+    assert "ofertado" in str(erro.value)
+    assert "oferta_qtd" in str(erro.value)
+
+
+def test_resultado_sem_financeiro_continua_sendo_recusado(tmp_path):
+    # A folga do estagio da oferta NAO pode vazar para o do resultado: la o
+    # financeiro existe, e aceitar sem ele deixaria entrar uma barra menor sem
+    # ninguem saber por que.
+    linha = {k: v for k, v in LINHA_DO_PORTAL.items() if k != "Financeiro"}
+    with pytest.raises(LookupError) as erro:
+        p.normalizar(_grava_json(tmp_path, [linha]))
+    assert "aceito" in str(erro.value)
+    assert "financeiro_milhoes" in str(erro.value)

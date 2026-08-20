@@ -6,6 +6,8 @@ Ele faz, nesta ordem:
 
   1. tenta a rede; se o certificado barrar, usa o arquivo que alguem salvou a mao em
      data/raw/leiloes_api/;
+  1b. descobre sozinho se aquele arquivo e a OFERTA ou o RESULTADO, olhando se ha
+     quantidade aceita dentro dele;
   2. traduz o arquivo para o esquema do leiloes.csv;
   3. compara com o historico e guarda so o que a planilha ainda nao tem;
   4. recalcula o DV01 incluindo o provisorio;
@@ -21,7 +23,8 @@ cada rodada. Nao ha nada para limpar a mao.
 import sys
 import traceback
 
-from . import fetch_leiloes_api, leiloes_dv, leiloes_recentes, parse_leiloes_api
+from . import (fetch_leiloes_api, leilao_ofertado, leiloes_dv,
+               leiloes_recentes, parse_leiloes_api)
 from .graficos import painel_emissoes
 
 # Formatos que valem a pena tentar, do mais facil de ler para o menos.
@@ -71,33 +74,71 @@ def rodar(url_do_recurso=None, refazer_graficos=True):
     print(f"   {caminho.name}, via {via}")
 
     print("3. traduzindo para o esquema do leiloes.csv...")
-    tabela = parse_leiloes_api.normalizar(caminho)
+    tabela, estagio = parse_leiloes_api.normalizar(caminho)
     print(f"   {len(tabela)} linha(s), de "
           f"{tabela['data_leilao'].min():%d/%m/%Y} a "
           f"{tabela['data_leilao'].max():%d/%m/%Y}")
+    print(f"   estagio detectado: {estagio.upper()}"
+          + ("  (o resultado ja saiu)" if estagio == "aceito"
+             else "  (so o teto anunciado; a quantidade ainda vai cair)"))
+
+    if estagio == "ofertado":
+        _avisar_sobre_a_taxa(tabela)
 
     print("4. comparando com o historico da planilha...")
-    destino, entraram, ja_estavam = leiloes_recentes.gravar_recentes(tabela)
+    destino, entraram, ja_estavam = leiloes_recentes.gravar_recentes(tabela, estagio)
     print(f"   {entraram} nova(s), {ja_estavam} que a planilha ja tinha")
     print(f"   gravado: {destino}")
 
     if entraram == 0:
-        print("\nNada novo. A planilha ja alcancou tudo o que a API trouxe -- os "
-              "graficos continuam validos como estao.")
+        print("\nNada novo. A planilha ja alcancou tudo o que o arquivo trouxe -- "
+              "os graficos continuam validos como estao.")
         return 0
 
     print("5. recalculando o DV01, com o provisorio...")
-    leiloes_dv.gravar(com_provisorio=True)
+    leiloes_dv.gravar(ate_o_estagio="ofertado")
 
     if refazer_graficos:
         print("6. regravando as quatro paginas de emissao...")
         for caminho_html in painel_emissoes.grava_as_quatro():
             print(f"   {caminho_html}")
 
-    print(f"\nPronto. {entraram} linha(s) de leilao entraram como PROVISORIAS -- "
-          f"elas aparecem hachuradas nos graficos, e viram definitivas sozinhas "
-          f"quando a planilha do Tesouro sair.")
+    marca = ("contorno claro" if estagio == "ofertado" else "hachura")
+    print(f"\nPronto. {entraram} linha(s) entraram como {estagio.upper()} -- "
+          f"aparecem com {marca} nos graficos.")
+    if estagio == "ofertado":
+        print("Quando o resultado sair, rode de novo com o arquivo do resultado: "
+              "a quantidade aceita substitui o teto sozinha.")
+    else:
+        print("Quando a planilha do Tesouro trouxer este leilao, a linha some "
+              "sozinha.")
     return entraram
+
+
+def _avisar_sobre_a_taxa(tabela):
+    """Diz de quando veio a taxa emprestada, e avisa quando ela e velha.
+
+    A oferta nao traz taxa, e sem taxa nao ha financeiro nem DV01. A do leilao
+    anterior do mesmo papel erra 11 bp na mediana -- MAS isso foi medido com o
+    leilao anterior em ate 45 dias. Alem disso o mercado ja e outro, e o erro nao e
+    mais o que esta medido. A linha nao e recusada; quem roda e avisado.
+    """
+    preenchida = leilao_ofertado.preencher(tabela)
+    velhas = preenchida[preenchida["taxa_velha"]]
+    sem_taxa = preenchida[preenchida["taxa_media_pct"].isna()]
+    print(f"   taxa emprestada do leilao anterior de cada papel; idade mediana "
+          f"{preenchida['taxa_dias_de_idade'].median():.0f} dia(s)")
+    if len(velhas):
+        print(f"   ATENCAO: em {len(velhas)} linha(s) a taxa tem mais de "
+              f"{leilao_ofertado.DIAS_MAXIMOS_PARA_A_TAXA} dias -- o erro medido "
+              f"(11 bp na mediana) nao vale para elas:")
+        for _, r in velhas.iterrows():
+            print(f"     {r['titulo']} {r['data_vencimento']:%d/%m/%Y}: taxa de "
+                  f"{r['taxa_de_quando']:%d/%m/%Y} "
+                  f"({int(r['taxa_dias_de_idade'])} dias)")
+    if len(sem_taxa):
+        print(f"   {len(sem_taxa)} linha(s) sem leilao anterior: entram so com "
+              f"quantidade, sem financeiro e sem DV01.")
 
 
 def main():

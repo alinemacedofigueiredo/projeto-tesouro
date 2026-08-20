@@ -21,7 +21,7 @@ financeiro, com media movel de 3 meses.
 """
 import pandas as pd
 
-from .. import config
+from .. import config, leiloes_recentes
 from . import estilo
 
 # A ordem em que as familias empilham e aparecem na legenda: do mais curto para o
@@ -46,11 +46,41 @@ _COR_FINANCEIRO = "#3d9be9"
 _COR_DV = "#c00000"
 
 
-# A hachura marca o leilao que ainda nao foi confirmado pela planilha do Tesouro.
-# E hachura, e nao cor, porque no grafico empilhado a cor JA significa papel --
-# roubar uma cor para significar proveniencia criaria duas leituras para o mesmo
-# sinal.
+# TRES APARENCIAS PARA TRES MOMENTOS. Um leilao aparece na tela tres vezes, e a
+# barra vai ficando mais solida conforme o numero fica mais firme:
+#
+#   ofertado -- so contorno, vazia por dentro. E um TETO: a quantidade anunciada,
+#               que historicamente cai para 83,9% dela, com taxa emprestada do
+#               leilao anterior;
+#   aceito   -- hachurada. A quantidade ja e final; a taxa publicada na hora pode
+#               ser preliminar;
+#   planilha -- solida. Nao muda mais.
+#
+# E hachura e contorno, e nao cor, porque no grafico empilhado a cor JA significa
+# papel -- roubar uma cor para significar momento criaria duas leituras para o
+# mesmo sinal.
 HACHURA_PROVISORIO = "///"
+HACHURA_ACEITO = "///"
+HACHURA_OFERTADO = ""
+
+ESTAGIO_MAIS_FIRME = "planilha"
+
+_ROTULO_DO_ESTAGIO = {
+    "ofertado": "ofertado hoje \u00b7 teto, e a taxa \u00e9 a do leil\u00e3o anterior",
+    "aceito": "aceito hoje (API) \u00b7 muda quando a planilha sair",
+}
+
+
+def _menos_firme(estagios):
+    """De um grupo de linhas, o estagio menos adiantado.
+
+    Um dia de leilao soma varios papeis. Se um deles ainda e teto, a soma daquele
+    dia tambem e teto -- ela nao pode ser mais firme que a sua parte mais fraca.
+    """
+    presentes = [e for e in estagios if isinstance(e, str)]
+    if not presentes:
+        return ESTAGIO_MAIS_FIRME
+    return min(presentes, key=lambda e: leiloes_recentes.ORDEM_DOS_ESTAGIOS.get(e, 9))
 
 
 def _base(com_compra=False, com_segunda_volta=True):
@@ -60,8 +90,9 @@ def _base(com_compra=False, com_segunda_volta=True):
     # CSVs gravados antes de a API existir nao tem a coluna. Sem este default, todo
     # grafico quebraria ao ler um arquivo antigo -- e o certo e ele continuar
     # lendo, dizendo que tudo ali e definitivo, porque e.
-    if "origem" not in d.columns:
-        d["origem"] = "planilha"
+    if "estagio" not in d.columns:
+        d["estagio"] = "planilha" if "origem" not in d.columns else d["origem"].map(
+            {"planilha": "planilha", "api": "aceito"}).fillna("planilha")
     if not com_compra:
         d = d[d["operacao"] == "venda"]
     if not com_segunda_volta:
@@ -88,9 +119,10 @@ def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True):
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
         leiloes=("titulo", "size"),
-        # Um dia inteiro fica marcado se QUALQUER linha dele veio da API: o
-        # financeiro somado daquele dia ja depende de um numero que pode mudar.
-        provisorio=("origem", lambda s: bool((s == "api").any())),
+        # A barra do dia recebe o estagio MENOS firme entre as linhas dele: se um
+        # papel do dia ainda e teto, o total daquele dia tambem e teto. Marcar so
+        # "parte" de uma barra somada nao existe.
+        estagio=("estagio", _menos_firme),
     )
     # A LFT nao tem DV: a soma de uma coluna toda vazia devolve zero, e zero aqui
     # seria uma afirmacao sobre o risco dela. Volta a ser vazio.
@@ -111,7 +143,7 @@ def por_semana(janela=None, com_compra=False, com_segunda_volta=True):
     saida = d.groupby(semana).agg(
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
-        provisorio=("origem", lambda s: bool((s == "api").any())),
+        estagio=("estagio", _menos_firme),
     )
     saida.index.name = "semana"
     return estilo.recorta(saida, janela)
@@ -132,8 +164,8 @@ def financeiro_semanal_por_papel(janela=None, com_compra=False,
         if familia not in piv.columns:
             piv[familia] = 0.0
     piv = piv[ORDEM_FAMILIAS]
-    piv["provisorio"] = d.groupby(semana)["origem"].apply(
-        lambda s: bool((s == "api").any())).reindex(piv.index).fillna(False)
+    piv["estagio"] = d.groupby(semana)["estagio"].apply(_menos_firme).reindex(
+        piv.index).fillna(ESTAGIO_MAIS_FIRME)
     return estilo.recorta(piv, janela)
 
 
@@ -167,32 +199,77 @@ def quantidade_e_taxa(recorte, janela=None, com_segunda_volta=True):
     return estilo.recorta(saida, janela)
 
 
-def _hachura(dados):
-    """A lista de hachuras, uma por barra: vazia no definitivo, listrada no da API.
+def _estagios(dados):
+    """A lista de estagios, uma por barra. None quando tudo ja e definitivo.
 
-    Devolve None quando NAO ha nada provisorio, para que o SVG do historico
-    continue byte a byte o mesmo de antes -- a reprodutibilidade e testada.
+    Devolve None -- e nao uma lista de "planilha" -- para que o SVG do historico
+    continue byte a byte o mesmo de antes de a API existir. A reprodutibilidade e
+    testada, e passar hatch=["",""] em vez de hatch=None ja muda o arquivo.
     """
-    if "provisorio" not in dados.columns:
+    if "estagio" not in dados.columns:
         return None
-    marcas = dados["provisorio"].fillna(False).astype(bool)
-    if not marcas.any():
+    marcas = dados["estagio"].fillna(ESTAGIO_MAIS_FIRME).astype(str)
+    if (marcas == ESTAGIO_MAIS_FIRME).all():
         return None
-    return [HACHURA_PROVISORIO if m else "" for m in marcas]
+    return list(marcas)
 
 
-def _legenda_do_provisorio(hachuras):
-    """A entrada de legenda que explica a hachura, ou nada quando nao ha hachura.
+# Quanto do preenchimento sobra na barra da oferta. Zero -- barra oca -- foi a
+# primeira tentativa e apagava a composicao do grafico empilhado, que e a coisa que
+# ele existe para mostrar. Fantasma preserva a cor do papel e continua lendo como
+# "ainda nao aconteceu".
+OPACIDADE_DO_OFERTADO = 0.22
 
-    Sem a entrada, a listra e um enfeite: quem olha nao tem como saber que aquela
-    barra pode mudar de altura amanha.
+
+def _aparencia(estagios, cor, opacidade=0.75):
+    """Os argumentos de barra que traduzem estagio em aparencia.
+
+    Devolve um dicionario pronto para ax.bar(**...). Quando nao ha nada provisorio,
+    devolve a aparencia antiga e nada mais -- ver _estagios().
+
+    A opacidade entra na COR, e nao no alpha= da barra: alpha e um so para a serie
+    inteira, e aqui cada barra precisa da sua.
     """
-    if hachuras is None:
+    from matplotlib.colors import to_rgba
+
+    if estagios is None:
+        return {"color": to_rgba(cor, opacidade)}
+    return {
+        "color": [to_rgba(cor, OPACIDADE_DO_OFERTADO if e == "ofertado"
+                          else opacidade) for e in estagios],
+        "hatch": [HACHURA_ACEITO if e == "aceito" else HACHURA_OFERTADO
+                  for e in estagios],
+        # O contorno forte na oferta e o que faz o fantasma parecer contorno, e nao
+        # cor desbotada por acidente.
+        "edgecolor": [to_rgba(cor, 1.0) if e == "ofertado" else
+                      ("#333333" if e == "aceito" else "none") for e in estagios],
+        "linewidth": [1.6 if e == "ofertado" else (0.4 if e == "aceito" else 0.0)
+                      for e in estagios],
+    }
+
+
+def _legenda_dos_estagios(estagios):
+    """As entradas de legenda que explicam contorno e hachura.
+
+    Uma entrada por estagio provisorio PRESENTE, e nenhuma quando nao ha nenhum.
+    Listra sem legenda e enfeite: quem olha nao tem como saber que aquela barra pode
+    mudar de altura amanha.
+    """
+    if estagios is None:
         return []
     from matplotlib.patches import Patch
-    return [Patch(facecolor="white", edgecolor="#555555",
-                  hatch=HACHURA_PROVISORIO,
-                  label="leil\u00e3o do dia (API) \u00b7 muda quando a planilha sair")]
+
+    marcas = []
+    for estagio in ("ofertado", "aceito"):
+        if estagio not in estagios:
+            continue
+        marcas.append(Patch(
+            facecolor=("#cccccc" if estagio == "ofertado" else "white"),
+            edgecolor="#555555",
+            hatch=HACHURA_ACEITO if estagio == "aceito" else HACHURA_OFERTADO,
+            linewidth=1.4 if estagio == "ofertado" else 0.4,
+            label=_ROTULO_DO_ESTAGIO[estagio]))
+    return marcas
 
 
 def _largura(indice):
@@ -215,10 +292,9 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=False):
     proporcional ao numero.
     """
     largura = _largura(dados.index)
-    hachuras = _hachura(dados)
+    estagios = _estagios(dados)
     ax.bar(dados.index, dados["financeiro_milhoes"] / 1000, width=largura,
-           color=_COR_FINANCEIRO, alpha=0.75, label="financeiro aceito",
-           hatch=hachuras, edgecolor="#1f4e79" if hachuras else "none")
+           label="financeiro aceito", **_aparencia(estagios, _COR_FINANCEIRO))
     ax.set_ylabel("R$ bilh\u00f5es aceitos")
     ax.axhline(0, color="gray", lw=0.8)
 
@@ -253,7 +329,7 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=False):
     if direita is not None:
         m2, r2 = direita.get_legend_handles_labels()
         marcas, rotulos = marcas + m2, rotulos + r2
-    extras = _legenda_do_provisorio(hachuras)
+    extras = _legenda_dos_estagios(estagios)
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
               ncol=2 + len(extras), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.10))
@@ -267,10 +343,9 @@ def desenha_lft(dados, ax, meses_da_media=3):
     quer ver na LFT e o ritmo, nao o risco.
     """
     largura = _largura(dados.index)
-    hachuras = _hachura(dados)
+    estagios = _estagios(dados)
     ax.bar(dados.index, dados["financeiro_milhoes"] / 1000, width=largura,
-           color=estilo.COR["LFT"], alpha=0.75, label="financeiro aceito",
-           hatch=hachuras, edgecolor="#555555" if hachuras else "none")
+           label="financeiro aceito", **_aparencia(estagios, estilo.COR["LFT"]))
 
     # A media movel e de dias de leilao, nao de dias corridos: e a serie que existe.
     # 3 meses ~ 13 leiloes semanais.
@@ -286,7 +361,7 @@ def desenha_lft(dados, ax, meses_da_media=3):
     ax.set_title("LFT \u00b7 s\u00f3 financeiro: ela n\u00e3o tem DV, por decis\u00e3o de modelagem",
                  fontsize=11, weight="bold", loc="left", pad=10)
     marcas, rotulos = ax.get_legend_handles_labels()
-    extras = _legenda_do_provisorio(hachuras)
+    extras = _legenda_dos_estagios(estagios)
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
               ncol=2 + len(extras), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.10))
@@ -295,14 +370,12 @@ def desenha_lft(dados, ax, meses_da_media=3):
 def desenha_empilhado(dados, ax):
     """Financeiro da semana, empilhado por familia de papel."""
     largura = _largura(dados.index)
-    hachuras = _hachura(dados)
+    estagios = _estagios(dados)
     base = pd.Series(0.0, index=dados.index)
     for familia in ORDEM_FAMILIAS:
         altura = dados[familia] / 1000
-        ax.bar(dados.index, altura, bottom=base, width=largura,
-               color=estilo.COR[_COR_FAMILIA[familia]], label=familia,
-               hatch=hachuras, edgecolor="#333333" if hachuras else "none",
-               linewidth=0.4 if hachuras else 0)
+        ax.bar(dados.index, altura, bottom=base, width=largura, label=familia,
+               **_aparencia(estagios, estilo.COR[_COR_FAMILIA[familia]], 1.0))
         base = base + altura
 
     ax.set_ylabel("R$ bilh\u00f5es aceitos na semana")
@@ -310,7 +383,7 @@ def desenha_empilhado(dados, ax):
     ax.grid(axis="y", alpha=0.20)
     estilo.eixo_anual(ax, a_cada=1 if len(dados) < 200 else 2)
     marcas, rotulos = ax.get_legend_handles_labels()
-    extras = _legenda_do_provisorio(hachuras)
+    extras = _legenda_dos_estagios(estagios)
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
               ncol=len(ORDEM_FAMILIAS) + len(extras), frameon=False,
               loc="upper center", bbox_to_anchor=(0.5, -0.10))

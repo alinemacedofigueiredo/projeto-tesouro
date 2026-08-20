@@ -46,7 +46,9 @@ acumulacao do mes, e um desvio grande denuncia dado errado em vez de virar DV to
 """
 import pandas as pd
 
-from . import calendario, config, leiloes_recentes, precificacao
+from . import (calendario, config, leilao_ofertado, leiloes_recentes,
+               precificacao)
+from .leiloes_recentes import COLUNA_ESTAGIO as ESTAGIO
 
 # O TESOURO CLASSIFICA CADA LEILAO PELO VERTICE, e essa classificacao esta no dado:
 # a coluna 'referencia' do leiloes.csv traz "NTN-B 5 anos", "NTN-B 40 anos" e assim
@@ -91,32 +93,47 @@ def _vna_ate(vna, indice, quando):
     return float(linha["vna"]), linha["data"]
 
 
-def dv_por_leilao(com_provisorio=False):
+def dv_por_leilao(ate_o_estagio="planilha"):
     """Uma linha por leilao-papel-volta, com o DV unitario e o DV total.
 
     Devolve tambem as linhas sem DV (LFT), porque o financeiro delas entra nos
     graficos. Quem quiser so o que tem risco filtra por dv_milhoes.notna().
 
-    com_provisorio=True acrescenta os leiloes que a API adiantou e a planilha ainda
-    nao tem. O default e False de proposito: o contrato deste CSV e "o que a planilha
-    diz", e os testes que ja o usam continuam querendo dizer o que queriam.
+    ate_o_estagio diz quanto do provisorio entra: "planilha" (so o definitivo, que e
+    o default e mantem o contrato antigo deste CSV), "aceito" (mais o resultado do
+    dia) ou "ofertado" (mais o teto anunciado).
 
-    A coluna 'origem' sai sempre, com "planilha" ou "api". Ela nao e detalhe de
-    proveniencia: a taxa publicada na hora do leilao pode ser preliminar, e entao o
-    DV calculado hoje muda quando a planilha chegar. Quem desenha usa essa coluna
-    para hachurar a barra provisoria.
+    A coluna 'estagio' sai sempre. Ela nao e detalhe de proveniencia -- e o quanto
+    aquele numero ainda pode mudar:
+
+      ofertado -- a quantidade e TETO e vai cair; a taxa e emprestada do leilao
+                  anterior. Historicamente o Tesouro aceita 83,9% do que oferta;
+      aceito   -- a quantidade e final, mas a taxa publicada na hora pode ser
+                  preliminar;
+      planilha -- nao muda mais.
+
+    Quem desenha usa essa coluna para dar tres aparencias diferentes a barra.
     """
     cal = calendario.padrao()
 
-    if com_provisorio:
-        l = leiloes_recentes.completo(com_provisorio=True)
-    else:
+    if ate_o_estagio == "planilha":
         l = pd.read_csv(
             config.PROCESSED_DIR / "leiloes.csv",
             parse_dates=["data_leilao", "data_liquidacao", "data_vencimento"],
         )
-    if "origem" not in l.columns:
-        l["origem"] = "planilha"
+    else:
+        l = leiloes_recentes.completo(ate_o_estagio=ate_o_estagio)
+    if ESTAGIO not in l.columns:
+        l[ESTAGIO] = "planilha"
+
+    # As linhas de oferta chegam sem taxa e sem financeiro; leilao_ofertado.preencher
+    # completa as duas, e marca que completou. Feito AQUI, e nao la na coleta, para
+    # que a suposicao seja refeita com o historico de hoje toda vez que este CSV for
+    # regravado -- e nao congelada no dia em que o arquivo foi baixado.
+    de_oferta = l[ESTAGIO] == "ofertado"
+    if de_oferta.any():
+        preenchidas = leilao_ofertado.preencher(l[de_oferta], base=l[~de_oferta])
+        l = pd.concat([l[~de_oferta], preenchidas], ignore_index=True)
     vna = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
 
     # Venda e Compra, e as versoes extraordinarias das duas. Troca fica de fora: ela
@@ -188,7 +205,7 @@ def dv_por_leilao(com_provisorio=False):
         _familia(t, p) for t, p in zip(d["titulo"], d["prazo_anos"])
     ]
 
-    colunas = ["origem",
+    colunas = [ESTAGIO,
                "data_leilao", "data_liquidacao", "titulo", "familia", "operacao",
                "volta", "data_vencimento", "prazo_anos", "vertice_anos",
                "quantidade", "financeiro_milhoes", "taxa_media_pct",
@@ -241,14 +258,14 @@ def _familia(titulo, prazo_anos):
             else "NTN-B longa")
 
 
-def gravar(com_provisorio=False):
+def gravar(ate_o_estagio="planilha"):
     """Grava dv_emitido_por_leilao.csv em data/processed/.
 
     Mesmo padrao de dv.gravar_painel: conteudo gerado localmente a partir de
     data/processed/ ja validado, entao df.to_csv direto.
     """
     config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    df = dv_por_leilao(com_provisorio)
+    df = dv_por_leilao(ate_o_estagio)
     saida = config.PROCESSED_DIR / "dv_emitido_por_leilao.csv"
     df.to_csv(saida, index=False, encoding="utf-8")
     print(f"gravado: {saida} ({len(df)} linhas)")

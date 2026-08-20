@@ -4,15 +4,27 @@ O PROBLEMA. O Tesouro publica o `historico-leiloes-todos.xls` com atraso -- um d
 as vezes mais. Quem acompanha leilao precisa do numero logo depois de o resultado
 sair, e nao no dia seguinte. A API do portal de dados abertos publica antes.
 
-A REGRA QUE ORGANIZA TUDO: a planilha e a fonte definitiva, a API e provisoria.
+SAO TRES MOMENTOS, e nao dois. Um leilao aparece na tela tres vezes, e a cada vez
+o numero fica mais firme:
+
+  1. OFERTADO -- o Tesouro anuncia quanto vai ofertar. Ainda nao ha taxa nem
+     financeiro; o que da para desenhar e um TETO ("se aceitar tudo");
+  2. ACEITO -- sai o resultado, e a quantidade ofertada e substituida pela aceita,
+     que e sempre menor ou igual. A taxa agora e a de verdade;
+  3. PLANILHA -- o historico-leiloes-todos.xls traz o mesmo leilao, um dia ou mais
+     depois, e a linha da API deixa de ser necessaria.
+
+A REGRA QUE ORGANIZA TUDO: o estagio mais adiantado sempre vence. Planilha sobre
+aceito, aceito sobre ofertado. Nunca ao contrario -- e por isso que rodar de novo com
+um arquivo antigo nao estraga o que ja estava certo.
 
 Dai decorre o resto do desenho:
 
   - `leiloes.csv` continua sendo SO a planilha. O contrato dele nao muda, e os
     testes que ja o usam continuam querendo dizer o que queriam;
   - `leiloes_recentes.csv` guarda so o que a API trouxe e a planilha ainda nao tem;
-  - `completo()` devolve a uniao, com a coluna `origem` dizendo de onde veio cada
-    linha. Quem consome escolhe se quer o provisorio;
+  - `completo()` devolve a uniao, com a coluna `estagio` dizendo em que momento
+    cada linha esta. Quem consome escolhe ate onde quer ir;
   - quando a planilha finalmente traz um leilao, a linha da API para ele SOME. A
     reconciliacao e automatica e nao precisa de ninguem lembrando de limpar.
 
@@ -38,6 +50,14 @@ DUPLICATAS_CONHECIDAS_DA_PLANILHA = 8
 
 ARQUIVO_RECENTES = "leiloes_recentes.csv"
 
+# Quanto mais alto, mais firme o numero. A ordem e o que decide quem sobrevive
+# quando o mesmo leilao chega duas vezes -- e ela NUNCA anda para tras.
+ORDEM_DOS_ESTAGIOS = {"ofertado": 0, "aceito": 1, "planilha": 2}
+
+# O nome da coluna e "estagio" e nao "origem" de proposito: o que importa a quem le
+# o grafico nao e de qual arquivo o numero veio, e sim quanto ele ainda pode mudar.
+COLUNA_ESTAGIO = "estagio"
+
 
 def carregar_base():
     """O historico que veio da planilha do Tesouro."""
@@ -47,11 +67,18 @@ def carregar_base():
     )
 
 
-def carregar_recentes():
-    """O que a API trouxe e a planilha ainda nao tem. Vazio se o arquivo nao existe."""
+def carregar_recentes(colunas=None):
+    """O que a API trouxe e a planilha ainda nao tem. Vazio se o arquivo nao existe.
+
+    'colunas' evita ir ao disco so para descobrir o formato do vazio: quem ja tem a
+    base em maos passa as colunas dela. Sem isso, a funcao lia leiloes.csv apenas
+    para construir um DataFrame com zero linhas.
+    """
     caminho = config.PROCESSED_DIR / ARQUIVO_RECENTES
     if not caminho.exists():
-        return pd.DataFrame(columns=list(carregar_base().columns) + ["origem"])
+        if colunas is None:
+            colunas = list(carregar_base().columns)
+        return pd.DataFrame(columns=list(colunas) + [COLUNA_ESTAGIO])
     return pd.read_csv(
         caminho, parse_dates=["data_leilao", "data_liquidacao", "data_vencimento"],
     )
@@ -93,38 +120,109 @@ def novidades(candidatos, base=None):
     return candidatos[pd.Series(marca, index=candidatos.index)]
 
 
-def gravar_recentes(candidatos, base=None):
-    """Grava leiloes_recentes.csv com o que a planilha ainda nao tem.
+def _indexa_por_chave(df):
+    """O DataFrame indexado pela chave normalizada, para casar linha com linha."""
+    if df.empty:
+        return df.assign(_chave=pd.Series(dtype=object)).set_index("_chave")
+    partes = []
+    for coluna in CHAVE:
+        valores = df[coluna]
+        if pd.api.types.is_datetime64_any_dtype(valores):
+            valores = valores.dt.normalize()
+        partes.append(valores.astype(str))
+    return df.assign(_chave=list(zip(*partes))).set_index("_chave")
+
+
+def gravar_recentes(candidatos, estagio="aceito", base=None):
+    """Acrescenta o que chegou ao leiloes_recentes.csv, sem apagar o que ja estava.
+
+    ACRESCENTA, e nao substitui. A primeira versao substituia, e isso apagava o
+    leilao de segunda quando o de terca chegava -- exatamente o caso que motiva o
+    arquivo existir. Conferido por teste.
+
+    Quando o mesmo leilao chega duas vezes, vence o ESTAGIO MAIS ADIANTADO: o aceito
+    substitui o ofertado, e nunca o contrario. Assim, reprocessar um arquivo antigo
+    de oferta nao desfaz um resultado ja conhecido.
 
     Devolve (caminho, quantos_entraram, quantos_ja_estavam) -- os tres numeros que
-    quem roda isso de madrugada precisa ver no log.
+    quem roda isso a noite precisa ver no log.
     """
+    if estagio not in ORDEM_DOS_ESTAGIOS:
+        raise LookupError(
+            f"estagio '{estagio}' nao existe. Os que existem: "
+            f"{sorted(ORDEM_DOS_ESTAGIOS, key=ORDEM_DOS_ESTAGIOS.get)}."
+        )
     base = carregar_base() if base is None else base
-    novos = novidades(candidatos, base).copy()
-    novos["origem"] = "api"
+
+    chegando = novidades(candidatos, base).copy()
+    chegando[COLUNA_ESTAGIO] = estagio
+
+    guardado = carregar_recentes(colunas=base.columns)
+    if not guardado.empty:
+        # O que a planilha ja alcancou sai daqui tambem, e nao so na hora de juntar:
+        # deixar crescer um arquivo de provisorios que ja viraram definitivos e
+        # convite para alguem le-lo sem passar por completo().
+        guardado = novidades(guardado, base)
+    if COLUNA_ESTAGIO not in guardado.columns:
+        guardado[COLUNA_ESTAGIO] = "aceito"
+
+    antigos = _indexa_por_chave(guardado)
+    novos = _indexa_por_chave(chegando)
+
+    peso_novo = ORDEM_DOS_ESTAGIOS[estagio]
+    manter = [
+        chave for chave in antigos.index
+        if chave not in novos.index
+        or ORDEM_DOS_ESTAGIOS.get(antigos.loc[[chave], COLUNA_ESTAGIO].iloc[0], 0)
+        > peso_novo
+    ]
+    sobrevivem = antigos.loc[antigos.index.isin(manter)]
+    entram = novos.loc[~novos.index.isin(manter)]
+
+    juntos = pd.concat([sobrevivem, entram]).reset_index(drop=True)
+    juntos = juntos.sort_values(["data_leilao", "titulo"]).reset_index(drop=True)
 
     caminho = config.PROCESSED_DIR / ARQUIVO_RECENTES
     config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    novos.to_csv(caminho, index=False, encoding="utf-8")
-    return caminho, len(novos), len(candidatos) - len(novos)
+    juntos.to_csv(caminho, index=False, encoding="utf-8")
+    return caminho, len(entram), len(candidatos) - len(entram)
 
 
-def completo(com_provisorio=True):
-    """A planilha mais o que a API adiantou, com a coluna 'origem'.
+def completo(ate_o_estagio="ofertado"):
+    """A planilha mais o que a API adiantou, com a coluna 'estagio'.
 
-    E o que os graficos de leilao devem ler quando quiserem o dia de hoje. Com
-    com_provisorio=False devolve so a planilha, que e o numero que nao muda mais.
+    E o que os graficos de leilao devem ler quando quiserem o dia de hoje.
+
+    ate_o_estagio diz ate onde aceitar o provisorio:
+      "planilha" -- so o numero que nao muda mais;
+      "aceito"   -- inclui o resultado do dia, ainda nao confirmado pela planilha;
+      "ofertado" -- inclui tambem o teto anunciado, cuja quantidade quase certamente
+                    vai cair. E o default porque a pergunta que motivou tudo isto e
+                    "o que esta acontecendo hoje" -- mas quem desenha tem de marcar
+                    a diferenca na tela, e marca.
     """
+    if ate_o_estagio not in ORDEM_DOS_ESTAGIOS:
+        raise LookupError(
+            f"estagio '{ate_o_estagio}' nao existe. Os que existem: "
+            f"{sorted(ORDEM_DOS_ESTAGIOS, key=ORDEM_DOS_ESTAGIOS.get)}."
+        )
     base = carregar_base().copy()
-    base["origem"] = "planilha"
-    if not com_provisorio:
+    base[COLUNA_ESTAGIO] = "planilha"
+    if ate_o_estagio == "planilha":
         return base
 
-    recentes = carregar_recentes()
+    recentes = carregar_recentes(colunas=base.columns)
     if recentes.empty:
         return base
-    # Reconfere na hora de juntar, e nao so na hora de gravar: o recentes.csv pode
-    # ter sido gravado antes de a planilha ser atualizada, e nesse intervalo ele
-    # carrega linhas que ja viraram definitivas.
+    if COLUNA_ESTAGIO not in recentes.columns:
+        recentes[COLUNA_ESTAGIO] = "aceito"
+    # Reconfere na hora de juntar, e nao so na de gravar: o recentes.csv pode ter
+    # sido gravado antes de a planilha ser atualizada, e nesse intervalo ele carrega
+    # linhas que ja viraram definitivas.
     recentes = novidades(recentes, base)
+
+    limite = ORDEM_DOS_ESTAGIOS[ate_o_estagio]
+    recentes = recentes[
+        recentes[COLUNA_ESTAGIO].map(ORDEM_DOS_ESTAGIOS).fillna(-1) >= limite
+    ]
     return pd.concat([base, recentes], ignore_index=True)

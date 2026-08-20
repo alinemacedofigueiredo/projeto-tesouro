@@ -235,35 +235,48 @@ def _barra_das_combinacoes(arquivo_atual):
 def _aviso_do_provisorio():
     """A faixa que aparece SO quando ha leilao provisorio na base.
 
-    Ela diz a data do que ainda nao foi confirmado. A hachura no grafico diz "esta
-    barra e provisoria"; esta faixa diz QUAL DIA, e isso e o que permite conferir
-    contra a planilha quando ela sair.
+    Ela diz a data do que ainda nao foi confirmado, e separa os dois momentos: o que
+    ja aconteceu (aceito) e o que so foi anunciado (ofertado). A marca no grafico
+    diz "esta barra e provisoria"; esta faixa diz QUAL DIA e EM QUE MOMENTO, e e
+    isso que permite conferir contra a planilha quando ela sair.
 
     Quando nao ha nada provisorio, a faixa nao existe -- pagina de historico nao
-    precisa de aviso sobre uma coisa que nao esta la.
+    precisa de aviso sobre uma coisa que nao esta la, e um aviso permanente vira
+    ruido que ninguem le quando importar.
     """
     from .. import config
 
     caminho = config.PROCESSED_DIR / "dv_emitido_por_leilao.csv"
     if not caminho.exists():
         return ""
-    d = pd.read_csv(caminho, usecols=lambda c: c in ("origem", "data_leilao"))
-    if "origem" not in d.columns:
+    d = pd.read_csv(caminho, usecols=lambda c: c in ("estagio", "data_leilao"))
+    if "estagio" not in d.columns:
         return ""
-    dias = sorted(set(d.loc[d["origem"] == "api", "data_leilao"].astype(str)))
-    if not dias:
+
+    partes = []
+    for estagio, texto in (
+        ("ofertado",
+         "<b>ofertado, ainda n\u00e3o aceito</b> \u2014 a barra \u00e9 um <b>teto</b>: "
+         "a quantidade anunciada, que historicamente cai para 83,9% dela, e a taxa "
+         "\u00e9 a do leil\u00e3o anterior do mesmo papel. Aparece com contorno claro"),
+        ("aceito",
+         "<b>aceito, ainda n\u00e3o na planilha</b> \u2014 a quantidade j\u00e1 \u00e9 "
+         "final, mas a taxa publicada na hora pode ser preliminar, e ent\u00e3o o "
+         "DV01 muda. Aparece hachurado"),
+    ):
+        dias = sorted(set(d.loc[d["estagio"] == estagio, "data_leilao"].astype(str)))
+        if not dias:
+            continue
+        quais = ", ".join(dia[:10] for dia in dias)
+        partes.append(f"<li>{quais}: {texto}.</li>")
+
+    if not partes:
         return ""
-    quais = ", ".join(dia[:10] for dia in dias)
-    return (
-        '<div id="provisorio">'
-        "<b>Provis\u00f3rio:</b> "
-        f"{len(dias)} dia(s) de leil\u00e3o vieram da API e a planilha do Tesouro "
-        f"ainda n\u00e3o confirmou \u2014 {quais}. "
-        "Eles aparecem <b>hachurados</b> nos gr\u00e1ficos. A taxa publicada na hora "
-        "pode ser preliminar, e ent\u00e3o o DV01 muda quando a planilha sair. "
-        "A linha some sozinha quando isso acontecer."
-        "</div>"
-    )
+    return ('<div id="provisorio">'
+            "<b>Provis\u00f3rio nesta p\u00e1gina:</b>"
+            "<ul>" + "".join(partes) + "</ul>"
+            "Cada linha some sozinha quando o momento seguinte chegar."
+            "</div>")
 
 
 def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
@@ -301,6 +314,8 @@ _CSS_PROVISORIO = """
 #provisorio { margin: 0 auto 14px; max-width: 1180px; padding: 10px 14px;
   border-left: 4px solid #555; background: #f4f4f4; font-size: 0.92em;
   line-height: 1.45; color: #333; }
+#provisorio ul { margin: 6px 0 6px 0; padding-left: 20px; }
+#provisorio li { margin: 3px 0; }
 """
 
 _CSS_COMBINACOES = """
