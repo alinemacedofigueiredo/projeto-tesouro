@@ -45,6 +45,10 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     alvos.append((leiloes_dv, "gravar"))
     from tesouro.graficos import painel_emissoes
     alvos.append((painel_emissoes, "grava_todas"))
+    # E a agenda, que entrou em 20/08/2026. Sem o stub ela iria a REDE buscar o
+    # calendario -- e ha um teste neste arquivo que bloqueia socket de proposito.
+    from tesouro.graficos import painel_agenda
+    alvos.append((painel_agenda, "grava"))
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
@@ -134,6 +138,7 @@ def test_pipeline_grava_as_dez_etapas_na_ordem_certa(monkeypatch):
         "tesouro.leiloes_dv.gravar",
         "tesouro.graficos.dashboard.grava",
         "tesouro.graficos.painel_emissoes.grava_todas",
+        "tesouro.graficos.painel_agenda.grava",
     ]
 
 

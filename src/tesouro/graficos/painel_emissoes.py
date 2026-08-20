@@ -248,23 +248,6 @@ def registro(com_compra=False, com_2a=True):
     ]
 
 
-def _barra_das_combinacoes(arquivo_atual):
-    """A faixa no topo que diz qual recorte esta aberto e liga para os outros tres.
-
-    Sao links relativos entre arquivos da mesma pasta, entao continuam funcionando
-    com duplo clique e sem servidor -- que e a propriedade que o dashboard inteiro
-    protege.
-    """
-    partes = ['<div id="combinacoes">', "  <span>recorte:</span>"]
-    for _, _, arquivo, rotulo in COMBINACOES:
-        if arquivo == arquivo_atual:
-            partes.append(f'  <b class="atual">{rotulo}</b>')
-        else:
-            partes.append(f'  <a href="{arquivo}">{rotulo}</a>')
-    partes.append("</div>")
-    return "\n".join(partes)
-
-
 def _nota_da_taxa(recorte, estagio):
     """De onde veio a taxa daquelas linhas: digitada, emprestada, ou as duas.
 
@@ -352,16 +335,13 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     # "completa", que e a escala de estoque.
     escrito = dashboard.grava(caminho, recortes or list(JANELAS),
                               registro(com_compra, com_2a),
-                              GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}")
-    # A barra entra depois da montagem, logo antes do <main>: assim o montador do
-    # dashboard continua sem saber que existem tres paginas.
+                              GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}",
+                              extras=[(a, f"\u00b7 {r}")
+                                      for _, _, a, r in COMBINACOES],
+                              familia="emissoes.html")
     html = escrito.read_text(encoding="utf-8")
-    html = html.replace(
-        "<main>",
-        _barra_das_combinacoes(arquivo) + "\n" + _aviso_do_provisorio() + "\n<main>",
-        1)
-    html = html.replace("</style>",
-                        _CSS_COMBINACOES + _CSS_PROVISORIO + "</style>", 1)
+    html = html.replace("<main>", _aviso_do_provisorio() + "\n<main>", 1)
+    html = html.replace("</style>", _CSS_PROVISORIO + "</style>", 1)
     escrito.write_text(html, encoding="utf-8")
     return escrito
 
@@ -380,13 +360,3 @@ _CSS_PROVISORIO = """
 #provisorio li { margin: 3px 0; }
 """
 
-_CSS_COMBINACOES = """
-#combinacoes { margin: 0 0 14px; font-size: 13px; display: flex;
-               align-items: center; gap: 12px; flex-wrap: wrap; }
-#combinacoes span { color: var(--fraco); }
-#combinacoes a { color: var(--tinta); text-decoration: none;
-                 border-bottom: 1px solid transparent; }
-#combinacoes a:hover { border-bottom-color: var(--tinta); }
-#combinacoes b.atual { color: var(--tinta); border-bottom: 2px solid var(--tinta);
-                       padding-bottom: 1px; }
-"""

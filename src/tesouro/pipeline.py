@@ -118,6 +118,19 @@ def main(argumentos=None):
         # depender dele acoplaria o log ao formato do retorno.
         for _, _, arquivo, rotulo in painel_emissoes.COMBINACOES:
             print(f"pagina de emissoes gravada: {arquivo} ({rotulo})")
+
+        # A AGENDA DEPENDE DA REDE, e o pipeline nao. Se a API nao responder, a
+        # pagina do que VEM PELA FRENTE deixa de ser regravada e as outras seguem
+        # -- a alternativa seria derrubar o dashboard inteiro por causa de um
+        # calendario, que e a parte menos essencial do que se gera aqui.
+        from .graficos import painel_agenda
+        try:
+            caminho = painel_agenda.grava()
+            print(f"agenda gravada em {caminho}")
+        except Exception as erro_da_agenda:      # noqa: BLE001
+            print(f"AVISO: a agenda nao foi regravada ({erro_da_agenda}).")
+            print("       As demais paginas estao em dia; a agenda ficou com o "
+                  "calendario da rodada anterior.")
     except Exception as erro:               # noqa: BLE001
         # O paf.bandas levanta de proposito quando referencia/paf_bandas.csv esta
         # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico

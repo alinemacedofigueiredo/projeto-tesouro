@@ -65,13 +65,35 @@ def test_a_pagina_traz_os_onze_graficos_e_os_tres_grupos(pagina):
     assert pagina.count("<section") == 11
 
 
-def test_a_barra_liga_as_tres_paginas(pagina):
+def test_a_barra_liga_as_paginas_irmas_e_os_recortes(pagina):
     # Sem a barra, quem abre uma nao sabe que as outras existem. Os links sao
     # relativos, entao continuam funcionando com duplo clique e sem servidor.
-    assert 'id="combinacoes"' in pagina
+    #
+    # A barra passou a ser montada em dashboard.grava e a chamar-se "paginas" em
+    # 20/08/2026: antes cada painel tinha a sua copia da lista, e o dashboard --
+    # que nao e montado por painel nenhum -- ficava sem saida para os outros.
+    from tesouro.graficos import dashboard
+
+    assert 'id="paginas"' in pagina
+    # UMA marca de pagina atual, e nenhuma a mais. Com duas, quem le nao sabe onde
+    # esta -- e a primeira versao desta barra saia com duas em emissoes.html.
     assert pagina.count('class="atual"') == 1
+
+    # As irmas de primeiro nivel...
+    for arquivo, _ in dashboard.PAGINAS:
+        if arquivo != "emissoes.html":
+            assert f'href="{arquivo}"' in pagina
+    # ...e os recortes desta familia.
     for _, _, arquivo, _ in painel_emissoes.COMBINACOES[1:]:
         assert f'href="{arquivo}"' in pagina
+
+    # E nenhum destino repetido: emissoes.html e ao mesmo tempo a entrada da
+    # familia e o primeiro recorte, e sem cuidado aparecia duas vezes.
+    import re
+    i = pagina.index('<div id="paginas">')
+    barra = pagina[i:pagina.index("</div>", i)]
+    alvos = re.findall(r'href="([^"]+)"', barra)
+    assert len(alvos) == len(set(alvos)), alvos
 
 
 def test_a_pagina_nao_tem_referencia_externa(pagina):

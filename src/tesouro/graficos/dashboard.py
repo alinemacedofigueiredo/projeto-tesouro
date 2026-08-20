@@ -500,6 +500,71 @@ def svg_de(figura, prefixo=""):
     return _prefixa_ids(svg, prefixo) if prefixo else svg
 
 
+# AS PAGINAS IRMAS. Sao arquivos separados, ligados por links relativos -- que e o
+# que os faz funcionar com duplo clique e sem servidor, a propriedade que o
+# dashboard inteiro protege.
+#
+# A lista mora aqui, e nao em cada painel, porque tres copias de uma lista de tres
+# links viram tres listas diferentes na primeira vez que uma pagina entra ou sai.
+PAGINAS = [
+    ("dashboard.html", "o dashboard do RMD"),
+    ("emissoes.html", "o que j\u00e1 foi emitido"),
+    ("agenda.html", "a agenda"),
+]
+
+
+def barra_das_paginas(atual, extras=None, familia=None):
+    """A faixa do topo que liga as paginas entre si.
+
+    'extras' sao os links da propria familia da pagina -- as tres combinacoes de
+    compra e segunda volta, no caso das emissoes.
+
+    'familia' diz a qual entrada do primeiro nivel esses extras pertencem. Sem ela,
+    a pagina emissoes.html saia com DOIS itens em negrito ("o que ja foi emitido" e
+    "so venda, com 2a volta"), e a emissoes-1a-volta.html saia com o mesmo destino
+    duas vezes -- porque emissoes.html e ao mesmo tempo a entrada do primeiro nivel
+    e o primeiro dos extras.
+
+    Com ela, a entrada da familia vira texto simples quando se esta dentro dela: nao
+    e link, porque nao leva a lugar nenhum novo, e nao e negrito, porque o negrito
+    marca a pagina exata.
+    """
+    partes = ['<div id="paginas">', "  <span>p\u00e1ginas:</span>"]
+    for arquivo, rotulo in PAGINAS:
+        # A entrada da familia nunca e link nem negrito quando ha extras: quem
+        # aponta a pagina exata sao eles. Sem esta regra, emissoes.html saia com
+        # DOIS itens em negrito, e emissoes-1a-volta.html com o mesmo destino duas
+        # vezes.
+        dentro_da_familia = (familia is not None and extras
+                             and arquivo == familia)
+        if dentro_da_familia:
+            partes.append(f'  <span class="familia">{rotulo}</span>')
+        elif arquivo == atual:
+            partes.append(f'  <b class="atual">{rotulo}</b>')
+        else:
+            partes.append(f'  <a href="{arquivo}">{rotulo}</a>')
+    for arquivo, rotulo in (extras or []):
+        if arquivo == atual:
+            partes.append(f'  <b class="atual">{rotulo}</b>')
+        else:
+            partes.append(f'  <a href="{arquivo}">{rotulo}</a>')
+    partes.append("</div>")
+    return "\n".join(partes)
+
+
+CSS_DAS_PAGINAS = """
+#paginas { margin: 0 0 14px; font-size: 13px; display: flex;
+           align-items: center; gap: 12px; flex-wrap: wrap; }
+#paginas span { color: var(--fraco); }
+#paginas span.familia { color: var(--tinta); }
+#paginas a { color: var(--tinta); text-decoration: none;
+             border-bottom: 1px solid transparent; }
+#paginas a:hover { border-bottom-color: var(--tinta); }
+#paginas b.atual { color: var(--tinta); border-bottom: 2px solid var(--tinta);
+                   padding-bottom: 1px; }
+"""
+
+
 def _bloco(grafico, recortes):
     """Uma secao: titulo, as versoes do SVG, a fonte e a legenda.
 
@@ -603,10 +668,24 @@ def monta(recortes=None, registro=None, grupos=None, titulo=None):
     )
 
 
-def grava(caminho=None, recortes=None, registro=None, grupos=None, titulo=None):
-    """Grava o dashboard e devolve o caminho."""
+def grava(caminho=None, recortes=None, registro=None, grupos=None, titulo=None,
+          extras=None, familia=None):
+    """Grava a pagina e devolve o caminho.
+
+    A BARRA DAS PAGINAS ENTRA AQUI, e nao em cada painel. Os paineis injetavam a
+    barra depois da montagem, cada um com a sua copia da lista de links -- e o
+    dashboard, que nao e montado por painel nenhum, ficava sem barra e sem saida
+    para as outras paginas.
+
+    'extras' sao os links da propria familia da pagina: as combinacoes de compra e
+    segunda volta, no caso das emissoes.
+    """
     caminho = caminho or (config.PROCESSED_DIR / "dashboard.html")
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    caminho.write_text(monta(recortes, registro, grupos, titulo),
-                       encoding="utf-8")
+
+    html = monta(recortes, registro, grupos, titulo)
+    html = html.replace(
+        "<main>", barra_das_paginas(caminho.name, extras, familia) + "\n<main>", 1)
+    html = html.replace("</style>", CSS_DAS_PAGINAS + "</style>", 1)
+    caminho.write_text(html, encoding="utf-8")
     return caminho

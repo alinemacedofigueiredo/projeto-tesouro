@@ -242,3 +242,57 @@ chave do leilão nunca casa e **57 leilões que a planilha já tinha entraram co
 novidade**, prontos para aparecer em dobro no gráfico. Não levantou erro nenhum; foi
 pego porque o log dizia "70 novas, 0 que a planilha já tinha", e zero casamentos em
 trinta dias de leilão não é um número possível.
+
+
+---
+
+## A página da agenda
+
+`data/processed/agenda.html` — o que o Tesouro **planeja** ofertar, até onde ele
+publicou. Regravada pelo `pipeline`, e sozinha por
+
+```bash
+python -c "from tesouro.graficos import painel_agenda; painel_agenda.grava()"
+```
+
+Três gráficos, na ordem **do mais firme para o mais suposto**:
+
+1. **O cronograma** — só fatos publicados. O vértice fica no eixo vertical para
+   mostrar a **cobertura da curva** de cada dia: um dia com 3, 7 e 15 anos faz com o
+   prazo médio da dívida algo diferente de um com 5 e 30, e num gráfico por papel os
+   dois pareceriam iguais;
+2. **O DV01 por título** — calculado da última taxa, mas **sem quantidade nenhuma
+   dentro**. É o número mais firme da página, e responde qual dos papeis agendados
+   carrega risco: um NTN-B 35 anos carrega **mais de cem vezes** o DV01 de uma LTN de
+   6 meses, título a título;
+3. **O DV01 do dia, se ele repetir a última oferta** — hachurado inteiro, porque
+   **não é previsão**.
+
+E uma **tabela** com tudo, papel a papel, agrupada por dia — para conferir e copiar.
+
+### O que a página não é
+
+**O calendário não traz quantidade.** Ela sai no edital, a partir das 10h30 do
+próprio dia. O que aparece na página é o que ele ofertou da **vez passada** daquele
+papel — e ele muda de tamanho de leilão para leilão (aceita tudo em 42,6% das linhas,
+zero em 19,5%).
+
+A **taxa** de cada papel é a do último leilão dele, e o ⚠ marca as que passaram de
+45 dias — fora da faixa em que o erro de 11 bp foi medido.
+
+### O ritmo que ela revela
+
+Os dias alternam: **prefixado** (três LTN + três NTN-F, DV01 de −2,4 a −3,0 milhões
+por p.b.) e **LFT + NTN-B** (quatro papeis, −0,65 a −1,65). Os dias de pré carregam
+duas a quatro vezes o risco dos outros.
+
+### As cinco páginas
+
+Uma barra no topo liga todas, com links relativos — funcionam com duplo clique, sem
+servidor:
+
+`dashboard.html` · `emissoes.html` (mais dois recortes) · `agenda.html`
+
+A barra passou a ser montada num lugar só (`dashboard.grava`) em 20/08/2026: antes
+cada painel tinha a sua cópia da lista, e o `dashboard.html` — que não é montado por
+painel nenhum — ficava sem saída para os outros.
