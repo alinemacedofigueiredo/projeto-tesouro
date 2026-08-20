@@ -12,5 +12,12 @@ RMD_DIR = RAW_DIR / "rmd"
 LEILOES_DIR = RAW_DIR / "leiloes"
 PROCESSED_DIR = RAIZ / "data" / "processed"
 
+ANBIMA_DIR = RAW_DIR / "anbima"
+BLOOMBERG_DIR = RAW_DIR / "bloomberg"
+
 # Nome do arquivo unico com todo o historico de leiloes desde 2000.
 ARQUIVO_LEILOES = "historico-leiloes-todos.xls"
+
+# Calendario oficial de feriados, baixado de
+# anbima.com.br/feriados/arqs/feriados_nacionais.xls
+ARQUIVO_FERIADOS = "feriados_nacionais.xls"

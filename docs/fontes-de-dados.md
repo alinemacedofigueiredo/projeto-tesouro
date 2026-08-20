@@ -6,27 +6,41 @@
 flowchart LR
     RMD["Página do RMD<br/>tesourotransparente.gov.br"] -->|fetch_rmd| RAW1[("data/raw/rmd/<br/>Anexo RMD*.xlsx")]
     CKAN["API CKAN<br/>dataset ds013"] -->|fetch_leiloes| RAW2[("data/raw/leiloes/<br/>historico-leiloes-todos.xls")]
+    ANBIMA["anbima.com.br/feriados"] -->|manual| RAW3[("data/raw/anbima/<br/>feriados_nacionais.xls")]
+    BLOOMBERG["Terminal Bloomberg<br/>(ou exportação BDH)"] -->|fetch_bloomberg| RAW4[("data/raw/bloomberg/<br/>bbg_taxas_*.csv, bbg_vna_*.csv")]
     RAW1 -->|parse_rmd| CSV1[("16 CSVs canônicos<br/>data/processed/*.csv")]
     RAW2 -->|parse_leiloes| CSV2[("leiloes.csv")]
+    RAW3 -->|calendario| CSV1
+    RAW4 -->|parse_bloomberg| CSV3[("taxa_por_papel.csv<br/>vna.csv")]
+    CSV1 -->|dv.py| CSV4[("dv_por_papel.csv<br/>decay_por_papel.csv<br/>resultado_mensal.csv")]
+    CSV3 -->|dv.py| CSV4
 
-    subgraph coleta ["coleta — precisa de rede"]
+    subgraph coleta ["coleta — precisa de rede (ou terminal Bloomberg)"]
         RMD
         CKAN
+        BLOOMBERG
     end
     subgraph interpretacao ["interpretação — nunca acessa a rede"]
         RAW1
         RAW2
+        RAW3
+        RAW4
         CSV1
         CSV2
+        CSV3
+        CSV4
     end
 ```
 
 A fronteira entre os dois retângulos é a decisão de arquitetura central do
-projeto: à esquerda dela há rede (`fetch_rmd.py`, `fetch_leiloes.py`); à
-direita não (`parse_rmd/*.py`, `parse_leiloes.py`). Em ambiente fechado,
+projeto: à esquerda dela há rede ou terminal (`fetch_rmd.py`,
+`fetch_leiloes.py`, `fetch_bloomberg.py`); à direita não (`parse_rmd/*.py`,
+`parse_leiloes.py`, `parse_bloomberg.py`, `dv.py`). Em ambiente fechado,
 alguém preenche `data/raw/` na mão (`docs/como-baixar.md`) e tudo à
 direita funciona sem alteração de código — é o `--sem-coleta` do
-`tesouro.pipeline`.
+`tesouro.pipeline`. O calendário da Anbima não tem coletor (`fetch_*`)
+próprio — é baixado uma vez à mão, cobre 2001 a 2099, e raramente precisa
+ser atualizado.
 
 ## RMD — Relatório Mensal da Dívida
 
@@ -49,6 +63,35 @@ O arquivo único (`historico-leiloes-todos.xls`, ~5 MB) traz uma aba por
 ano desde 2000, todas com o mesmo layout. É `.xls` legado, que exige a
 biblioteca `xlrd`. Se ela não estiver disponível no ambiente de destino,
 o contorno está em `docs/como-baixar.md`.
+
+## Bloomberg — taxa e VNA para o DV01
+
+Fonte da taxa (`YLD_YTM_MID`, fonte `ANDE`) e do VNA (`IDX_RATIO` para IPCA,
+`ACCUMULATED_SELIC` para Selic) usados no cálculo de PU e DV01. Ao contrário
+do RMD e dos leilões, a coleta fala com um **terminal Bloomberg** instalado
+na máquina (`fetch_bloomberg.py`), não com uma API de internet aberta —
+por isso o ambiente sem terminal (o caso do banco, por exemplo) usa a
+exportação manual por `BDH`, descrita em `docs/como-baixar.md`.
+
+A coleta é **incremental**: cada rodada grava só os meses que ainda faltam,
+em arquivos novos — nunca sobrescreve os já gravados. É a mesma invariante
+de `data/raw/` do resto do projeto, com uma consequência própria se um dos
+arquivos for apagado à mão; ver `docs/convencoes-dv.md`, seção "Recuperando
+um arquivo apagado à mão em `data/raw/bloomberg/`".
+
+**Contrato de dados completo, com todas as armadilhas medidas** (`SETTLE_DT`
+não serve para taxa histórica, `BZAC2000 Index` não é Selic, a série de
+preço da LFT é inutilizável, o nome do arquivo precisa ordenar
+cronologicamente) em `docs/convencoes-dv.md`, seção "Fontes na Bloomberg".
+
+## Anbima — calendário de dias úteis
+
+Fonte do calendário de feriados usado em toda conta de dias úteis do
+projeto (não só do RMD): `data/raw/anbima/feriados_nacionais.xls`, baixado
+uma única vez de `anbima.com.br/feriados/arqs/feriados_nacionais.xls`.
+Cobre 2001 a 2099; não tem coletor automático (`fetch_*`) porque não
+precisa — a Anbima não republica feriados de anos já fechados. Detalhe em
+`docs/convencoes-dv.md`, seção "Calendário de dias úteis".
 
 ## Limite de cobertura: bandas do PAF
 
@@ -88,5 +131,17 @@ fonte.
 | `reserva_liquidez` | 6.1 |
 | `leiloes` | (dataset ds013) |
 
+Os cinco CSVs abaixo não vêm de aba nenhuma do RMD — vêm da Bloomberg ou são
+calculados a partir das tabelas acima:
+
+| CSV | Origem |
+|---|---|
+| `taxa_por_papel` | Bloomberg, `YLD_YTM_MID` (fonte `ANDE`) |
+| `vna` | Bloomberg, `IDX_RATIO` (IPCA) / `ACCUMULATED_SELIC` (Selic) |
+| `dv_por_papel` | Calculado (`dv.painel()`) a partir de `estoque_titulos_vencimento`, `taxa_por_papel` e `vna`, com o calendário da Anbima |
+| `decay_por_papel` | Calculado (`dv.decay()`) a partir de `dv_por_papel` |
+| `resultado_mensal` | Calculado (`dv.resultado_mensal()`) a partir de `dv_por_papel` |
+
 Detalhes de cada coluna, tipo e armadilha conhecida estão em
-`docs/dicionario-de-dados.md`.
+`docs/dicionario-de-dados.md`; as fórmulas de PU e DV01 e as convenções de
+sinal estão em `docs/convencoes-dv.md`.
