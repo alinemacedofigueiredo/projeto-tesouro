@@ -31,7 +31,7 @@ import datetime
 
 import pandas as pd
 
-from . import config
+from . import api_leiloes, config, parse_api_leiloes
 
 PASTA = "entrada"
 ARQUIVO = "leilao_hoje.xlsx"
@@ -69,12 +69,52 @@ def _base():
     )
 
 
+def linhas_do_edital(quando=None):
+    """As pernas do leilao de hoje, com a QUANTIDADE JA PREENCHIDA pelo edital.
+
+    O /editais da API sai a partir das 10h30 do dia do leilao e traz exatamente o
+    que foi ofertado, por benchmark. Com ele a planilha chega pronta: sobra conferir
+    e, se quiser, digitar a taxa.
+
+    ISTO NAO E CONFORTO, E CORRECAO. No primeiro dia de uso, com a planilha montada
+    pelo historico, o leilao de 20/08/2026 tinha SEIS pernas -- tres LTN e tres
+    NTN-F -- e so as tres NTN-F foram digitadas. As tres LTN, 18 milhoes de titulos
+    contra 3,65 milhoes de NTN-F, ficaram de fora do grafico sem que nada avisasse.
+
+    Devolve None quando a API nao responde ou nao ha edital para o dia -- e ai quem
+    chama volta para o palpite do historico, que e melhor que planilha nenhuma.
+    """
+    quando = quando or datetime.date.today()
+    try:
+        registros, _ = api_leiloes.buscar("editais")
+        edital = parse_api_leiloes.editais(registros)
+    except Exception:                                    # noqa: BLE001
+        return None
+
+    do_dia = edital[edital["data_leilao"].dt.date == quando]
+    if do_dia.empty:
+        return None
+
+    linhas = [{
+        "titulo": r["titulo"],
+        "data_vencimento": r["data_vencimento"].date(),
+        "quantidade_ofertada": r["oferta_qtd"],
+        "taxa_pct": None,
+        "data_leilao": quando,
+        "data_liquidacao": _proximo_util(quando),
+        "tipo_leilao": r["tipo_leilao"],
+        "volta": "1a",
+    } for _, r in do_dia.sort_values(["titulo", "data_vencimento"]).iterrows()]
+    return pd.DataFrame(linhas, columns=[c for c, _ in COLUNAS])
+
+
 def linhas_provaveis(quando=None, base=None):
     """Os papeis e vencimentos que o Tesouro leiloou por ultimo, um por linha.
 
-    Nao e previsao: e a lista do que ele vem leiloando, para que o modelo chegue com
-    o trabalho de digitacao ja feito. Vencimento errado se apaga; vencimento
-    faltando obriga a consultar o edital e digitar.
+    E O PALPITE, e nao o edital: usado so quando a API nao responde ou ainda nao ha
+    edital publicado. Nao e previsao -- e a lista do que ele vem leiloando, para que
+    a planilha chegue com algum trabalho feito. Vencimento errado se apaga;
+    vencimento faltando obriga a consultar o edital e digitar.
     """
     quando = quando or datetime.date.today()
     base = _base() if base is None else base
@@ -116,7 +156,11 @@ def _proximo_util(quando):
 
 
 def modelo(caminho=None, quando=None, base=None):
-    """Grava o .xlsx para ela preencher. Devolve o caminho.
+    """Grava o .xlsx para ela preencher. Devolve (caminho, veio_do_edital).
+
+    Tenta o EDITAL do dia primeiro, que traz as pernas certas com as quantidades
+    certas. So quando ele nao existe -- API fora do ar, ou antes das 10h30 -- cai
+    no palpite tirado do historico, e ai as quantidades vem vazias.
 
     NAO sobrescreve um arquivo ja preenchido: se o modelo de hoje ja existe, ele
     pode ja ter numeros digitados dentro, e regrava-lo apagaria o trabalho sem
@@ -130,12 +174,17 @@ def modelo(caminho=None, quando=None, base=None):
             f"Apague-o ou renomeie-o antes de pedir um modelo novo."
         )
 
-    tabela = linhas_provaveis(quando, base)
+    tabela = linhas_do_edital(quando)
+    veio_do_edital = tabela is not None
+    if not veio_do_edital:
+        tabela = linhas_provaveis(quando, base)
     tabela.columns = [rotulo for _, rotulo in COLUNAS]
     with pd.ExcelWriter(caminho, engine="openpyxl") as escritor:
         tabela.to_excel(escritor, sheet_name=ABA, index=False)
         _ajustar_largura(escritor.book[ABA], tabela)
-    return caminho
+    # Quem chama precisa saber se as quantidades sao as do edital ou zeros a
+    # preencher -- as duas planilhas se parecem, e a instrucao a dar e outra.
+    return caminho, veio_do_edital
 
 
 def _ajustar_largura(aba, tabela):

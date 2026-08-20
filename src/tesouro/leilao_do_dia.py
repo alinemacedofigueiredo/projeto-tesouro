@@ -26,33 +26,18 @@ QUE FAZER -- inclusive a linha do Excel, quando o problema esta na planilha.
 import sys
 import traceback
 
-from . import (entrada_manual, fetch_leiloes_api, leilao_ofertado,
-               leiloes_dv, leiloes_recentes, parse_leiloes_api)
+import pandas as pd
+
+from . import (api_leiloes, entrada_manual, fetch_leiloes_api,
+               leilao_ofertado, leiloes_dv, leiloes_recentes,
+               parse_api_leiloes, parse_leiloes_api)
 from .graficos import painel_emissoes
 
-# Formatos que valem a pena tentar, do mais facil de ler para o menos.
-_PREFERENCIA = ("json", "csv", "xlsx", "xls")
-
-
-def escolher_recurso(recursos):
-    """Qual dos recursos do dataset baixar.
-
-    Nao adivinha pelo nome: ordena por formato preferido e, dentro do formato, pelo
-    mais recentemente modificado. Se o portal reorganizar, isto continua achando
-    alguma coisa -- e o log mostra a lista inteira para conferencia.
-    """
-    def peso(r):
-        formato = str(r.get("format", "")).lower().strip(". ")
-        ordem = _PREFERENCIA.index(formato) if formato in _PREFERENCIA else 99
-        return (ordem, str(r.get("last_modified") or ""))
-
-    candidatos = sorted(recursos, key=peso)
-    return candidatos[0] if candidatos else None
-
-
-def _linha_do_recurso(r):
-    return (f"  - {r.get('name')!r} [{r.get('format')}] "
-            f"modificado em {r.get('last_modified')}")
+# Quantos dias de resultado comparar com o historico a cada rodada. A API devolve
+# tudo desde 2018; o que e antigo a planilha ja tem, e mandar 6.944 linhas para a
+# mesclagem toda tarde e trabalho a toa. Trinta dias cobrem com folga o atraso da
+# planilha, que foi de cinco dias em 20/08/2026.
+DIAS_PARA_TRAS = 30
 
 
 def da_planilha_preenchida(caminho=None, refazer_graficos=True):
@@ -109,40 +94,42 @@ def _guardar_e_desenhar(tabela, estagio, refazer_graficos):
     return entraram
 
 
-def rodar(url_do_recurso=None, refazer_graficos=True):
-    """O caminho do RESULTADO: pela rede, ou pelo arquivo salvo a mao."""
-    if url_do_recurso is None:
-        print("1. procurando o recurso no portal...")
-        try:
-            recursos = fetch_leiloes_api.recursos_do_dataset()
-            print(f"   o dataset tem {len(recursos)} recurso(s):")
-            for r in recursos:
-                print(_linha_do_recurso(r))
-            escolhido = escolher_recurso(recursos)
-            url_do_recurso = escolhido.get("url") if escolhido else None
-            print(f"   escolhido: {escolhido.get('name')!r}" if escolhido
-                  else "   nenhum recurso utilizavel")
-        except Exception as erro:                        # noqa: BLE001
-            print(f"   a rede nao respondeu: {erro}")
-            print("   vou procurar arquivo salvo a mao.")
+def rodar(refazer_graficos=True, dias=DIAS_PARA_TRAS):
+    """O caminho do RESULTADO. Pela API do Tesouro; se ela falhar, pelo arquivo
+    salvo a mao.
 
-    print("2. obtendo o arquivo...")
-    caminho, via = fetch_leiloes_api.obter(url_do_recurso)
-    print(f"   {caminho.name}, via {via}")
+    A API vem PRIMEIRO desde 20/08/2026, quando se descobriu que o apiapex responde
+    nesta rede -- o que o portal de dados abertos nao faz, por causa da inspecao de
+    TLS. Antes disso a via principal era alguem salvar o arquivo no disco.
 
-    print("3. traduzindo para o esquema do leiloes.csv...")
-    tabela, estagio = parse_leiloes_api.normalizar(caminho)
-    print(f"   {len(tabela)} linha(s), de "
-          f"{tabela['data_leilao'].min():%d/%m/%Y} a "
-          f"{tabela['data_leilao'].max():%d/%m/%Y}")
-    print(f"   estagio detectado: {estagio.upper()}"
-          + ("  (o resultado ja saiu)" if estagio == "aceito"
-             else "  (so o teto anunciado; a quantidade ainda vai cair)"))
+    'dias' limita o que se compara com o historico: /resultados devolve tudo desde
+    2018, e mandar 6.944 linhas para a mesclagem toda tarde e trabalho a toa. O que
+    e antigo a planilha ja tem.
+    """
+    print("1. buscando o resultado dos leiloes na API do Tesouro...")
+    try:
+        caminho, registros = api_leiloes.guardar("resultados")
+        tabela = parse_api_leiloes.resultados(registros)
+        print(f"   {len(registros)} leiloes, {len(tabela)} linhas com as voltas "
+              f"desdobradas")
+        print(f"   resposta crua guardada em {caminho.name}")
+        via = "API"
+    except ConnectionError as erro:
+        print(f"   {erro}")
+        print("\n   vou procurar arquivo salvo a mao.")
+        caminho, via = fetch_leiloes_api.obter(None)
+        tabela, estagio_do_arquivo = parse_leiloes_api.normalizar(caminho)
+        print(f"   {caminho.name}, via {via}, estagio {estagio_do_arquivo}")
+        return _guardar_e_desenhar(tabela, estagio_do_arquivo, refazer_graficos)
 
-    if estagio == "ofertado":
-        _avisar_sobre_a_taxa(tabela)
+    if dias:
+        corte = tabela["data_leilao"].max() - pd.Timedelta(days=dias)
+        antes = len(tabela)
+        tabela = tabela[tabela["data_leilao"] >= corte]
+        print(f"   dos ultimos {dias} dias: {len(tabela)} de {antes} linhas "
+              f"(o resto a planilha ja tem)")
 
-    return _guardar_e_desenhar(tabela, estagio, refazer_graficos)
+    return _guardar_e_desenhar(tabela, "aceito", refazer_graficos)
 
 
 def _avisar_sobre_a_taxa(tabela):
@@ -193,10 +180,17 @@ def main(argumentos=None):
 
     try:
         if comando == "modelo":
-            caminho = entrada_manual.modelo()
+            caminho, do_edital = entrada_manual.modelo()
             print(f"planilha criada: {caminho}\n")
-            print("Preencha a QUANTIDADE OFERTADA das linhas que estao em oferta "
-                  "hoje, e apague as que nao estao.")
+            if do_edital:
+                print("As quantidades JA VIERAM DO EDITAL de hoje -- sao as pernas "
+                      "que o Tesouro ofertou, com os numeros dele.")
+                print("Confira, e apague a linha que nao quiser no grafico.")
+            else:
+                print("A API nao tinha edital para hoje, entao montei a planilha "
+                      "pelo historico e as quantidades vieram VAZIAS.")
+                print("Preencha a QUANTIDADE OFERTADA das linhas em oferta hoje, e "
+                      "apague as que nao estao.")
             print("A TAXA e opcional: em branco, eu uso a do leilao anterior "
                   "daquele papel (erra 11 bp na mediana).")
             print("\nDepois:  python -m tesouro.leilao_do_dia oferta")

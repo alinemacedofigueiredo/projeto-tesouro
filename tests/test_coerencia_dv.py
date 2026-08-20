@@ -494,3 +494,59 @@ def test_cobertura_de_taxa_bate_com_a_medida_no_estoque(p):
         f"cobertura de taxa ponderada pelo financeiro e "
         f"{cobertura_ponderada:.2f}%, esperava ~99,23%"
     )
+
+
+# --------------------------------------------------------------------------
+# NTN-B curta e longa: a fronteira e medida no VERTICE do Tesouro, e nao no
+# prazo calculado. Decidido em 20/08/2026, quando a API publicou a tabela de
+# benchmarks vigentes.
+# --------------------------------------------------------------------------
+
+def test_a_familia_da_ntnb_vem_do_vertice_e_nao_do_prazo():
+    # O CASO QUE MOTIVA A REGRA: um papel que o Tesouro chama de "NTN-B 5 anos" e
+    # que, no comeco da vigencia do benchmark, ainda tem 6,4 anos a correr. Pelo
+    # prazo ele seria longa; pelo rotulo dele, e curta -- e trocar de faixa no meio
+    # da vigencia produziria um degrau no grafico que nao aconteceu no mundo.
+    from tesouro import leiloes_dv
+
+    assert leiloes_dv._familia("NTN-B", 6.4, 5.0) == "NTN-B curta"
+    assert leiloes_dv._familia("NTN-B", 6.9, 7.0) == "NTN-B longa"
+    # A fronteira e inclusiva no 5: "NTN-B 5 anos" e curta.
+    assert leiloes_dv._familia("NTN-B", 5.0, 5.0) == "NTN-B curta"
+
+
+def test_sem_vertice_a_familia_cai_no_prazo():
+    # Leilao antigo, sem rotulo publicado. O prazo e a melhor aproximacao
+    # disponivel, e qual dos dois criterios valeu fica no CSV, que carrega os dois.
+    from tesouro import leiloes_dv
+
+    assert leiloes_dv._familia("NTN-B", 4.0, None) == "NTN-B curta"
+    assert leiloes_dv._familia("NTN-B", 12.0, None) == "NTN-B longa"
+
+
+def test_os_demais_papeis_nao_se_partem():
+    from tesouro import leiloes_dv
+
+    for titulo in ("LTN", "NTN-F", "LFT"):
+        assert leiloes_dv._familia(titulo, 6.4, 5.0) == titulo
+
+
+def test_a_troca_de_criterio_move_volume_de_verdade():
+    # A DIFERENCA NAO E COSMETICA, e este teste trava o tamanho dela: classificar
+    # pelo vertice em vez do prazo move ~10% dos leiloes de NTN-B de faixa, todos
+    # com vertice 5 e prazo acima de 5 anos. Se este numero cair para zero, alguem
+    # desfez a regra sem querer.
+    import pandas as pd
+    from tesouro import config
+
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv")
+    b = d[d["titulo"] == "NTN-B"]
+    por_prazo = b["prazo_anos"] <= 5
+    por_vertice = b["vertice_anos"].fillna(99) <= 5
+    mudam = (por_prazo != por_vertice).sum()
+
+    assert mudam > 300, "a classificacao pelo vertice deixou de mudar alguma coisa"
+    # E todas mudam no mesmo sentido: vertice 5, prazo acima de 5.
+    diferentes = b[por_prazo != por_vertice]
+    assert (diferentes["vertice_anos"] == 5).all()
+    assert (diferentes["prazo_anos"] > 5).all()

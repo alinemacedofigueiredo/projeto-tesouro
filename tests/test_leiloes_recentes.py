@@ -239,3 +239,72 @@ def test_o_estagio_novo_herda_o_que_ele_nao_sabe(base, monkeypatch, tmp_path):
     assert g.iloc[0]["venda_qtd"] == 620_000       # do resultado
     # E o que o estagio novo SABE vence: a taxa do resultado, e nao a da manha.
     assert g.iloc[0]["taxa_media_pct"] == 7.06
+
+
+# --------------------------------------------------------------------------
+# TRES FONTES, TRES GRAFIAS DA VOLTA.
+#
+# O defeito que isto protege foi medido em 20/08/2026, no primeiro dia em que a
+# API entrou no fluxo: a chave nunca casava entre fontes, e 57 leiloes que a
+# planilha JA TINHA entraram como novidade -- prontos para aparecer em dobro.
+#
+# Nao levantou, nao quebrou. Foi pego porque o log dizia "70 novas, 0 que a
+# planilha ja tinha", e zero casamentos em trinta dias de leilao nao e um
+# numero possivel.
+# --------------------------------------------------------------------------
+
+def test_as_tres_grafias_da_volta_viram_o_mesmo_numero():
+    grafias = pd.Series(["1.\u00aa volta", "1a volta", "1a", "1\u00aa volta",
+                         "2.\u00aa volta", "2a volta", "2a"])
+    assert list(lr._volta_normal(grafias)) == ["1", "1", "1", "1", "2", "2", "2"]
+
+
+def test_a_planilha_e_a_api_casam_apesar_da_grafia(base):
+    # O caso concreto: a MESMA linha, escrita como cada fonte a escreve.
+    #
+    # A linha e escolhida por ser de PRIMEIRA volta, e nao por ser a ultima: a
+    # ultima linha da planilha e uma segunda volta, e reescreve-la como "1a" faria
+    # dela outro leilao de verdade -- foi assim que a primeira versao deste teste
+    # falhou, acusando o codigo por um erro que era meu.
+    de_primeira = base[base["volta"].fillna("").astype(str).str.startswith("1")]
+    assert len(de_primeira) > 0
+    original = de_primeira.iloc[-1:].copy()
+
+    for grafia in ("1a volta", "1a", "1\u00aa volta", "1.a volta"):
+        outra_fonte = original.copy()
+        outra_fonte["volta"] = grafia
+        assert len(lr.novidades(outra_fonte, base)) == 0, grafia
+
+    # E a de segunda volta, escrita de qualquer jeito, continua casando com a de
+    # segunda volta -- e nao com a de primeira.
+    de_segunda = base[base["volta"].fillna("").astype(str).str.startswith("2")]
+    segunda = de_segunda.iloc[-1:].copy()
+    segunda["volta"] = "2a volta"
+    assert len(lr.novidades(segunda, base)) == 0
+
+    virou_primeira = de_segunda.iloc[-1:].copy()
+    virou_primeira["volta"] = "1a volta"
+    assert len(lr.novidades(virou_primeira, base)) == 1
+
+
+def test_a_primeira_e_a_segunda_volta_continuam_sendo_leiloes_DIFERENTES():
+    # A normalizacao nao pode ir longe demais: se "1a" e "2a" casassem, a segunda
+    # volta sumiria da mesclagem -- e ela responde por parte do risco emitido.
+    assert list(lr._volta_normal(pd.Series(["1a volta", "2a volta"]))) == ["1", "2"]
+
+
+def test_volta_vazia_nao_vira_a_mesma_coisa_que_volta_1(base):
+    # Um leilao sem volta declarada nao e a primeira volta: e ausencia de dado, e
+    # colapsar os dois esconderia linha.
+    assert list(lr._volta_normal(pd.Series([None, "", "1a"]))) == ["", "", "1"]
+
+
+def test_a_chave_e_montada_num_lugar_so(base):
+    # Havia DUAS copias da montagem da chave -- uma em _chaves() e outra dentro de
+    # novidades() -- e foi entre elas que a normalizacao da volta ficou faltando de
+    # um lado. Este teste amarra as duas ao mesmo resultado.
+    amostra = base.iloc[-5:]
+    das_colunas = set(zip(*lr._colunas_da_chave(amostra)))
+    assert das_colunas == lr._chaves(amostra)
+    indexado = lr._indexa_por_chave(amostra)
+    assert set(indexado.index) == das_colunas

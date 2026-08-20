@@ -84,22 +84,51 @@ def carregar_recentes(colunas=None):
     )
 
 
-def _chaves(df):
-    """O conjunto de chaves de um DataFrame, com as datas normalizadas para dia.
+def _volta_normal(valores):
+    """A volta reduzida ao numero: "1.a volta", "1a volta" e "1a" viram todos "1".
 
-    Normalizar importa: a planilha traz datas sem hora e a API pode trazer com, e
-    duas datas que diferem so na hora sao o mesmo leilao. Sem isto, toda linha da
-    API pareceria nova para sempre.
+    TRES FONTES, TRES GRAFIAS, e o defeito que isso causou foi medido em 20/08/2026:
+    a planilha do Tesouro escreve "1.\u00aa volta", a API escreve "1a volta" e a
+    planilha de entrada escreve "1a". Sem normalizar, a chave do leilao nunca casa
+    entre fontes -- e 57 leiloes que a planilha JA TINHA entraram como novidade,
+    prontos para aparecer em dobro no grafico.
+
+    E o pior tipo de defeito deste projeto: nao levanta, nao quebra, so dobra a
+    barra. Foi pego porque o log dizia "70 novas, 0 que a planilha ja tinha", e zero
+    casamentos em trinta dias de leilao nao e um numero possivel.
+
+    O que importa e o ordinal. O resto e ortografia.
     """
-    if df.empty:
-        return set()
+    texto = valores.fillna("").astype(str).str.strip()
+    numero = texto.str.extract(r"(\d)")[0]
+    return numero.fillna(texto)
+
+
+def _colunas_da_chave(df):
+    """As colunas da chave, normalizadas. UM lugar so, de proposito.
+
+    Antes havia duas copias desta logica -- uma em _chaves() e outra dentro de
+    novidades() -- e foi entre elas que a normalizacao da volta ficou faltando de um
+    lado. Duas copias de uma regra e uma regra que vai divergir.
+    """
     partes = []
     for coluna in CHAVE:
         valores = df[coluna]
         if pd.api.types.is_datetime64_any_dtype(valores):
+            # A planilha traz data sem hora e a API pode trazer com, e duas datas
+            # que diferem so na hora sao o mesmo leilao.
             valores = valores.dt.normalize()
+        elif coluna == "volta":
+            valores = _volta_normal(valores)
         partes.append(valores.astype(str))
-    return set(zip(*partes))
+    return partes
+
+
+def _chaves(df):
+    """O conjunto de chaves de um DataFrame."""
+    if df.empty:
+        return set()
+    return set(zip(*_colunas_da_chave(df)))
 
 
 def novidades(candidatos, base=None):
@@ -112,11 +141,8 @@ def novidades(candidatos, base=None):
     if candidatos.empty:
         return candidatos
     ja_tem = _chaves(base)
-    marca = [chave not in ja_tem for chave in zip(*[
-        (candidatos[c].dt.normalize() if pd.api.types.is_datetime64_any_dtype(
-            candidatos[c]) else candidatos[c]).astype(str)
-        for c in CHAVE
-    ])]
+    marca = [chave not in ja_tem
+             for chave in zip(*_colunas_da_chave(candidatos))]
     return candidatos[pd.Series(marca, index=candidatos.index)]
 
 
@@ -124,13 +150,8 @@ def _indexa_por_chave(df):
     """O DataFrame indexado pela chave normalizada, para casar linha com linha."""
     if df.empty:
         return df.assign(_chave=pd.Series(dtype=object)).set_index("_chave")
-    partes = []
-    for coluna in CHAVE:
-        valores = df[coluna]
-        if pd.api.types.is_datetime64_any_dtype(valores):
-            valores = valores.dt.normalize()
-        partes.append(valores.astype(str))
-    return df.assign(_chave=list(zip(*partes))).set_index("_chave")
+    return df.assign(_chave=list(zip(*_colunas_da_chave(df)))).set_index("_chave")
+
 
 
 def gravar_recentes(candidatos, estagio="aceito", base=None):

@@ -17,16 +17,24 @@ fica mais firme, e a barra fica mais sólida.
 python -m tesouro.leilao_do_dia modelo
 ```
 
-Ele cria `data/entrada/leilao_hoje.xlsx` **já montado**: papel, vencimento, data do
-leilão, data de liquidação e tipo vêm preenchidos, tirados do que o Tesouro vem
-leiloando. Sobram duas colunas para você:
+Ele busca o **edital do dia** na API do Tesouro — que sai a partir das 10h30 — e cria
+`data/entrada/leilao_hoje.xlsx` com as pernas certas e **as quantidades já
+preenchidas**. Sobra conferir e, se quiser, digitar a taxa.
 
-- **Quantidade ofertada (títulos)** — obrigatória. Linha sem quantidade é linha
-  apagada, e é assim que você tira do leilão os vencimentos que não estão em oferta
-  hoje. Não precisa apagar linha nenhuma;
+**Isso não é conforto, é correção.** No primeiro dia de uso, com a planilha montada
+pelo histórico, o leilão de 20/08/2026 tinha **seis** pernas — três LTN e três NTN-F
+— e só as três NTN-F foram lançadas. As três LTN, 18 milhões de títulos contra 3,65
+milhões de NTN-F, ficaram de fora sem que nada avisasse.
+
+Quando a API não responde ou ainda não há edital, ele cai no palpite tirado do
+histórico e as quantidades vêm vazias — e o comando diz qual dos dois foi.
+
+As duas colunas que são suas:
+
+- **Quantidade ofertada (títulos)** — já vem do edital. Linha sem quantidade é linha
+  apagada, e é assim que você tira do gráfico o que não quiser;
 - **Taxa % a.a.** — **opcional**. Em branco, eu uso a do leilão anterior daquele
-  papel, que erra 11 bp na mediana. A sua não erra, porque é a sua leitura do
-  mercado naquele momento.
+  papel, que erra 11 bp na mediana.
 
 Depois:
 
@@ -62,18 +70,22 @@ rodou de novo por hábito, ele para em vez de apagar o seu trabalho.
 python -m tesouro.leilao_do_dia
 ```
 
-Ele tenta a rede primeiro. Se o certificado barrar — e nesta máquina ele barra — ele
-procura sozinho um arquivo salvo à mão em `data/raw/leiloes_api/` (`.json`, `.csv`,
-`.xls` ou `.xlsx`). Descobre sozinho se aquele arquivo é a oferta ou o resultado,
-olhando se há quantidade aceita dentro dele.
+Ele busca `/resultados` na API do Tesouro. Se ela não responder, procura sozinho um
+arquivo salvo à mão em `data/raw/leiloes_api/` (`.json`, `.csv`, `.xls` ou `.xlsx`) e
+descobre pelo conteúdo se é a oferta ou o resultado.
+
+**A API funciona nesta rede.** Testado em 20/08/2026: `apiapex.tesouro.gov.br`
+responde do mesmo Python que recusa `tesourotransparente.gov.br` por certificado. O
+arquivo salvo à mão deixou de ser a via principal e virou o plano B que sempre
+deveria ter sido.
 
 **A quantidade aceita substitui o teto sozinha**, pela chave do leilão. E o que ela
 digitou de manhã e o arquivo do resultado não traz — a quantidade *ofertada* — é
 herdado, para que a leitura de "quanto do ofertado ele colocou" exista no mesmo dia.
 
-### Se a rede liberar
+### Se algum dia a API cair
 
-Com o pacote de certificados da instituição, a tarde roda sozinha e dá para agendar:
+Com o pacote de certificados da instituição, o portal antigo também volta a funcionar:
 
 ```bash
 $env:SSL_CERT_FILE = "C:\caminho\para\ca-bundle.crt"
@@ -172,5 +184,61 @@ fica em **4,9 MB** em vez de 9,67.
 2. **Se a taxa publicada na hora bate com a da planilha.** Vale medir no primeiro
    leilão que passar pelos três momentos: se bater sempre, a hachura vira só
    proveniência; se não bater, ela é aviso.
-3. **O corte entre NTN-B curta e longa.** Continua em 5 anos, provisório, esperando a
-   definição do Tesouro.
+3. ~~O corte entre NTN-B curta e longa.~~ **Decidido em 20/08/2026**, quando a API
+   publicou a tabela de benchmarks: curta são os vértices de **3 e 5 anos**, longa é
+   de 7 para cima — e a fronteira passou a ser medida no **vértice publicado**, e não
+   no prazo calculado.
+
+   A diferença não é cosmética: **401 leilões de NTN-B (9,8%) trocam de faixa**, todos
+   papeis que o Tesouro chama de "NTN-B 5 anos" e que, no começo da vigência,
+   ainda tinham entre 5,00 e 6,42 anos a correr. No financeiro emitido desde 2010 a
+   curta vai de **34,3% para 53,0%**.
+
+
+---
+
+## A API de leilões, e o que ela permitiu conferir
+
+O endereço é `https://apiapex.tesouro.gov.br/aria/v1/api-leiloes-pub/custom/`. Os
+endpoints que este projeto usa:
+
+| endpoint | o que dá | tamanho em 20/08/2026 |
+|---|---|---|
+| `editais` | a oferta do dia, por benchmark, a partir das 10h30 | 6 registros |
+| `resultados` | resultado por leilão, desde 04/01/2018 | 4.598 registros |
+| `benchmarks` | o vértice de cada vencimento, com vigência | 18 |
+| `calendario` | o que o Tesouro planeja ofertar, ~40 dias à frente | 60 |
+| `dealers` | instituições habilitadas, com período | 216 |
+| `portarias`, `comunicados` | a oferta pela portaria; título e link | 6, 42 |
+
+`resultado_homologacao` é **byte a byte igual** a `resultados` — mesmo conteúdo em dois
+nomes. `dealers_periodo` estourou o tempo limite; ficou de fora até se saber se é
+lentidão permanente.
+
+### O que foi conferido antes de confiar
+
+**Contra a planilha do Tesouro** — 6.275 leilões cruzados por (data, título,
+vencimento, tipo, volta), nas duas voltas: quantidade aceita, financeiro e oferta
+batem em **todos**, com **zero** divergências acima de 0,1%.
+
+**A coerência interna do próprio dado** — `pu_medio` × `quantidade_aceita` reproduz
+`financeiro_aceito` com razão 1,000000 nas 454 linhas que trazem PU.
+
+**A precificação do projeto contra o PU publicado** — 434 pares, erro **máximo de
+0,0005%**. Nos 251 de LTN e NTN-F a checagem é limpa; em NTN-B e LFT o VNA foi
+recuperado do próprio PU deles, então ali se valida a cotação e não o VNA. É a
+primeira validação da precificação contra fonte pública, sem Bloomberg.
+
+### Três armadilhas deste payload
+
+1. **`financeiro_aceito` vem em REAIS**, e o resto do projeto trabalha em milhões;
+2. **a segunda volta vem em COLUNAS** da mesma linha, enquanto a planilha usa linhas
+   separadas — somá-las duplicaria o leilão;
+3. **o Bacen vem em colunas próprias** e não está somado no aceito.
+
+E uma quarta, que quase passou: **três fontes escrevem a volta de três jeitos** — a
+planilha `1.ª volta`, a API `1a volta`, a planilha de entrada `1a`. Sem normalizar, a
+chave do leilão nunca casa e **57 leilões que a planilha já tinha entraram como
+novidade**, prontos para aparecer em dobro no gráfico. Não levantou erro nenhum; foi
+pego porque o log dizia "70 novas, 0 que a planilha já tinha", e zero casamentos em
+trinta dias de leilão não é um número possível.

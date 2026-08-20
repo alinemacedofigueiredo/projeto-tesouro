@@ -28,9 +28,16 @@ _ROT = {nome: rotulo for nome, rotulo in entrada_manual.COLUNAS}
 
 
 @pytest.fixture
-def modelo(tmp_path, base):
-    return entrada_manual.modelo(tmp_path / "leilao_hoje.xlsx", quando=DIA,
-                                 base=base)
+def modelo(tmp_path, base, monkeypatch):
+    # SEM REDE: o modelo tenta o edital do dia e cai no palpite do historico quando
+    # a API nao responde. Os testes exercitam o palpite -- o edital tem testes
+    # proprios, com o payload real. Um teste que depende de a API estar no ar falha
+    # por motivo errado.
+    monkeypatch.setattr(entrada_manual, "linhas_do_edital", lambda quando=None: None)
+    caminho, do_edital = entrada_manual.modelo(tmp_path / "leilao_hoje.xlsx",
+                                               quando=DIA, base=base)
+    assert not do_edital
+    return caminho
 
 
 def _preencher(caminho, linhas):
