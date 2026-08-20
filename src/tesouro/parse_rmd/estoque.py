@@ -18,7 +18,7 @@ from ..leitura_rmd import (
     ordem_dos_rotulos,
 )
 
-_EM_PODER_DO_PUBLICO = "DPF EM PODER DO PÚBLICO"
+_EM_PODER_DO_PUBLICO = "DPF EM PODER DO P\u00daBLICO"
 _DPMFI_NO_BACEN = "DPMFi EM PODER DO BANCO CENTRAL"
 # 'Divida Mobiliaria' e 'Divida Contratual' sao cabecalhos de subgrupo
 # dentro de DPFe, nao titulos: a celula deles traz o subtotal exato dos
@@ -30,7 +30,7 @@ _DPMFI_NO_BACEN = "DPMFi EM PODER DO BANCO CENTRAL"
 # dobro.
 _ENTIDADES = {
     "Tesouro Nacional", "Banco Central",
-    "Dívida Mobiliária", "Dívida Contratual",
+    "D\u00edvida Mobili\u00e1ria", "D\u00edvida Contratual",
 }
 _ESFERAS = {"DPMFi", "DPFe"}
 

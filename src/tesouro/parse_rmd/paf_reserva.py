@@ -156,7 +156,7 @@ def parse_paf(xl):
             if pd.isna(rotulo) or not str(rotulo).strip():
                 continue
             indicador = str(rotulo).strip()
-            if indicador in {"Indicadores", "Mínimo", "Máximo"}:
+            if indicador in {"Indicadores", "M\u00ednimo", "M\u00e1ximo"}:
                 continue
 
             for ano, versao, col_real, col_min, col_max in blocos:
@@ -206,7 +206,7 @@ _CABECALHOS_6_1 = (
 )
 
 _COL_DATA_6_1 = 0
-_CABECALHO_DATA_6_1 = {"mes", "mês"}
+_CABECALHO_DATA_6_1 = {"mes", "m\u00eas"}
 
 
 def _colunas_da_reserva(bruto):

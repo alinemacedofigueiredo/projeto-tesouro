@@ -75,31 +75,15 @@ def test_as_cores_cobrem_os_indexadores_e_os_papeis():
     for chave in ("LTN", "NTN-F", "NTN-B", "LFT"):
         assert chave in estilo.COR
 
-# Os dezesseis arquivos que ja tinham byte acentuado quando esta branch nasceu, e
-# que vieram das entregas anteriores. Sao DIVIDA CONHECIDA, nao excecao permitida:
-# ficam listados um a um para que a lista so possa encolher, e para que ninguem
-# acrescente o dezessetimo sem editar esta constante e explicar por que.
+# A lista dos arquivos que podem ter byte acentuado. VAZIA, e assim deve ficar.
 #
-# A alternativa -- varrer so src/tesouro/graficos/ -- esconderia a divida em vez de
-# registra-la, e foi ela que deixou dois testes novos entrarem acentuados.
-_DIVIDA_NAO_ASCII = {
-    "src/tesouro/parse_rmd/custo.py",
-    "src/tesouro/parse_rmd/estoque.py",
-    "src/tesouro/parse_rmd/estoque_vencimento.py",
-    "src/tesouro/parse_rmd/funding.py",
-    "src/tesouro/parse_rmd/paf_reserva.py",
-    "src/tesouro/parse_rmd/prazo.py",
-    "tests/test_custo.py",
-    "tests/test_estoque.py",
-    "tests/test_estoque_vencimento.py",
-    "tests/test_funding.py",
-    "tests/test_leitura_rmd.py",
-    "tests/test_nota_de_rodape.py",
-    "tests/test_paf_reserva.py",
-    "tests/test_parse_leiloes.py",
-    "tests/test_prazo.py",
-    "tests/test_vencimentos.py",
-}
+# Ela nasceu com dezesseis nomes -- os que vieram das entregas anteriores e ja
+# estavam acentuados quando esta branch comecou. Foram todos escapados em 19/08/2026,
+# depois do merge, quando deixaram de ser "codigo de outra entrega" e passaram a ser
+# o projeto. A lista fica aqui, vazia, porque e ela que faz o teste falhar de dois
+# lados: acentuar um arquivo novo quebra, e quitar um da lista sem tirar da lista
+# tambem quebra.
+_DIVIDA_NAO_ASCII = set()
 
 
 def test_todo_o_projeto_e_ascii():

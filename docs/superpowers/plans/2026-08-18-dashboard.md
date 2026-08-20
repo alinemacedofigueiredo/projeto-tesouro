@@ -808,8 +808,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 _ORDEM = ["Prefixados", "Índice de Preços", "Taxa Flutuante",
           "Câmbio", "Demais"]
 
@@ -1344,31 +1342,15 @@ def test_o_desenho_marca_a_banda_original_dos_anos_revisados():
 ```python
 # acrescentar em tests/test_estilo.py
 
-# Os dezesseis arquivos que ja tinham byte acentuado quando esta branch nasceu, e
-# que vieram das entregas anteriores. Sao DIVIDA CONHECIDA, nao excecao permitida:
-# ficam listados um a um para que a lista so possa encolher, e para que ninguem
-# acrescente o dezessetimo sem editar esta constante e explicar por que.
+# A lista dos arquivos que podem ter byte acentuado. VAZIA, e assim deve ficar.
 #
-# A alternativa -- varrer so src/tesouro/graficos/ -- esconderia a divida em vez de
-# registra-la, e foi ela que deixou dois testes novos entrarem acentuados.
-_DIVIDA_NAO_ASCII = {
-    "src/tesouro/parse_rmd/custo.py",
-    "src/tesouro/parse_rmd/estoque.py",
-    "src/tesouro/parse_rmd/estoque_vencimento.py",
-    "src/tesouro/parse_rmd/funding.py",
-    "src/tesouro/parse_rmd/paf_reserva.py",
-    "src/tesouro/parse_rmd/prazo.py",
-    "tests/test_custo.py",
-    "tests/test_estoque.py",
-    "tests/test_estoque_vencimento.py",
-    "tests/test_funding.py",
-    "tests/test_leitura_rmd.py",
-    "tests/test_nota_de_rodape.py",
-    "tests/test_paf_reserva.py",
-    "tests/test_parse_leiloes.py",
-    "tests/test_prazo.py",
-    "tests/test_vencimentos.py",
-}
+# Ela nasceu com dezesseis nomes -- os que vieram das entregas anteriores e ja
+# estavam acentuados quando esta branch comecou. Foram todos escapados em 19/08/2026,
+# depois do merge, quando deixaram de ser "codigo de outra entrega" e passaram a ser
+# o projeto. A lista fica aqui, vazia, porque e ela que faz o teste falhar de dois
+# lados: acentuar um arquivo novo quebra, e quitar um da lista sem tirar da lista
+# tambem quebra.
+_DIVIDA_NAO_ASCII = set()
 
 
 def test_todo_o_projeto_e_ascii():
@@ -1547,8 +1529,6 @@ import pandas as pd
 
 from .. import config
 from . import estilo
-
-JANELAS = {"5 anos": 5, "completa": None}
 
 _ORDEM = ["Prefixado", "\u00cdndice Pre\u00e7os", "Taxa Flutuante",
           "C\u00e2mbio", "Demais"]
@@ -2047,8 +2027,6 @@ import pandas as pd
 
 from .. import config
 from . import estilo
-
-JANELAS = {"5 anos": 5, "completa": None}
 
 # Aba 2.7, agrupada em cinco: os quatro grandes, e o resto junto.
 ORDEM_GRUPOS = ["Inst. Financeiras", "Fundos", "Previd\u00eancia",
@@ -3542,8 +3520,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 NIVEIS = ["DPF", "DPMFi"]
 INDICES = ["SELIC", "IPCA"]
 
@@ -3884,8 +3860,6 @@ import pandas as pd
 
 from .. import config
 from . import estilo
-
-JANELAS = {"5 anos": 5, "completa": None}
 
 _COR_RESERVA = "#1f3864"
 _COR_PRUDENCIAL = "#a6a6a6"
@@ -4572,8 +4546,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 ORDEM_PAPEIS = ["LFT", "LTN", "NTN-B", "NTN-F", "NTN-C", "NTN-D"]
 
 
@@ -4887,8 +4859,12 @@ def test_as_quatro_quebras_por_papel_ficam_recolhidas():
 def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
     # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
     # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
-    assert html.count("<details>") == 5
+    # Conta as SECOES recolhidas, e nao a palavra "<details>" solta no documento:
+    # ela aparece tambem num comentario do JavaScript, e um teste que quebra quando
+    # alguem escreve um comentario esta medindo a coisa errada.
+    assert html.count('class="recolhida"') == 5
     assert html.count("<summary>") == 5
+    assert html.count("</details>") == 5
     for gid in ("emissao_papel", "detentores_lft", "detentores_ntnb",
                 "detentores_ltn", "detentores_ntnf"):
         assert f'<section id="{gid}" class="recolhida">' in html
@@ -5575,6 +5551,20 @@ function trocaPeriodo(janela) {
 function trocaVariante(id) {
   mostra(document.getElementById(id));
 }
+
+// Clicar no indice numa secao recolhida levava ao titulo e mais nada: o <details>
+// continuava fechado e o leitor via uma linha de texto onde esperava um grafico.
+// Abre a secao que o endereco aponta, na carga e a cada clique no indice.
+function abreSeApontada() {
+  if (!location.hash) { return; }
+  var secao = document.querySelector(location.hash);
+  if (!secao) { return; }
+  var caixa = secao.querySelector('details');
+  if (caixa) { caixa.open = true; }
+}
+
+window.addEventListener('hashchange', abreSeApontada);
+window.addEventListener('DOMContentLoaded', abreSeApontada);
 """
 
 
@@ -5657,8 +5647,13 @@ def _bloco(grafico, recortes):
             figura = (grafico.figura(janela, variante) if grafico.variantes
                       else grafico.figura(janela))
             svg = svg_de(figura, prefixo=f"{grafico.id}-{nome}-{marca}")
+            # Grafico sem janela recebe data-janela="" e nao o nome do primeiro
+            # recorte: dizer "5 anos" num retrato de uma data e atributo que
+            # mente. O JavaScript ja trata o caso pelo fallback, mas quem
+            # inspecionar o HTML nao tem como saber disso.
+            rotulo_janela = nome if grafico.janela else ""
             partes.append(f'  <div data-grafico="{grafico.id}" '
-                          f'data-janela="{nome}" data-variante="{marca}"'
+                          f'data-janela="{rotulo_janela}" data-variante="{marca}"'
                           f"{visivel}>{svg}</div>")
 
     partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')

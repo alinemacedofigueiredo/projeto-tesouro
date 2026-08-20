@@ -19,8 +19,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 _COR_RESERVA = "#1f3864"
 _COR_PRUDENCIAL = "#a6a6a6"
 _COR_INDICE = "#ed7d31"

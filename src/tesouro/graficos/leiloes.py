@@ -17,8 +17,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 ORDEM_PAPEIS = ["LFT", "LTN", "NTN-B", "NTN-F", "NTN-C", "NTN-D"]
 
 

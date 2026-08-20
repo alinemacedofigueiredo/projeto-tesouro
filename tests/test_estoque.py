@@ -46,7 +46,7 @@ def test_estoque_dpf_converte_bilhoes_para_milhoes(xl):
 def test_composicao_tem_os_indexadores(xl):
     df = estoque.parse_composicao(xl)
     assert list(df.columns) == ["data", "indexador", "valor_milhoes"]
-    assert {"Prefixado", "Taxa Flutuante", "Câmbio"} <= set(df["indexador"])
+    assert {"Prefixado", "Taxa Flutuante", "C\u00e2mbio"} <= set(df["indexador"])
 
 
 def test_composicao_nao_grava_o_percentual_derivado(xl):
@@ -157,18 +157,18 @@ def test_estoque_dpf_divida_mobiliaria_e_contratual_sao_entidade(xl):
     df = estoque.parse_dpf(xl)
 
     entidades = set(df["entidade"].dropna().unique())
-    assert "Dívida Mobiliária" in entidades
-    assert "Dívida Contratual" in entidades
+    assert "D\u00edvida Mobili\u00e1ria" in entidades
+    assert "D\u00edvida Contratual" in entidades
 
     titulos = set(df["titulo"].dropna().unique())
-    assert "Dívida Mobiliária" not in titulos
-    assert "Dívida Contratual" not in titulos
+    assert "D\u00edvida Mobili\u00e1ria" not in titulos
+    assert "D\u00edvida Contratual" not in titulos
 
     # A soma dos titulos de cada entidade bate com o valor que estava no
     # cabecalho na planilha -- prova de que nada foi perdido nem somado
     # em dobro pela mudanca.
     data = datetime.date(2000, 12, 31)
-    for entidade in ("Dívida Mobiliária", "Dívida Contratual"):
+    for entidade in ("D\u00edvida Mobili\u00e1ria", "D\u00edvida Contratual"):
         bloco = df[(df["data"] == data) & (df["entidade"] == entidade)]
         marcador = bloco[bloco["titulo"].isna()]["valor_milhoes"].iloc[0]
         soma_filhos = bloco[bloco["titulo"].notna()]["valor_milhoes"].sum()

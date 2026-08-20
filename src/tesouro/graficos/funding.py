@@ -13,8 +13,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 _ORDEM = ["Prefixados", "\u00cdndice de Pre\u00e7os", "Taxa Flutuante",
           "C\u00e2mbio", "Demais"]
 

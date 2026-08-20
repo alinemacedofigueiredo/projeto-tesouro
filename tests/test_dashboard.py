@@ -81,8 +81,12 @@ def test_as_quatro_quebras_por_papel_ficam_recolhidas():
 def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
     # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
     # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
-    assert html.count("<details>") == 5
+    # Conta as SECOES recolhidas, e nao a palavra "<details>" solta no documento:
+    # ela aparece tambem num comentario do JavaScript, e um teste que quebra quando
+    # alguem escreve um comentario esta medindo a coisa errada.
+    assert html.count('class="recolhida"') == 5
     assert html.count("<summary>") == 5
+    assert html.count("</details>") == 5
     for gid in ("emissao_papel", "detentores_lft", "detentores_ntnb",
                 "detentores_ltn", "detentores_ntnf"):
         assert f'<section id="{gid}" class="recolhida">' in html

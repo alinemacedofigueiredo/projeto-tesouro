@@ -35,8 +35,8 @@ def test_paf_rotula_as_tres_unidades_da_aba(xl):
         assert len(unidades) == 1, f"{indicador} com mais de uma unidade"
 
     unidade = df.set_index("indicador")["unidade"]
-    assert unidade["Estoque da DPF em Mercado (R$ Bilhões)"].iloc[0] == "R$ bilhoes"
-    assert unidade["Prazo Médio da DPF (anos)"].iloc[0] == "anos"
+    assert unidade["Estoque da DPF em Mercado (R$ Bilh\u00f5es)"].iloc[0] == "R$ bilhoes"
+    assert unidade["Prazo M\u00e9dio da DPF (anos)"].iloc[0] == "anos"
     assert unidade["Prefixado"].iloc[0] == "percentual"
     assert unidade["% Vincendo em 12 meses"].iloc[0] == "percentual"
 
@@ -150,13 +150,13 @@ def _aba_6_1(colunas_extra=0, cabecalhos=None):
     if cabecalhos is None:
         cabecalhos = [
             "Reserva de Liquidez", "Valor Prudencial (3 meses)",
-            "Índice de Liquidez",
+            "\u00cdndice de Liquidez",
         ]
     vazias = [None] * colunas_extra
     return pd.DataFrame([
         [None, *vazias, None, None, None],
-        ["Mês", *vazias, *cabecalhos],
-        [None, *vazias, "(R$ Bilhões)", "(R$ Bilhões)", "(Meses)"],
+        ["M\u00eas", *vazias, *cabecalhos],
+        [None, *vazias, "(R$ Bilh\u00f5es)", "(R$ Bilh\u00f5es)", "(Meses)"],
         [datetime.date(2015, 1, 31), *vazias, 72.0, 205.5, 1.71],
         [datetime.date(2015, 2, 28), *vazias, 133.8, 263.2, 1.54],
     ])

@@ -59,6 +59,23 @@ recorte específico, com o botão suprimido porque só existe uma janela:
 O `pipeline` já gera o dashboard no fim, depois de reescrever os CSVs; o
 comando acima serve para regerar sem rodar o pipeline inteiro.
 
+### A suíte precisa que o pipeline tenha rodado
+
+**155 dos 451 testes leem CSVs de `data/processed/`**, que é gerado e fica fora do
+git. Num clone novo, `pytest` falha nesses 155 até você rodar o pipeline uma vez:
+
+    $env:PYTHONPATH="src"; python -m pytest -q          # 155 falhas num clone novo
+    $env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta
+    $env:PYTHONPATH="src"; python -m pytest -q          # 450 passed, 1 skipped
+
+Não é defeito: são as âncoras de valor, que existem justamente para conferir número
+real contra as páginas do RMD — um teste que não lê o dado não pegaria erro de
+parser. O pipeline, por sua vez, precisa do anexo do RMD em `data/raw/rmd/`
+(ver `docs/como-baixar.md`).
+
+O teste pulado é o do PU contra o `PX_DIRTY_MID` da Bloomberg, que aguarda
+autorização para puxar os arquivos de preço.
+
 ### Cálculo pontual: quanto do DV01 desaparece até uma data escolhida
 
 Além do pipeline, há um comando específico para uma pergunta do dia a dia —

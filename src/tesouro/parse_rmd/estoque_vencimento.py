@@ -22,7 +22,7 @@ _COL_VENCIMENTO = 1
 _COL_ISIN = 2
 _PRIMEIRA_COL_DE_DADOS = 3
 
-_CABECALHOS = {"título", "titulo", "data de vencimento", "código isin"}
+_CABECALHOS = {"t\u00edtulo", "titulo", "data de vencimento", "c\u00f3digo isin"}
 
 # Nota numerada de rodape: '1 Nao estao incluidos os titulos LFT-A e LFT-B.'
 _PADRAO_NOTA_NUMERADA = re.compile(r"^\d+\s")

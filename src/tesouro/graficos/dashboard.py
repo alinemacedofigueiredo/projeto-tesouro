@@ -441,6 +441,20 @@ function trocaPeriodo(janela) {
 function trocaVariante(id) {
   mostra(document.getElementById(id));
 }
+
+// Clicar no indice numa secao recolhida levava ao titulo e mais nada: o <details>
+// continuava fechado e o leitor via uma linha de texto onde esperava um grafico.
+// Abre a secao que o endereco aponta, na carga e a cada clique no indice.
+function abreSeApontada() {
+  if (!location.hash) { return; }
+  var secao = document.querySelector(location.hash);
+  if (!secao) { return; }
+  var caixa = secao.querySelector('details');
+  if (caixa) { caixa.open = true; }
+}
+
+window.addEventListener('hashchange', abreSeApontada);
+window.addEventListener('DOMContentLoaded', abreSeApontada);
 """
 
 
@@ -523,8 +537,13 @@ def _bloco(grafico, recortes):
             figura = (grafico.figura(janela, variante) if grafico.variantes
                       else grafico.figura(janela))
             svg = svg_de(figura, prefixo=f"{grafico.id}-{nome}-{marca}")
+            # Grafico sem janela recebe data-janela="" e nao o nome do primeiro
+            # recorte: dizer "5 anos" num retrato de uma data e atributo que
+            # mente. O JavaScript ja trata o caso pelo fallback, mas quem
+            # inspecionar o HTML nao tem como saber disso.
+            rotulo_janela = nome if grafico.janela else ""
             partes.append(f'  <div data-grafico="{grafico.id}" '
-                          f'data-janela="{nome}" data-variante="{marca}"'
+                          f'data-janela="{rotulo_janela}" data-variante="{marca}"'
                           f"{visivel}>{svg}</div>")
 
     partes.append(f'  <p class="fonte">Fonte: {grafico.fonte}</p>')

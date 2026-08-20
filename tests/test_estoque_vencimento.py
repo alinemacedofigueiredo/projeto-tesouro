@@ -42,12 +42,12 @@ def test_marca_o_bloco_de_indexador(df):
 
 
 def test_nao_confunde_o_cabecalho_com_dado(df):
-    assert not df["titulo"].astype(str).str.contains("Título").any()
+    assert not df["titulo"].astype(str).str.contains("T\u00edtulo").any()
     assert df["vencimento"].notna().all()
 
 
 def test_cobre_os_tres_blocos_de_indexador(df):
-    assert {"Prefixados", "Selic", "Índices de Preços"} <= set(
+    assert {"Prefixados", "Selic", "\u00cdndices de Pre\u00e7os"} <= set(
         df["indexador"].dropna().unique()
     )
 

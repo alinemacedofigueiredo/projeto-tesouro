@@ -87,7 +87,7 @@ def test_padrao_a_converte_bilhoes_para_milhoes(xl):
 def test_padrao_b_devolve_formato_longo(xl):
     df = leitura_rmd.ler_padrao_b(xl, "2.4", linha_cabecalho=4, unidade="bilhoes")
     assert list(df.columns) == ["data", "categoria", "valor_milhoes"]
-    assert set(df["categoria"]) >= {"Prefixado", "Taxa Flutuante", "Câmbio"}
+    assert set(df["categoria"]) >= {"Prefixado", "Taxa Flutuante", "C\u00e2mbio"}
 
 
 def test_padrao_b_ignora_a_coluna_de_percentual(xl):

@@ -25,8 +25,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 NIVEIS = ["DPF", "DPMFi"]
 INDICES = ["SELIC", "IPCA"]
 

@@ -42,7 +42,7 @@ def test_por_canal_nao_colapsa_rotulo_repetido_entre_secoes(xl):
 def test_por_canal_preserva_os_canais_da_dpmfi(xl):
     df = funding.parse_por_canal(xl)
     canais = set(df[df["esfera"] == "DPMFi"]["canal"].dropna().unique())
-    assert "Oferta Pública" in canais
+    assert "Oferta P\u00fablica" in canais
     assert "Tesouro Direto" in canais
     assert "Vencimentos" in canais
 
@@ -53,7 +53,7 @@ def test_por_canal_recupera_o_valor_de_emissao_de_novembro_de_2006(xl):
         (df["data"] == datetime.date(2006, 11, 30))
         & (df["operacao"] == "emissao")
         & (df["esfera"] == "DPMFi")
-        & (df["canal"] == "Oferta Pública")
+        & (df["canal"] == "Oferta P\u00fablica")
     ]
     assert linha["valor_milhoes"].iloc[0] == pytest.approx(41042.54, abs=0.01)
 
@@ -62,7 +62,7 @@ def test_por_canal_exclui_os_totais_derivados(xl):
     # 'EMISSAO LIQUIDA' e as linhas sob ela sao I-III e II-IV: derivadas.
     df = funding.parse_por_canal(xl)
     rotulos = set(df["canal"].dropna().unique())
-    assert not any("LÍQUIDA" in r.upper() for r in rotulos)
+    assert not any("L\u00cdQUIDA" in r.upper() for r in rotulos)
     assert not any(r.startswith("DPMFi ") for r in rotulos)
 
 
@@ -100,7 +100,7 @@ def test_por_indexador_tem_as_colunas_canonicas(xl):
 def test_por_indexador_cobre_os_indexadores(xl):
     df = funding.parse_por_indexador(xl)
     indexadores = set(df["indexador"].unique())
-    assert {"Prefixados", "Índice de Preços", "Taxa Flutuante"} <= indexadores
+    assert {"Prefixados", "\u00cdndice de Pre\u00e7os", "Taxa Flutuante"} <= indexadores
 
 
 def test_por_indexador_separa_demais_da_dpmfi_do_demais_da_dpfe(xl):

@@ -35,7 +35,7 @@ def test_faixa_tem_as_colunas_canonicas(xl):
 def test_faixa_cobre_as_seis_faixas(xl):
     df = vencimentos.parse_por_faixa(xl)
     faixas = set(df["faixa"].unique())
-    assert "Até 12 meses" in faixas
+    assert "At\u00e9 12 meses" in faixas
     assert "Acima de 5 anos" in faixas
 
 
@@ -140,7 +140,7 @@ def test_cronograma_traz_o_balde_de_apos_5_anos(xl):
 def test_sem_a_linha_do_balde_o_parser_levanta(xl, monkeypatch):
     # A guarda que impede o CSV de sair com 78% do estoque em silencio. Aqui ela e
     # exercitada de verdade: sem esta assercao, apagar o LookupError nao quebra nada.
-    def sem_balde(bruto):
+    def sem_balde(bruto, linha_cabecalho):
         raise LookupError(
             "aba 3.4: linha 'Apos 5 anos' nao encontrada. Ela existe desde que "
             "acompanhamos a aba, e sem ela o CSV soma so os 60 meses detalhados."
@@ -150,6 +150,22 @@ def test_sem_a_linha_do_balde_o_parser_levanta(xl, monkeypatch):
     with pytest.raises(LookupError) as erro:
         vencimentos.parse_cronograma(xl)
     assert "Apos 5 anos" in str(erro.value)
+
+
+def test_duas_linhas_de_apos_5_anos_levantam(xl):
+    # Se o RMD acrescentar uma linha "Apos 5 anos (Part %)" acima da de valores,
+    # ler a primeira daria percentual no lugar de R$ milhoes -- numero pequeno,
+    # plausivel e errado, sem nada levantar. A guarda exige rotulo unico.
+    from tesouro.leitura_rmd import aba
+
+    bruto = aba(xl, "3.4").copy()
+    linha_cabecalho = vencimentos._linha_do_cabecalho(bruto)
+    original = vencimentos._linha_do_balde(bruto, linha_cabecalho)
+
+    bruto.iloc[original - 1, 0] = "Ap\u00f3s 5 anos (Part %)"
+    with pytest.raises(LookupError) as erro:
+        vencimentos._linha_do_balde(bruto, linha_cabecalho)
+    assert "2 vezes" in str(erro.value)
 
 
 def test_o_total_do_cronograma_bate_com_o_estoque_do_dpmfi(xl_real):

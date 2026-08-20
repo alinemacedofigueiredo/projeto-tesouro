@@ -6,6 +6,7 @@ e e substituida a cada mes, por isso leva data_referencia. Seus valores
 incluem juros, nao apenas principal.
 """
 import re
+import unicodedata
 
 import pandas as pd
 
@@ -110,21 +111,32 @@ def _linha_do_cabecalho(bruto):
 
 def _sem_acento(texto):
     """Compara rotulo do RMD sem depender de acentuacao."""
-    import unicodedata
     normal = unicodedata.normalize("NFKD", str(texto))
     return "".join(c for c in normal if not unicodedata.combining(c)).strip().lower()
 
 
-def _linha_do_balde(bruto):
+def _linha_do_balde(bruto, linha_cabecalho):
     """Acha a linha 'Apos 5 anos', pelo rotulo e nunca pela posicao.
 
     A aba muda de tamanho conforme o mes -- os 60 meses detalhados andam, e as
     linhas de resumo andam junto. Procurar pela posicao funcionaria neste anexo e
     leria a linha errada no proximo.
+
+    A busca comeca DEPOIS do cabecalho e exige que o rotulo apareca uma vez so. Se
+    o RMD um dia acrescentar uma linha 'Apos 5 anos (Part %)' acima da de valores,
+    a versao anterior devolveria a primeira e leria percentual como R$ milhoes --
+    sem levantar nada, porque percentual tambem e numero.
     """
-    for indice in range(len(bruto)):
-        if _sem_acento(bruto.iloc[indice, 0]).startswith("apos 5 anos"):
-            return indice
+    achadas = [indice for indice in range(linha_cabecalho + 1, len(bruto))
+               if _sem_acento(bruto.iloc[indice, 0]).startswith("apos 5 anos")]
+    if len(achadas) > 1:
+        raise LookupError(
+            f"aba 3.4: a linha 'Apos 5 anos' aparece {len(achadas)} vezes "
+            f"(linhas {achadas}). Uma delas provavelmente e de percentual, e ler a "
+            f"errada daria um CSV com numero pequeno e plausivel no lugar do balde."
+        )
+    if achadas:
+        return achadas[0]
     raise LookupError(
         "aba 3.4: linha 'Apos 5 anos' nao encontrada. Ela existe desde que "
         "acompanhamos a aba, e sem ela o CSV soma so os 60 meses detalhados, "
@@ -165,7 +177,7 @@ def parse_cronograma(xl):
             valor = para_milhoes(limpar_nulo(bruto.iloc[indice, coluna]), "milhoes")
             registros.append((referencia, mes, grupo, valor, "mensal"))
 
-    linha_balde = _linha_do_balde(bruto)
+    linha_balde = _linha_do_balde(bruto, linha_cabecalho)
     for coluna, grupo in grupos.items():
         valor = para_milhoes(limpar_nulo(bruto.iloc[linha_balde, coluna]), "milhoes")
         registros.append((referencia, None, grupo, valor, "apos_5_anos"))

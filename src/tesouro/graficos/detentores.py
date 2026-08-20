@@ -20,8 +20,6 @@ import pandas as pd
 from .. import config
 from . import estilo
 
-JANELAS = {"5 anos": 5, "completa": None}
-
 # Aba 2.7, agrupada em cinco: os quatro grandes, e o resto junto.
 ORDEM_GRUPOS = ["Inst. Financeiras", "Fundos", "Previd\u00eancia",
                 "N\u00e3o-residentes", "Demais Grupos"]

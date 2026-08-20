@@ -32,9 +32,9 @@ def test_demais_da_dpmfi_nao_se_confunde_com_o_da_dpfe(df):
 
 
 def test_subgrupos_da_dpfe_sao_entidade_e_nao_titulo(df):
-    assert "Dívida Mobiliária" not in set(df["titulo"].dropna().unique())
-    assert "Dívida Mobiliária" in set(df["entidade"].dropna().unique())
-    assert "Dívida Contratual" in set(df["entidade"].dropna().unique())
+    assert "D\u00edvida Mobili\u00e1ria" not in set(df["titulo"].dropna().unique())
+    assert "D\u00edvida Mobili\u00e1ria" in set(df["entidade"].dropna().unique())
+    assert "D\u00edvida Contratual" in set(df["entidade"].dropna().unique())
 
 
 def test_ignora_as_duas_formas_de_nota_de_rodape(df):

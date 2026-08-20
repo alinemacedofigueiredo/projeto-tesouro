@@ -61,9 +61,9 @@ def test_subgrupos_da_dpfe_sao_entidade_e_nao_folha(xl):
         (prazo.parse_por_titulo(xl), "titulo"),
         (prazo.parse_por_indexador(xl), "categoria"),
     ):
-        assert "Dívida Mobiliária" not in set(df[folha].dropna().unique())
-        assert "Dívida Mobiliária" in set(df["entidade"].dropna().unique())
-        assert "Dívida Contratual" in set(df["entidade"].dropna().unique())
+        assert "D\u00edvida Mobili\u00e1ria" not in set(df[folha].dropna().unique())
+        assert "D\u00edvida Mobili\u00e1ria" in set(df["entidade"].dropna().unique())
+        assert "D\u00edvida Contratual" in set(df["entidade"].dropna().unique())
 
 
 def test_preserva_o_prazo_medio_da_dpf(xl):

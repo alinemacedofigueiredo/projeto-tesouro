@@ -34,7 +34,7 @@ def test_taxa_vira_percentual(df):
         (df["data_leilao"] == datetime.date(2026, 1, 6))
         & (df["titulo"] == "NTN-B")
         & (df["data_vencimento"] == datetime.date(2029, 5, 15))
-        & (df["volta"] == "1.ª volta")
+        & (df["volta"] == "1.\u00aa volta")
     ].iloc[0]
     assert linha["taxa_media_pct"] == pytest.approx(7.828, abs=1e-3)
 
@@ -43,7 +43,7 @@ def test_financeiro_vira_milhoes(df):
     linha = df[
         (df["data_leilao"] == datetime.date(2026, 1, 6))
         & (df["titulo"] == "LFT")
-        & (df["volta"] == "1.ª volta")
+        & (df["volta"] == "1.\u00aa volta")
     ].iloc[0]
     # 13.506.269.547,68 reais = 13.506,27 milhoes
     assert linha["financeiro_milhoes"] == pytest.approx(13506.27, abs=0.01)
@@ -58,5 +58,5 @@ def test_bacen_em_branco_vira_nulo_e_nao_zero(df):
 
 def test_preserva_as_duas_voltas(df):
     voltas = set(df["volta"].dropna().unique())
-    assert "1.ª volta" in voltas
-    assert "2.ª volta" in voltas
+    assert "1.\u00aa volta" in voltas
+    assert "2.\u00aa volta" in voltas

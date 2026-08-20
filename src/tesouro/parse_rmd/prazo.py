@@ -27,8 +27,8 @@ _ESFERAS = {"DPMFi", "DPFe"}
 _ENTIDADES = {
     "Tesouro Nacional",
     "Banco Central",
-    "Dívida Mobiliária",
-    "Dívida Contratual",
+    "D\u00edvida Mobili\u00e1ria",
+    "D\u00edvida Contratual",
 }
 
 # Nota de rodape numerada: '1 Titulos de renegociacao anteriores ao...'

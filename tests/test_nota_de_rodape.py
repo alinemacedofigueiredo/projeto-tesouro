@@ -44,7 +44,7 @@ def test_estoque_descarta_nota_sem_valor_e_preserva_cabecalho(monkeypatch):
     entidade, nao folha -- confundir os dois casos apagaria hierarquia.
     """
     quadro = _quadro([
-        ("DPF EM PODER DO PÚBLICO", [100.0, 110.0]),
+        ("DPF EM PODER DO P\u00daBLICO", [100.0, 110.0]),
         ("Tesouro Nacional", [None, None]),
         ("LTN", [50.0, 55.0]),
         (NOTA, [None, None]),
@@ -95,9 +95,9 @@ def test_funding_descarta_nota_sem_valor(monkeypatch):
     canal nem indexador.
     """
     quadro = _quadro([
-        ("EMISSÕES", [None, None]),
+        ("EMISS\u00d5ES", [None, None]),
         ("I - DPMFi", [None, None]),
-        ("Oferta Pública", [30.0, 31.0]),
+        ("Oferta P\u00fablica", [30.0, 31.0]),
         (NOTA, [None, None]),
     ])
     monkeypatch.setattr(funding, "ler_padrao_a", lambda *a, **k: quadro)
@@ -105,7 +105,7 @@ def test_funding_descarta_nota_sem_valor(monkeypatch):
     df = funding.parse_por_canal(None)
 
     assert NOTA not in set(df["canal"])
-    assert "Oferta Pública" in set(df["canal"])
+    assert "Oferta P\u00fablica" in set(df["canal"])
 
 
 def test_funding_ignora_nota_em_caixa_alta(monkeypatch):

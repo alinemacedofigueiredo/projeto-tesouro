@@ -48,7 +48,7 @@ _ABAS = {"4.1": "mensal", "4.2": "acum_12m", "4.3": "emissoes_12m"}
 _ESFERAS = {"DPF", "DPMFi", "DPFe"}
 
 # Subgrupos da DPFe, no mesmo papel que 'Tesouro Nacional' tem na DPMFi.
-_ENTIDADES = {"Dívida Mobiliária", "Dívida Contratual"}
+_ENTIDADES = {"D\u00edvida Mobili\u00e1ria", "D\u00edvida Contratual"}
 
 # As abas terminam com duas formas de nota: numerada ('1  Titulos de
 # renegociacao...') e prefixada ('Obs: O Tesouro Nacional...').

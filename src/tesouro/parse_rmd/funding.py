@@ -35,7 +35,7 @@ from ..leitura_rmd import (
     ordem_dos_rotulos,
 )
 
-_OPERACOES = {"EMISSÕES": "emissao", "RESGATES": "resgate"}
+_OPERACOES = {"EMISS\u00d5ES": "emissao", "RESGATES": "resgate"}
 
 # Aceita 'DPMFi' puro (aba 1.2) e com numeral romano (aba 1.1).
 _PADRAO_ESFERA = re.compile(r"^(?:(?:I{1,3}|IV)\s*-\s*)?(DPMFi|DPFe)$")
@@ -43,7 +43,7 @@ _PADRAO_ESFERA = re.compile(r"^(?:(?:I{1,3}|IV)\s*-\s*)?(DPMFi|DPFe)$")
 # A carteira do Banco Central aparece na 1.1 no mesmo nivel de uma esfera.
 _ESFERA_BACEN = "Banco Central"
 
-_INICIO_DOS_DERIVADOS = "EMISSÃO LÍQUIDA"
+_INICIO_DOS_DERIVADOS = "EMISS\u00c3O L\u00cdQUIDA"
 
 
 def _anotar_hierarquia(df):

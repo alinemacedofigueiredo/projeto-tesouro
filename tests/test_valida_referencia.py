@@ -123,6 +123,29 @@ def test_o_ano_aberto_nao_tem_realizado(bom):
     assert sorted(vincendo["ano"].unique()) == list(range(2016, 2027))
     assert vincendo["realizado"].isna().all()
 
+
+# ---------------------------------------------------------------------------
+# main(): o comando que o LEIA-ME manda o operador rodar. Nao tinha teste, e o
+# codigo de retorno dele e o que separa "pode seguir" de "corrija e rode de novo".
+# ---------------------------------------------------------------------------
+
+def test_main_devolve_zero_e_relata_o_ano_aberto(capsys):
+    assert v.main() == 0
+    saida = capsys.readouterr().out
+    assert "ok" in saida
+    assert "2026" in saida, "o ano que ainda nao fechou tem de ser nomeado"
+
+
+def test_main_devolve_um_quando_a_referencia_esta_quebrada(monkeypatch, tmp_path):
+    ruim = tmp_path / "paf_bandas.csv"
+    ruim.write_text(
+        "ano,versao,indicador,minimo,maximo,realizado\n"
+        "2026,original,prefixado_pct,0.21,0.25,\n",
+        encoding="ascii",
+    )
+    monkeypatch.setattr(v, "caminho_paf", lambda: ruim)
+    assert v.main() == 1
+
 # ---------------------------------------------------------------------------
 # paf_bandas_conferencia.csv -- a transcricao da tabela que a dona do projeto
 # mantem a parte, usada para cruzar o paf_bandas.csv contra fonte independente.
