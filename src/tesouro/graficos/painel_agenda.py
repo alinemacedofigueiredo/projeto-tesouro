@@ -51,8 +51,8 @@ def _fig_ofertado_aceito():
     def figura(janela=None):
         # Alta o bastante para vinte e quatro barras deitadas: em pe as datas
         # viravam etiqueta girada e ilegivel.
-        fig = dashboard._figura(9.5)
-        cronograma.desenha_ofertado_e_aceito(_comparacao(), fig.subplots())
+        fig = dashboard._figura(5.4)
+        cronograma.desenha_ofertado_e_aceito(_por_dia(), fig.subplots())
         return fig
     return figura
 
@@ -60,7 +60,7 @@ def _fig_ofertado_aceito():
 def _fig_lft():
     def figura(janela=None):
         fig = dashboard._figura(4.0)
-        cronograma.desenha_quantidade_lft(_comparacao(), fig.subplots())
+        cronograma.desenha_quantidade_lft(_lft(), fig.subplots())
         return fig
     return figura
 
@@ -80,11 +80,18 @@ def _dados(hoje=None):
     return _EM_CACHE[chave]
 
 
-def _comparacao():
-    """Os ultimos leiloes de cada familia, com DV ofertado e aceito."""
-    if "comparacao" not in _EM_CACHE:
-        _EM_CACHE["comparacao"] = dados_agenda.ofertado_e_aceito()
-    return _EM_CACHE["comparacao"]
+def _por_dia():
+    """Os ultimos PREGOES, abertos por familia. Ver agenda.ultimos_dias()."""
+    if "por_dia" not in _EM_CACHE:
+        _EM_CACHE["por_dia"] = dados_agenda.ultimos_dias()
+    return _EM_CACHE["por_dia"]
+
+
+def _lft():
+    """Os ultimos leiloes de LFT. Ela tem grafico proprio, em titulos."""
+    if "lft" not in _EM_CACHE:
+        _EM_CACHE["lft"] = dados_agenda.ultimos_de("LFT")
+    return _EM_CACHE["lft"]
 
 
 def limpar_cache():
@@ -97,18 +104,19 @@ REGISTRO = [
     Grafico("agenda_ofertado_aceito", "O que ele colocou",
             "Quanto risco ele tentou colocar, e quanto colocou",
             "dv_emitido_por_leilao.csv",
-            "O DV01 <b>ofertado</b> (barra vazada) e o <b>aceito</b> (cheia) nos "
-            "<b>seis \u00faltimos leil\u00f5es</b> de cada fam\u00edlia. A "
+            "O DV01 <b>ofertado</b> (barra de cima, vazada) e o <b>aceito</b> "
+            "(de baixo, cheia) nos <b>seis \u00faltimos preg\u00f5es</b>. A "
             "pergunta que isto responde, e que o aceito sozinho n\u00e3o "
             "responde: ele n\u00e3o conseguiu colocar, ou n\u00e3o quis? Medido "
             "no agregado do hist\u00f3rico, ele coloca <b>68,5% do DV que "
             "oferta</b>. "
-            "S\u00e3o os seis \u00faltimos <b>de cada fam\u00edlia</b>, e "
-            "n\u00e3o os seis \u00faltimos dias: LFT e NTN-B v\u00e3o a mercado "
-            "num dia e o prefixado no outro. A linha pontilhada separa uma "
-            "fam\u00edlia da outra. "
-            "A LFT tem gr\u00e1fico pr\u00f3prio, logo abaixo \u2014 ela "
-            "n\u00e3o tem DV01, por decis\u00e3o de modelagem.",
+            "O n\u00famero na ponta \u00e9 o <b>total do preg\u00e3o</b>, e a "
+            "barra vem empilhada por papel para que a soma n\u00e3o apague a "
+            "composi\u00e7\u00e3o \u2014 num dia de prefixado a LTN e a NTN-F "
+            "somam, e saber qual das duas pesou \u00e9 metade da leitura. "
+            "A LFT n\u00e3o entra: sem DV01 por decis\u00e3o de modelagem, a "
+            "fatia dela seria sempre zero. Ela tem gr\u00e1fico pr\u00f3prio, "
+            "logo abaixo.",
             False, None, _fig_ofertado_aceito()),
     Grafico("agenda_lft", "O que ele colocou",
             "LFT \u00b7 em t\u00edtulos, com o financeiro aceito",
@@ -135,36 +143,36 @@ def _celula_taxa(r):
 
 
 def tabela_dos_ultimos(dados=None, quantos=None):
-    """Os ultimos leiloes de cada familia, no MESMO MOLDE da tabela da agenda.
+    """Os ultimos PREGOES, no MESMO MOLDE da tabela da agenda: agrupados por dia.
 
     RECOLHIDA, e antes do calendario. Ela e referencia -- "o que aconteceu" -- e nao
     o assunto da pagina, que e "o que vem". Deixa-la aberta empurraria a agenda para
     baixo da dobra, e quem abre a pagina quer ver a agenda.
 
-    A PRIMEIRA LINHA DE CADA DIA SAI EM OUTRA COR, para deixar claro que aquilo ja
-    aconteceu: as duas tabelas tem o mesmo formato, e sem a marca elas se parecem
-    demais.
+    A LINHA DE CADA DIA SAI EM OUTRA COR, e traz o TOTAL do pregao. As duas tabelas
+    tem o mesmo formato, e sem a marca elas se parecem demais -- e o total do dia e
+    o numero que a abertura por papel sozinha nao da.
 
-    POR FAMILIA e nao por data, porque as familias tem calendarios diferentes: LFT e
-    NTN-B num dia, prefixado no outro. Uma tabela por data deixaria metade das
-    linhas vazias em cada dia.
+    POR DIA e nao por papel: e o pregao que se compara com o pregao anterior.
     """
-    d = _comparacao() if dados is None else dados
+    d = _por_dia() if dados is None else dados
     if d.empty:
         return ""
     quantos = quantos or dados_agenda.LEILOES_NA_COMPARACAO
     d = d[d["quantos_atras"] < quantos]
+    totais = dados_agenda.total_por_dia(d).set_index("data_leilao")
 
     linhas = ['<details id="tabela-ultimos">',
               "<summary>Os \u00faltimos "
-              f"{quantos} leil\u00f5es de cada papel</summary>",
+              f"{quantos} preg\u00f5es</summary>",
               '<p class="legenda">O DV01 que ele <b>ofertou</b> e o que '
               '<b>aceitou</b>, e a fra\u00e7\u00e3o entre os dois \u2014 no '
-              'agregado do hist\u00f3rico, 68,5%. A LFT aparece sem DV01, por '
+              'agregado do hist\u00f3rico, 68,5%. A linha em destaque \u00e9 o '
+              '<b>total do preg\u00e3o</b>. A LFT aparece sem DV01, por '
               'decis\u00e3o de modelagem; para ela a compara\u00e7\u00e3o '
               'est\u00e1 no gr\u00e1fico acima, em t\u00edtulos.</p>',
               "<table><thead><tr>"
-              "<th>papel</th><th>data</th>"
+              "<th>preg\u00e3o</th><th>papel</th>"
               '<th class="n">ofertou</th>'
               '<th class="n">aceitou</th>'
               '<th class="n">DV01 ofertado</th>'
@@ -173,34 +181,42 @@ def tabela_dos_ultimos(dados=None, quantos=None):
               '<th class="n">financeiro</th>'
               "</tr></thead><tbody>"]
 
-    for familia in dados_agenda._ORDEM_FAMILIAS:
-        g = d[d["familia"] == familia].sort_values("quantos_atras")
-        if g.empty:
-            continue
-        for k, (_, r) in enumerate(g.iterrows()):
-            classe = ' class="passado"' if k == 0 else ""
-            papel = f"<b>{familia}</b>" if k == 0 else ""
-            fracao = r.get("colocado_pct")
-            if pd.isna(fracao):
-                fracao = r.get("colocado_qtd_pct")
-            if pd.isna(fracao):
-                marca = "\u2014"
-            else:
-                cor = "" if fracao > 0.95 else ' class="baixo"'
-                marca = f'<span{cor}>{estilo.num_br(fracao * 100, 0)}%</span>'
+    for dia, g in d.groupby("data_leilao", sort=False):
+        total = totais.loc[dia]
+        linhas.append(
+            f'<tr class="passado"><td><b>{dia:%d/%m/%Y}</b></td>'
+            f"<td>o preg\u00e3o todo</td>"
+            f'<td class="n">{_qtd(total["qtd_ofertada"])}</td>'
+            f'<td class="n">{_qtd(total["qtd_aceita"])}</td>'
+            f'<td class="n">{_mil(total["dv_ofertado"])}</td>'
+            f'<td class="n">{_mil(total["dv_aceito"])}</td>'
+            f'<td class="n">{_fracao(total)}</td>'
+            f'<td class="n">{estilo.num_br(total["financeiro_milhoes"]/1000, 2)}'
+            f" bi</td></tr>")
+        for _, r in g.sort_values("familia").iterrows():
             linhas.append(
-                f"<tr{classe}><td>{papel}</td>"
-                f"<td>{r['data_leilao']:%d/%m/%Y}</td>"
+                f"<tr><td></td><td>{r['familia']}</td>"
                 f'<td class="n">{_qtd(r["qtd_ofertada"])}</td>'
                 f'<td class="n">{_qtd(r["qtd_aceita"])}</td>'
                 f'<td class="n">{_mil(r["dv_ofertado"])}</td>'
                 f'<td class="n">{_mil(r["dv_aceito"])}</td>'
-                f'<td class="n">{marca}</td>'
-                f'<td class="n">{estilo.num_br(r["financeiro_milhoes"] / 1000, 2)}'
+                f'<td class="n">{_fracao(r)}</td>'
+                f'<td class="n">{estilo.num_br(r["financeiro_milhoes"]/1000, 2)}'
                 f" bi</td></tr>")
 
     linhas += ["</tbody></table>", "</details>"]
     return "\n".join(linhas)
+
+
+def _fracao(r):
+    """A fracao colocada: pelo DV quando ha, pela quantidade quando nao ha (LFT)."""
+    valor = r.get("colocado_pct")
+    if pd.isna(valor):
+        valor = r.get("colocado_qtd_pct")
+    if pd.isna(valor):
+        return "\u2014"
+    cor = "" if valor > 0.95 else ' class="baixo"'
+    return f'<span{cor}>{estilo.num_br(valor * 100, 0)}%</span>'
 
 
 def _mil(dv):

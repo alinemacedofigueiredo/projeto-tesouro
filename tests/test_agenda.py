@@ -178,110 +178,111 @@ def test_por_dia_soma_o_dia_e_marca_a_taxa_velha(dados):
 # repetir a ultima oferta" -- foram recusados na revisao de 20/08/2026 e sairam
 # junto com os testes deles. O que entrou responde uma pergunta que nenhuma
 # outra pagina responde: ele nao conseguiu colocar, ou nao quis?
+#
+# E os "ultimos seis" sao seis PREGOES, e nao seis de cada papel. A versao por
+# familia cobria periodos diferentes em cada bloco e nao permitia somar o dia --
+# que e justamente a leitura que interessa.
 # --------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def comparacao():
-    return agenda.ofertado_e_aceito()
+def por_dia():
+    return agenda.ultimos_dias()
 
 
-def test_a_comparacao_traz_os_ultimos_leiloes_de_CADA_familia(comparacao):
-    # POR FAMILIA e nao por data: LFT e NTN-B vao a mercado num dia e o prefixado no
-    # outro, entao um corte por data deixaria metade das familias sem linha.
-    assert not comparacao.empty
-    esperado = list(range(agenda.LEILOES_NA_COMPARACAO))
-    for familia, g in comparacao.groupby("familia"):
-        assert sorted(g["quantos_atras"]) == esperado, familia
-    # E as datas do "ultimo" NAO sao todas iguais, que e o motivo da regra existir.
-    ultimos = comparacao[comparacao["quantos_atras"] == 0]
-    assert ultimos["data_leilao"].nunique() > 1
+@pytest.fixture(scope="module")
+def lft():
+    return agenda.ultimos_de("LFT")
 
 
-def test_a_comparacao_traz_quantidade_alem_do_dv(comparacao):
-    # A LFT nao tem DV: a comparacao ofertado/aceito dela so existe em titulos.
-    lft = comparacao[comparacao["familia"] == "LFT"]
-    assert len(lft) == agenda.LEILOES_NA_COMPARACAO
-    assert lft["dv_ofertado"].fillna(0).eq(0).all()
-    assert (lft["qtd_ofertada"] > 0).all()
-    assert (lft["qtd_aceita"] > 0).all()
-    assert lft["colocado_qtd_pct"].notna().all()
+def test_os_ultimos_leiloes_sao_PREGOES_e_nao_seis_de_cada_papel(por_dia):
+    # O DEFEITO QUE ISTO CONSERTA: contando por familia, o grafico mostrava vinte e
+    # quatro linhas cobrindo periodos diferentes em cada bloco -- de 14/07 a 20/08 no
+    # prefixado e de 14/07 a 18/08 na NTN-B -- e nao dava para somar o dia.
+    assert not por_dia.empty
+    assert por_dia["data_leilao"].nunique() == agenda.LEILOES_NA_COMPARACAO
+    # Varias familias por pregao, e nem toda familia em todo pregao: LFT e NTN-B vao
+    # a mercado num dia e o prefixado no outro.
+    por_pregao = por_dia.groupby("data_leilao")["familia"].nunique()
+    assert por_pregao.min() >= 2
+    assert por_dia.groupby("familia")["data_leilao"].nunique().min() < len(por_pregao)
 
 
-def test_o_aceito_nunca_passa_do_ofertado(comparacao):
-    com_dv = comparacao[comparacao["dv_ofertado"] > 0]
+def test_quantos_atras_numera_os_pregoes_do_mais_recente(por_dia):
+    ordem = por_dia.drop_duplicates("data_leilao").sort_values("quantos_atras")
+    assert list(ordem["quantos_atras"]) == list(range(len(ordem)))
+    # 0 e o mais recente.
+    assert ordem.iloc[0]["data_leilao"] == por_dia["data_leilao"].max()
+
+
+def test_o_total_do_dia_e_a_soma_das_familias(por_dia):
+    # E o numero que ela pediu: quanto risco entrou no mercado naquele pregao. Com a
+    # barra empilhada, nenhuma fatia sozinha o mostra.
+    total = agenda.total_por_dia(por_dia)
+    assert len(total) == por_dia["data_leilao"].nunique()
+    for _, r in total.iterrows():
+        do_dia = por_dia[por_dia["data_leilao"] == r["data_leilao"]]
+        assert r["dv_aceito"] == pytest.approx(do_dia["dv_aceito"].sum())
+        assert r["dv_ofertado"] == pytest.approx(do_dia["dv_ofertado"].sum())
+        assert r["papeis"] == do_dia["papeis"].sum()
+
+
+def test_o_aceito_nunca_passa_do_ofertado(por_dia):
+    com_dv = por_dia[por_dia["dv_ofertado"] > 0]
     assert len(com_dv) > 0
     assert (com_dv["dv_aceito"] <= com_dv["dv_ofertado"] * 1.001).all()
 
 
-def test_o_grafico_desenha_duas_barras_por_LEILAO(comparacao):
+def test_o_grafico_desenha_uma_linha_por_PREGAO(por_dia):
     import matplotlib.pyplot as plt
     from tesouro.graficos import cronograma
 
     fig, ax = plt.subplots()
-    cronograma.desenha_ofertado_e_aceito(comparacao, ax, quantos=6)
-    familias = [f for f in cronograma.ORDEM_FAMILIAS
-                if f in set(comparacao["familia"])]
-    assert len(ax.patches) == 2 * 6 * len(familias)
+    cronograma.desenha_ofertado_e_aceito(por_dia, ax)
+    rotulos = [r.get_text() for r in ax.get_yticklabels()]
+    assert len(rotulos) == por_dia["data_leilao"].nunique()
+    assert len(set(rotulos)) == len(rotulos), "datas repetidas no eixo"
     plt.close(fig)
 
 
-def test_a_linha_pontilhada_separa_uma_familia_da_outra(comparacao):
-    # Sem ela, vinte e quatro barras deitadas viram um bloco so e nao se ve onde
-    # uma familia termina e a outra comeca.
+def test_a_barra_do_pregao_vem_EMPILHADA_por_papel(por_dia):
+    # Sem empilhar, a soma do dia apagaria a composicao: num dia de prefixado a LTN
+    # e a NTN-F somam, e saber qual das duas pesou e metade da leitura.
     import matplotlib.pyplot as plt
     from tesouro.graficos import cronograma
 
     fig, ax = plt.subplots()
-    cronograma.desenha_ofertado_e_aceito(comparacao, ax, quantos=6)
-    familias = [f for f in cronograma.ORDEM_FAMILIAS
-                if f in set(comparacao["familia"])]
-    pontilhadas = [l for l in ax.get_lines() if l.get_linestyle() in (":", "dotted")]
-    assert len(pontilhadas) == len(familias) - 1
+    cronograma.desenha_ofertado_e_aceito(por_dia, ax)
+    familias = [f for f in cronograma.FAMILIAS_COM_DV
+                if f in set(por_dia["familia"])]
+    dias = por_dia["data_leilao"].nunique()
+    # Duas barras (ofertado e aceito) por familia por dia -- as vazias tambem sao
+    # desenhadas, com comprimento zero, e e isso que mantem a pilha alinhada.
+    assert len(ax.patches) == 2 * dias * len(familias)
     plt.close(fig)
 
 
-def test_o_grafico_da_LFT_usa_quantidade_e_escreve_o_financeiro(comparacao):
+def test_a_LFT_fica_de_fora_do_grafico_de_DV(por_dia):
+    # Sem DV por decisao de modelagem: uma fatia de espessura zero dentro da pilha
+    # nao se distingue de ausencia.
+    from tesouro.graficos import cronograma
+
+    assert "LFT" in set(por_dia["familia"])
+    assert "LFT" not in cronograma.FAMILIAS_COM_DV
+
+
+def test_o_grafico_da_LFT_usa_quantidade_e_escreve_o_financeiro(lft):
     # Ela nao tem DV, entao a comparacao e em titulos -- e o financeiro entra como
     # rotulo porque e a grandeza que se compara com o resto do projeto.
     import matplotlib.pyplot as plt
     from tesouro.graficos import cronograma
 
+    assert len(lft) == agenda.LEILOES_DA_LFT
     fig, ax = plt.subplots()
-    cronograma.desenha_quantidade_lft(comparacao, ax, quantos=4)
-    assert len(ax.patches) == 2 * 4
+    cronograma.desenha_quantidade_lft(lft, ax)
+    assert len(ax.patches) == 2 * agenda.LEILOES_DA_LFT
     assert "t\u00edtulos" in ax.get_xlabel()
     textos = " ".join(a.get_text() for a in ax.texts)
     assert "R$" in textos and "bi" in textos
-    plt.close(fig)
-
-
-def test_a_LFT_fica_de_fora_do_grafico_de_DV(comparacao):
-    # Sem DV por decisao de modelagem: duas barras zeradas ao lado das outras se
-    # leriam como "nao colocou nada", que e outra coisa.
-    from tesouro.graficos import cronograma
-
-    assert "LFT" in set(comparacao["familia"])
-    assert "LFT" not in cronograma.ORDEM_FAMILIAS
-
-
-def test_cada_linha_traz_a_DATA_e_o_nome_so_no_comeco_do_bloco(comparacao):
-    # Vinte e quatro barras de dias diferentes pareceriam do mesmo leilao sem a
-    # data. E repetir "NTN-B longa" seis vezes empilhadas e ruido: o nome marca o
-    # bloco, a data identifica a linha.
-    import matplotlib.pyplot as plt
-    from tesouro.graficos import cronograma
-
-    fig, ax = plt.subplots()
-    cronograma.desenha_ofertado_e_aceito(comparacao, ax, quantos=6)
-    rotulos = [r.get_text() for r in ax.get_yticklabels()]
-    familias = [f for f in cronograma.ORDEM_FAMILIAS
-                if f in set(comparacao["familia"])]
-    assert len(rotulos) == 6 * len(familias)
-    # Cada familia aparece UMA vez, na primeira linha do bloco dela.
-    for familia in familias:
-        assert sum(1 for r in rotulos if r.startswith(familia)) == 1, familia
-    # E as datas sao todas diferentes dentro de um bloco.
-    assert len({r.strip().split()[-1] for r in rotulos}) > 6
     plt.close(fig)
 
 
@@ -320,11 +321,12 @@ def test_a_tabela_dos_ultimos_e_RECOLHIVEL_e_vem_antes_do_calendario(pagina):
     assert pagina.index('id="tabela-ultimos"') < pagina.index('id="tabela-agenda"')
 
 
-def test_a_primeira_linha_de_cada_papel_sai_marcada_como_passado(pagina, comparacao):
+def test_a_linha_do_PREGAO_sai_marcada_e_traz_o_total(pagina, por_dia):
     # As duas tabelas tem o mesmo formato; sem a marca elas se parecem demais, e
-    # nao fica claro qual e leilao que ja aconteceu.
-    familias = comparacao["familia"].nunique()
-    assert pagina.count('class="passado"') == familias
+    # nao fica claro qual e leilao que ja aconteceu. E a linha marcada traz o TOTAL
+    # do dia, que e o numero que a abertura por papel sozinha nao da.
+    assert pagina.count('class="passado"') == por_dia["data_leilao"].nunique()
+    assert "o preg\u00e3o todo" in pagina
 
 
 def test_a_pagina_diz_que_a_quantidade_nao_esta_no_calendario(pagina):
@@ -345,14 +347,14 @@ def test_a_tabela_dos_ultimos_separa_ofertado_de_aceito(pagina):
     assert "DV01 por t\u00edtulo" not in pagina
 
 
-def test_a_tabela_dos_ultimos_mostra_seis_leiloes_por_papel(pagina, comparacao):
-    # Uma linha por (familia, leilao), no mesmo molde da tabela da agenda.
+def test_a_tabela_dos_ultimos_mostra_seis_PREGOES(pagina, por_dia):
+    # Uma linha de total por pregao, mais uma por familia dentro dele, mais o
+    # cabecalho.
     i = pagina.index('id="tabela-ultimos"')
     j = pagina.index('id="tabela-agenda"')
     so_ultimos = pagina[i:j]
-    esperado = len(comparacao[
-        comparacao["quantos_atras"] < agenda.LEILOES_NA_COMPARACAO])
-    assert so_ultimos.count("<tr") == esperado + 1     # +1 do cabecalho
+    dias = por_dia["data_leilao"].nunique()
+    assert so_ultimos.count("<tr") == dias + len(por_dia) + 1
 
 
 def test_a_tabela_da_agenda_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(

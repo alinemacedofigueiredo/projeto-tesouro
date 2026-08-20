@@ -1,4 +1,4 @@
-"""O desenho da p\u00e1gina de agenda: ofertado contra aceito, nos \u00faltimos leil\u00f5es.
+"""O desenho da p\u00e1gina de agenda: ofertado contra aceito, nos \u00faltimos preg\u00f5es.
 
 O QUE HAVIA ANTES, e por que saiu. A primeira vers\u00e3o desta p\u00e1gina tinha tr\u00eas
 gr\u00e1ficos -- um cronograma de pontos por v\u00e9rtice, um de DV01 por t\u00edtulo e um de "DV
@@ -10,18 +10,20 @@ uma quantidade do passado para produzir um n\u00famero que ningu\u00e9m ia usar.
 O QUE ENTROU NO LUGAR responde uma pergunta que nenhuma outra p\u00e1gina responde: ele
 n\u00e3o conseguiu colocar, ou n\u00e3o quis?
 
-BARRAS HORIZONTAIS, e n\u00e3o verticais. A primeira vers\u00e3o mostrava s\u00f3 o \u00faltimo leil\u00e3o
-de cada fam\u00edlia e cabia em p\u00e9. Com seis leil\u00f5es por fam\u00edlia s\u00e3o vinte e quatro
-grupos, e em p\u00e9 as datas viram etiqueta girada e ileg\u00edvel -- deitado, cada data \u00e9 um
-r\u00f3tulo de linha que se l\u00ea sem esfor\u00e7o. A linha pontilhada separa uma fam\u00edlia da
-outra.
+POR DIA DE PREG\u00c3O, e n\u00e3o "seis de cada papel". A segunda vers\u00e3o contava por fam\u00edlia
+e produzia vinte e quatro linhas cobrindo per\u00edodos diferentes em cada bloco -- de
+14/07 a 20/08 no prefixado e de 14/07 a 18/08 na NTN-B. N\u00e3o dava para somar o dia,
+que \u00e9 justamente a leitura que interessa: quanto risco entrou no mercado NAQUELE
+preg\u00e3o. Agora cada linha \u00e9 um preg\u00e3o, e a barra \u00e9 a soma dele.
 
-"\u00daLTIMOS SEIS DAQUELA FAM\u00cdLIA", e n\u00e3o \u00faltimos seis dias: LFT e NTN-B v\u00e3o a mercado
-num dia e o prefixado no outro, ent\u00e3o um corte por data deixaria metade das fam\u00edlias
-sem barra. Cada uma tem o seu calend\u00e1rio, e a data de cada uma est\u00e1 no r\u00f3tulo.
+A BARRA \u00c9 EMPILHADA POR PAPEL, para que a soma do dia n\u00e3o apague a composi\u00e7\u00e3o: num
+dia de prefixado a LTN e a NTN-F somam, e saber qual das duas pesou \u00e9 metade da
+leitura.
+
+BARRAS DEITADAS porque a data \u00e9 o r\u00f3tulo, e data em p\u00e9 vira etiqueta girada.
 
 A LFT TEM GR\u00c1FICO PR\u00d3PRIO, em quantidade: ela n\u00e3o tem DV por decis\u00e3o de modelagem da
-entrega 2, e barras zeradas ao lado das outras se leriam como "n\u00e3o colocou nada".
+entrega 2, e uma barra zerada dentro da pilha n\u00e3o se distingue de aus\u00eancia.
 """
 from . import estilo
 
@@ -29,7 +31,13 @@ from . import estilo
 _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
                 "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-C"}
 
-ORDEM_FAMILIAS = ["LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+# A ordem em que os pap\u00e9is empilham: do mais curto para o mais longo, que \u00e9 a ordem
+# em que acrescentam risco.
+ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+
+# Os que entram no gr\u00e1fico de DV. A LFT fica de fora: sem DV01, a fatia dela seria
+# sempre zero e uma fatia de espessura zero n\u00e3o se distingue de aus\u00eancia.
+FAMILIAS_COM_DV = ["LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
 
 # A barra do ofertado \u00e9 a mesma cor do papel, mas vazada: \u00e9 o TETO, e o aceito \u00e9 o
 # que coube dentro dele. Duas cores diferentes fariam parecer duas grandezas.
@@ -44,105 +52,124 @@ def _cor(familia):
     return estilo.COR[_COR_FAMILIA.get(familia, "Outros")]
 
 
-def _prepara(dados, familias, quantos):
-    """As linhas a desenhar, da mais recente para a mais antiga, por fam\u00edlia."""
-    d = dados[dados["familia"].isin(familias) & (dados["quantos_atras"] < quantos)]
-    if d.empty:
-        return d, []
-    blocos, limites = [], []
+def _pilha(d, dias, familias, coluna):
+    """Uma matriz {fam\u00edlia: [valor por dia]}, na ordem dos dias pedida."""
+    tabela = {}
     for familia in familias:
-        g = d[d["familia"] == familia].sort_values("quantos_atras")
-        if g.empty:
-            continue
-        blocos.append(g)
-        limites.append(len(g))
-    if not blocos:
-        return d.iloc[0:0], []
-    import pandas as pd
-    return pd.concat(blocos, ignore_index=True), limites
+        g = d[d["familia"] == familia].set_index("data_leilao")[coluna]
+        tabela[familia] = [float(g.get(dia, 0.0)) for dia in dias]
+    return tabela
 
 
-def _separadores(ax, limites):
-    """Linha pontilhada entre uma fam\u00edlia e a seguinte.
+def desenha_ofertado_e_aceito(dados, ax, quantos=6):
+    """Barras deitadas por PREG\u00c3O: DV ofertado e aceito, empilhados por papel.
 
-    Sem ela, vinte e quatro barras deitadas viram um bloco s\u00f3 e n\u00e3o se v\u00ea onde uma
-    fam\u00edlia termina e a outra come\u00e7a.
+    'dados' vem de agenda.ultimos_dias(): uma linha por (data, fam\u00edlia).
     """
-    posicao = 0
-    for tamanho in limites[:-1]:
-        posicao += tamanho
-        ax.axhline(posicao - 0.5, color="#999999", lw=0.9, ls=":", zorder=1)
-
-
-def _rotulos_das_linhas(d):
-    """O nome da fam\u00edlia s\u00f3 na primeira linha dela; a data em todas.
-
-    Repetir "NTN-B longa" seis vezes empilhadas \u00e9 ru\u00eddo: o nome marca o bloco, e a
-    data identifica a linha.
-    """
-    rotulos, anterior = [], None
-    for _, r in d.iterrows():
-        familia = r["familia"]
-        nome = familia if familia != anterior else ""
-        anterior = familia
-        data = f"{r['data_leilao']:%d/%m}"
-        rotulos.append(f"{nome}  {data}" if nome else f"{'':12s}{data}")
-    return rotulos
-
-
-def desenha_ofertado_e_aceito(dados, ax, quantos=6, familias=None):
-    """Barras deitadas: DV ofertado e DV aceito, \u00faltimos N leil\u00f5es de cada fam\u00edlia."""
     from matplotlib.colors import to_rgba
 
-    familias = familias or [f for f in ORDEM_FAMILIAS
-                            if f in set(dados["familia"])]
-    d, limites = _prepara(dados, familias, quantos)
+    d = dados[dados["familia"].isin(FAMILIAS_COM_DV)
+              & (dados["quantos_atras"] < quantos)]
     if d.empty:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "sem leil\u00e3o no hist\u00f3rico para comparar",
                 ha="center", va="center", transform=ax.transAxes)
         return
 
-    posicoes = list(range(len(d)))
-    altura = 0.38
-    cores = [_cor(f) for f in d["familia"]]
+    # Do preg\u00e3o mais recente (em cima) para o mais antigo.
+    dias = list(d.sort_values("quantos_atras")["data_leilao"].drop_duplicates())
+    familias = [f for f in ORDEM_FAMILIAS if f in set(d["familia"])]
+    ofertado = _pilha(d, dias, familias, "dv_ofertado")
+    aceito = _pilha(d, dias, familias, "dv_aceito")
 
-    ax.barh([p - altura / 2 for p in posicoes], d["dv_ofertado"] * 1000,
-            height=altura, label="ofertado",
-            color=[to_rgba(c, OPACIDADE_DO_OFERTADO) for c in cores],
-            edgecolor=cores, linewidth=1.4, zorder=3)
-    ax.barh([p + altura / 2 for p in posicoes], d["dv_aceito"] * 1000,
-            height=altura, label="aceito", color=cores, zorder=3)
+    posicoes = list(range(len(dias)))
+    altura = 0.38
+    base_of = [0.0] * len(dias)
+    base_ac = [0.0] * len(dias)
+
+    for familia in familias:
+        cor = _cor(familia)
+        valores_of = [v * 1000 for v in ofertado[familia]]
+        valores_ac = [v * 1000 for v in aceito[familia]]
+        ax.barh([p - altura / 2 for p in posicoes], valores_of, left=base_of,
+                height=altura,
+                color=to_rgba(cor, OPACIDADE_DO_OFERTADO),
+                edgecolor=cor, linewidth=1.2, zorder=3)
+        ax.barh([p + altura / 2 for p in posicoes], valores_ac, left=base_ac,
+                height=altura, color=cor, label=familia, zorder=3)
+        base_of = [b + v for b, v in zip(base_of, valores_of)]
+        base_ac = [b + v for b, v in zip(base_ac, valores_ac)]
 
     ax.set_yticks(posicoes)
-    ax.set_yticklabels(_rotulos_das_linhas(d), fontsize=8.5,
-                       fontfamily="monospace")
+    ax.set_yticklabels([f"{dia:%d/%m}" for dia in dias], fontsize=9.5)
     ax.invert_yaxis()
-    _separadores(ax, limites)
 
-    ax.set_xlabel("DV01, R$ mil por ponto-base")
+    ax.set_xlabel("DV01 do preg\u00e3o, R$ mil por ponto-base")
     ax.axvline(0, color="gray", lw=0.8)
     _grade(ax)
-    ax.set_title("Quanto risco ele tentou colocar, e quanto colocou",
+    ax.set_title("Quanto risco ele tentou colocar, e quanto colocou, "
+                 "em cada preg\u00e3o",
                  fontsize=11, weight="bold", loc="left", pad=10)
 
-    _rotula(ax, posicoes, d, altura, "dv_ofertado", "dv_aceito", 1000,
-            lambda v: estilo.num_br(v, 0))
-    ax.legend(ncol=2, frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, -0.06))
+    _rotula_totais(ax, posicoes, base_of, base_ac)
+    _legenda(ax, familias)
+
+
+def _rotula_totais(ax, posicoes, base_of, base_ac):
+    """O total do dia na ponta de cada barra, e a fra\u00e7\u00e3o colocada numa coluna fixa.
+
+    O TOTAL \u00c9 O QUE ELA PEDIU: quanto risco entrou no mercado naquele preg\u00e3o. Com a
+    barra empilhada, nenhuma fatia sozinha o mostra.
+
+    A fra\u00e7\u00e3o sai numa coluna fixa, e n\u00e3o colada \u00e0 barra: presa a ela, pularia de
+    lugar a cada linha e as seis fra\u00e7\u00f5es deixariam de poder ser lidas de cima a
+    baixo.
+    """
+    maior = max(max(base_of, default=0.0), max(base_ac, default=0.0))
+    coluna = maior * 1.13
+
+    for p, total_of, total_ac in zip(posicoes, base_of, base_ac):
+        for y, v in ((p - 0.19, total_of), (p + 0.19, total_ac)):
+            if v:
+                ax.annotate(estilo.num_br(v, 0), (v, y),
+                            textcoords="offset points", xytext=(4, 0),
+                            va="center", ha="left", fontsize=8.5,
+                            color="#333333")
+        if not total_of:
+            continue
+        fracao = total_ac / total_of
+        ax.annotate(f"{estilo.num_br(fracao * 100, 0)}%", (coluna, p),
+                    va="center", ha="left", fontsize=10, weight="bold",
+                    color="#333333" if fracao > LIMIAR_DO_ALERTA else "#c00000")
+
+    if maior:
+        ax.set_xlim(min(0.0, ax.get_xlim()[0]), maior * 1.26)
+
+
+def _legenda(ax, familias):
+    """A legenda diz o papel pela cor, e o par vazada/cheia por dois ret\u00e2ngulos."""
+    from matplotlib.patches import Patch
+
+    marcas = [Patch(facecolor=_cor(f), label=f) for f in familias]
+    marcas.append(Patch(facecolor="white", edgecolor="#555555", linewidth=1.2,
+                        label="barra de cima: ofertado"))
+    marcas.append(Patch(facecolor="#555555", label="barra de baixo: aceito"))
+    ax.legend(handles=marcas, ncol=min(len(marcas), 6), frameon=False,
+              loc="upper center", bbox_to_anchor=(0.5, -0.12), fontsize=9)
 
 
 def desenha_quantidade_lft(dados, ax, quantos=4):
-    """A LFT em QUANTIDADE, com o financeiro escrito no topo da barra.
+    """A LFT em QUANTIDADE, com o financeiro escrito ao lado da barra.
 
     Ela n\u00e3o tem DV por decis\u00e3o de modelagem, ent\u00e3o a compara\u00e7\u00e3o ofertado/aceito s\u00f3
     existe em t\u00edtulos. O financeiro entra como r\u00f3tulo porque \u00e9 a grandeza que se
-    compara com o resto do projeto -- e como a LFT \u00e9 mais da metade da emiss\u00e3o, o
-    n\u00famero importa mesmo sem DV.
+    compara com o resto do projeto -- e a LFT \u00e9 mais da metade da emiss\u00e3o.
+
+    'dados' vem de agenda.ultimos_de("LFT").
     """
     from matplotlib.colors import to_rgba
 
-    d, limites = _prepara(dados, ["LFT"], quantos)
+    d = dados[dados["quantos_atras"] < quantos]
     if d.empty:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "sem leil\u00e3o de LFT no hist\u00f3rico",
@@ -152,71 +179,44 @@ def desenha_quantidade_lft(dados, ax, quantos=4):
     posicoes = list(range(len(d)))
     altura = 0.38
     cor = _cor("LFT")
+    ofertado = list(d["qtd_ofertada"] / 1000)
+    aceito = list(d["qtd_aceita"] / 1000)
 
-    ax.barh([p - altura / 2 for p in posicoes], d["qtd_ofertada"] / 1000,
-            height=altura, label="ofertado",
-            color=to_rgba(cor, OPACIDADE_DO_OFERTADO),
+    ax.barh([p - altura / 2 for p in posicoes], ofertado, height=altura,
+            label="ofertado", color=to_rgba(cor, OPACIDADE_DO_OFERTADO),
             edgecolor=cor, linewidth=1.4, zorder=3)
-    ax.barh([p + altura / 2 for p in posicoes], d["qtd_aceita"] / 1000,
-            height=altura, label="aceito", color=cor, zorder=3)
+    ax.barh([p + altura / 2 for p in posicoes], aceito, height=altura,
+            label="aceito", color=cor, zorder=3)
 
     ax.set_yticks(posicoes)
     ax.set_yticklabels([f"{r['data_leilao']:%d/%m/%y}" for _, r in d.iterrows()],
-                       fontsize=9)
+                       fontsize=9.5)
     ax.invert_yaxis()
-
     ax.set_xlabel("milhares de t\u00edtulos")
     ax.axvline(0, color="gray", lw=0.8)
     _grade(ax)
     ax.set_title("LFT \u00b7 ofertado e aceito em t\u00edtulos, com o financeiro aceito",
                  fontsize=11, weight="bold", loc="left", pad=10)
 
-    _rotula(ax, posicoes, d, altura, "qtd_ofertada", "qtd_aceita", 0.001,
-            lambda v: estilo.num_br(v, 0),
-            financeiro=d["financeiro_milhoes"])
-    ax.legend(ncol=2, frameon=False, loc="upper center",
-              bbox_to_anchor=(0.5, -0.14))
-
-
-def _rotula(ax, posicoes, d, altura, coluna_ofertado, coluna_aceito, escala,
-            formato, financeiro=None):
-    """O n\u00famero na ponta de cada barra, e a fra\u00e7\u00e3o colocada ao lado do par.
-
-    A FRA\u00c7\u00c3O \u00c9 O QUE SE QUER LER -- "colocou 59% do que ofertou" -- e ela n\u00e3o aparece
-    em barra nenhuma: \u00e9 a raz\u00e3o entre as duas.
-
-    'financeiro', quando vem, \u00e9 escrito no topo do par. \u00c9 o caso da LFT, cuja
-    compara\u00e7\u00e3o \u00e9 em t\u00edtulos mas cuja grandeza compar\u00e1vel com o resto do projeto \u00e9 o
-    dinheiro.
-    """
-    # A fracao sai numa COLUNA FIXA, e nao ao lado da barra de cada linha: presa a
-    # barra, ela pula de lugar a cada linha e as vinte e quatro fracoes deixam de
-    # poder ser lidas de cima a baixo. Aqui todas comecam no mesmo x.
-    maior = 0.0
-    for _, r in d.iterrows():
-        maior = max(maior, r[coluna_ofertado] * escala, r[coluna_aceito] * escala)
-    folga = 1.55 if financeiro is not None else 1.32
-    coluna_da_fracao = maior * (1.16 if financeiro is None else 1.14)
-
-    for k, (p, (_, r)) in enumerate(zip(posicoes, d.iterrows())):
-        ofertado = r[coluna_ofertado] * escala
-        aceito = r[coluna_aceito] * escala
-        for y, v in ((p - altura / 2, ofertado), (p + altura / 2, aceito)):
-            ax.annotate(formato(v), (v, y), textcoords="offset points",
-                        xytext=(4, 0), va="center", ha="left",
-                        fontsize=8, color="#333333")
-        if not ofertado:
+    maior = max(ofertado + aceito)
+    coluna = maior * 1.14
+    for k, (p, of, ac) in enumerate(zip(posicoes, ofertado, aceito)):
+        for y, v in ((p - altura / 2, of), (p + altura / 2, ac)):
+            ax.annotate(estilo.num_br(v, 0), (v, y), textcoords="offset points",
+                        xytext=(4, 0), va="center", ha="left", fontsize=8.5,
+                        color="#333333")
+        if not of:
             continue
-        fracao = aceito / ofertado
-        texto = f"{estilo.num_br(fracao * 100, 0)}%"
-        if financeiro is not None:
-            texto += f"  \u00b7  R$ {estilo.num_br(financeiro.iloc[k] / 1000, 2)} bi"
-        ax.annotate(texto, (coluna_da_fracao, p), va="center", ha="left",
-                    fontsize=9, weight="bold",
+        fracao = ac / of
+        financeiro = d.iloc[k]["financeiro_milhoes"] / 1000
+        ax.annotate(f"{estilo.num_br(fracao * 100, 0)}%  \u00b7  "
+                    f"R$ {estilo.num_br(financeiro, 2)} bi",
+                    (coluna, p), va="center", ha="left", fontsize=9.5,
+                    weight="bold",
                     color="#333333" if fracao > LIMIAR_DO_ALERTA else "#c00000")
-
-    if maior:
-        ax.set_xlim(min(0.0, ax.get_xlim()[0]), maior * folga)
+    ax.set_xlim(0, maior * 1.62)
+    ax.legend(ncol=2, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.18))
 
 
 def _grade(ax):

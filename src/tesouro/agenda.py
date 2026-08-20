@@ -178,30 +178,29 @@ def _vna_do_mes(quando):
     return float(ate.iloc[-1]["vna"])
 
 
-# Quantos leiloes passados entram na comparacao ofertado x aceito. Tres porque a
-# pergunta e "o ultimo foi diferente?", e para isso bastam os dois anteriores como
-# referencia -- com mais, a tabela vira serie temporal e ja existe uma pagina para
-# isso.
+# Quantos DIAS DE LEILAO passados entram na comparacao ofertado x aceito.
+#
+# DIAS, e nao "seis de cada papel". A primeira versao contava por familia, e o
+# resultado era um grafico com vinte e quatro linhas cobrindo periodos diferentes em
+# cada bloco -- de 14/07 a 20/08 no prefixado e de 14/07 a 18/08 na NTN-B. Nao dava
+# para somar o dia, que e justamente a leitura que interessa: quanto risco entrou no
+# mercado NAQUELE pregao.
 LEILOES_NA_COMPARACAO = 6
 
 # A LFT tem grafico proprio, em QUANTIDADE e nao em DV -- ela nao tem DV por decisao
-# de modelagem, e quatro leiloes bastam ali porque a serie dela e mais regular.
+# de modelagem. Ali a contagem E por papel, porque o grafico e de um papel so.
 LEILOES_DA_LFT = 4
 
 
-def ofertado_e_aceito(familias=None, quantos=LEILOES_NA_COMPARACAO):
-    """Por familia de papel, os ultimos N leiloes com o DV OFERTADO e o ACEITO.
-
-    A PERGUNTA QUE ISTO RESPONDE, e que o aceito sozinho nao responde: ele nao
-    conseguiu colocar, ou nao quis? Medido no agregado, o Tesouro coloca 68,5% do
-    DV que oferta -- e a razao varia muito por papel e por dia.
-
-    "Ultimos N leiloes DAQUELA FAMILIA", e nao os ultimos N dias: LFT e NTN-B vao a
-    mercado num dia e o prefixado no outro, entao um corte por data deixaria metade
-    das familias sem linha. Cada uma tem o seu proprio calendario.
+def _leiloes_realizados():
+    """A base de leiloes ja realizados: so venda, so primeira volta.
 
     So VENDA e so PRIMEIRA VOLTA: a segunda volta sai pela taxa media da primeira e
     tem oferta propria, e somar as duas misturaria dois leiloes num numero so.
+
+    O estagio "ofertado" fica de fora: ele ainda nao tem aceito, e uma barra de
+    aceito zerada ao lado de uma de ofertado cheia se le como "nao colocou nada"
+    quando o certo e "ainda nao aconteceu".
     """
     from . import config
 
@@ -210,45 +209,90 @@ def ofertado_e_aceito(familias=None, quantos=LEILOES_NA_COMPARACAO):
     d = d[d["operacao"] == "venda"]
     d = d[~d["volta"].fillna("").astype(str).str.startswith("2")]
     if "estagio" in d.columns:
-        # O ofertado ainda nao tem aceito: incluir-lo poria uma barra de aceito
-        # zerada ao lado de uma de ofertado cheia, que se le como "nao colocou
-        # nada" quando o certo e "ainda nao aconteceu".
         d = d[d["estagio"] != "ofertado"]
+    return d
 
-    familias = familias or [f for f in _ORDEM_FAMILIAS if f in set(d["familia"])]
-    d = d[d["familia"].isin(familias)]
 
-    por_dia_familia = d.groupby(["familia", "data_leilao"]).agg(
+def _somar(d, por):
+    """DV e quantidade, ofertados e aceitos, agrupados pelas colunas pedidas."""
+    saida = d.groupby(por).agg(
         dv_aceito=("dv_milhoes", "sum"),
         dv_ofertado=("dv_ofertado_milhoes", "sum"),
-        # A QUANTIDADE TAMBEM, porque a LFT nao tem DV: o grafico dela compara
-        # ofertado e aceito em titulos, com o financeiro escrito em cima da barra.
         qtd_aceita=("quantidade", "sum"),
         qtd_ofertada=("oferta_qtd", "sum"),
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         papeis=("titulo", "size"),
     ).reset_index()
+    saida["colocado_pct"] = (
+        saida["dv_aceito"] / saida["dv_ofertado"].replace(0, pd.NA))
+    saida["colocado_qtd_pct"] = (
+        saida["qtd_aceita"] / saida["qtd_ofertada"].replace(0, pd.NA))
+    return saida
 
-    saida = []
-    for familia in familias:
-        g = por_dia_familia[por_dia_familia["familia"] == familia]
-        ultimos = g.nlargest(quantos, "data_leilao").sort_values(
-            "data_leilao", ascending=False)
-        for ordem, (_, r) in enumerate(ultimos.iterrows()):
-            linha = r.to_dict()
-            # 0 = o ultimo, 1 = o anterior, 2 = dois atras. E o que a tabela usa
-            # para rotular sem depender de a data ser a mesma entre familias.
-            linha["quantos_atras"] = ordem
-            saida.append(linha)
-    if not saida:
-        return pd.DataFrame(columns=["familia", "data_leilao", "dv_aceito",
+
+def ultimos_dias(quantos=LEILOES_NA_COMPARACAO, base=None):
+    """Os ultimos N DIAS de leilao, abertos por familia de papel.
+
+    Uma linha por (data, familia), e a soma da data e o que interessa: quanto risco
+    entrou no mercado naquele pregao. As familias que nao foram a mercado no dia
+    simplesmente nao aparecem -- LFT e NTN-B vao num dia e o prefixado no outro.
+
+    'quantos_atras' e 0 para o pregao mais recente, 1 para o anterior, e assim por
+    diante. E o que permite rotular sem depender da data.
+    """
+    d = _leiloes_realizados() if base is None else base
+    if d.empty:
+        return pd.DataFrame(columns=["data_leilao", "familia", "dv_aceito",
                                      "dv_ofertado", "quantos_atras"])
-    fora = pd.DataFrame(saida)
-    fora["colocado_pct"] = fora["dv_aceito"] / fora["dv_ofertado"].replace(0, pd.NA)
-    # Na LFT a fracao colocada so existe em quantidade, porque o DV e vazio.
-    fora["colocado_qtd_pct"] = (
-        fora["qtd_aceita"] / fora["qtd_ofertada"].replace(0, pd.NA))
-    return fora
+
+    dias = sorted(d["data_leilao"].unique())[-quantos:]
+    d = d[d["data_leilao"].isin(dias)]
+    saida = _somar(d, ["data_leilao", "familia"])
+
+    ordem = {dia: k for k, dia in enumerate(reversed(dias))}
+    saida["quantos_atras"] = saida["data_leilao"].map(ordem)
+    return saida.sort_values(["quantos_atras", "familia"]).reset_index(drop=True)
+
+
+def total_por_dia(dias=None, quantos=LEILOES_NA_COMPARACAO):
+    """A soma de cada dia: o DV que entrou no mercado naquele pregao.
+
+    E a leitura que a abertura por familia sozinha nao da -- num dia de prefixado a
+    LTN e a NTN-F somam, e e a soma que se compara com o dia anterior.
+    """
+    d = ultimos_dias(quantos) if dias is None else dias
+    if d.empty:
+        return d
+    total = _somar(d.assign(**{
+        "dv_milhoes": d["dv_aceito"],
+        "dv_ofertado_milhoes": d["dv_ofertado"],
+        "quantidade": d["qtd_aceita"],
+        "oferta_qtd": d["qtd_ofertada"],
+        "titulo": d["papeis"],
+    }), ["data_leilao"])
+    total["papeis"] = d.groupby("data_leilao")["papeis"].sum().values
+    ordem = d.drop_duplicates("data_leilao").set_index("data_leilao")["quantos_atras"]
+    total["quantos_atras"] = total["data_leilao"].map(ordem)
+    return total.sort_values("quantos_atras").reset_index(drop=True)
+
+
+def ultimos_de(familia, quantos=LEILOES_DA_LFT, base=None):
+    """Os ultimos N leiloes DE UM PAPEL.
+
+    Existe para a LFT, que tem grafico proprio: sendo um papel so, contar por papel
+    e contar por dia dao a mesma coisa.
+    """
+    d = _leiloes_realizados() if base is None else base
+    d = d[d["familia"] == familia]
+    if d.empty:
+        return pd.DataFrame(columns=["data_leilao", "familia", "qtd_ofertada",
+                                     "qtd_aceita", "quantos_atras"])
+
+    saida = _somar(d, ["data_leilao", "familia"])
+    saida = saida.nlargest(quantos, "data_leilao").sort_values(
+        "data_leilao", ascending=False).reset_index(drop=True)
+    saida["quantos_atras"] = range(len(saida))
+    return saida
 
 
 _ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]

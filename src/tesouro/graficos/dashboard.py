@@ -334,7 +334,7 @@ REGISTRO = [
             "sem que nenhuma decis\u00e3o nova seja tomada.",
             True, "5 anos", _fig_custo_emissao),
     Grafico("reserva_13m", "Reserva",
-            "Reserva de liquidez, treze meses",
+            "Reserva de liquidez",
             "aba 6.1",
             "O formato da p\u00e1gina do RMD, para apresenta\u00e7\u00e3o. O eixo do \u00edndice "
             "come\u00e7a em zero.",
