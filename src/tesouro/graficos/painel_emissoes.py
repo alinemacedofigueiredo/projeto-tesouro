@@ -31,10 +31,10 @@ COM_COMPRA = False
 COM_SEGUNDA_VOLTA = True
 
 
-def _fig_dois_eixos(recorte):
+def _fig_dois_eixos(recorte, com_compra, com_2a):
     def figura(janela):
         fig = dashboard._figura(5.6)
-        dados = emissao.por_dia(recorte, janela, COM_COMPRA, COM_SEGUNDA_VOLTA)
+        dados = emissao.por_dia(recorte, janela, com_compra, com_2a)
         emissao.desenha_dois_eixos(dados, fig.subplots(),
                                    f"{recorte} \u00b7 por dia de leil\u00e3o",
                                    dv_para_cima=DV_PARA_CIMA)
@@ -42,35 +42,40 @@ def _fig_dois_eixos(recorte):
     return figura
 
 
-def _fig_lft(janela):
-    fig = dashboard._figura(5.6)
-    dados = emissao.por_dia("LFT", janela, COM_COMPRA, COM_SEGUNDA_VOLTA)
-    emissao.desenha_lft(dados, fig.subplots())
-    return fig
+def _fig_lft(com_compra, com_2a):
+    def figura(janela):
+        fig = dashboard._figura(5.6)
+        dados = emissao.por_dia("LFT", janela, com_compra, com_2a)
+        emissao.desenha_lft(dados, fig.subplots())
+        return fig
+    return figura
 
 
-def _fig_semanal(janela):
-    fig = dashboard._figura(5.6)
-    dados = emissao.por_semana(janela, COM_COMPRA, COM_SEGUNDA_VOLTA)
-    emissao.desenha_dois_eixos(
-        dados, fig.subplots(),
-        "Soma da semana \u00b7 financeiro e DV, sem LFT",
-        dv_para_cima=DV_PARA_CIMA)
-    return fig
+def _fig_semanal(com_compra, com_2a):
+    def figura(janela):
+        fig = dashboard._figura(5.6)
+        dados = emissao.por_semana(janela, com_compra, com_2a)
+        emissao.desenha_dois_eixos(
+            dados, fig.subplots(),
+            "Soma da semana \u00b7 financeiro e DV, sem LFT",
+            dv_para_cima=DV_PARA_CIMA)
+        return fig
+    return figura
 
 
-def _fig_empilhado(janela):
-    fig = dashboard._figura(5.6)
-    dados = emissao.financeiro_semanal_por_papel(janela, COM_COMPRA,
-                                                 COM_SEGUNDA_VOLTA)
-    emissao.desenha_empilhado(dados, fig.subplots())
-    return fig
+def _fig_empilhado(com_compra, com_2a):
+    def figura(janela):
+        fig = dashboard._figura(5.6)
+        dados = emissao.financeiro_semanal_por_papel(janela, com_compra, com_2a)
+        emissao.desenha_empilhado(dados, fig.subplots())
+        return fig
+    return figura
 
 
-def _fig_qtd_taxa(recorte, dispersao=False):
+def _fig_qtd_taxa(recorte, com_2a, dispersao=False):
     def figura(janela):
         fig = dashboard._figura(6.4 if dispersao else 5.6)
-        dados = emissao.quantidade_e_taxa(recorte, janela, COM_SEGUNDA_VOLTA)
+        dados = emissao.quantidade_e_taxa(recorte, janela, com_2a)
         if dispersao:
             emissao.desenha_taxa_contra_quantidade(
                 dados, fig.subplots(),
@@ -83,9 +88,29 @@ def _fig_qtd_taxa(recorte, dispersao=False):
     return figura
 
 
-_NOTA_ACEITO = ("Sempre o <b>aceito</b> no leil\u00e3o, nunca o ofertado. "
-                "S\u00f3 venda, com segunda volta \u2014 ver a nota do m\u00f3dulo "
-                "sobre as outras combina\u00e7\u00f5es.")
+# As quatro combinacoes, com o arquivo de cada uma. Cada pagina diz qual e, e aponta
+# para as outras tres: sem isso, quem abre uma nao sabe que as outras existem.
+COMBINACOES = [
+    (False, True, "emissoes.html", "s\u00f3 venda, com 2\u00aa volta"),
+    (False, False, "emissoes-1a-volta.html", "s\u00f3 venda, s\u00f3 1\u00aa volta"),
+    (True, True, "emissoes-com-compra.html", "venda e compra, com 2\u00aa volta"),
+    (True, False, "emissoes-com-compra-1a-volta.html",
+     "venda e compra, s\u00f3 1\u00aa volta"),
+]
+
+
+def _nota_aceito(com_compra, com_2a):
+    """A nota que diz, em cada pagina, qual recorte ela mostra."""
+    compra = ("Inclui os leil\u00f5es de <b>compra</b>, com sinal negativo: o que se "
+              "v\u00ea \u00e9 o l\u00edquido."
+              if com_compra else
+              "<b>S\u00f3 venda</b> \u2014 emiss\u00e3o bruta, sem as recompras.")
+    volta = ("Inclui a <b>2\u00aa volta</b>, que \u00e9 a leitura de quanto risco entrou "
+             "no mercado."
+             if com_2a else
+             "<b>S\u00f3 1\u00aa volta</b>, que \u00e9 a leitura do tamanho do leil\u00e3o no dia.")
+    return ("Sempre o <b>aceito</b> no leil\u00e3o, nunca o ofertado. "
+            + compra + " " + volta)
 
 _NOTA_DV = ("O DV01 \u00e9 <b>negativo</b> por conven\u00e7\u00e3o do projeto "
             "(docs/convencoes-dv.md): pre\u00e7o cai quando a taxa sobe. O eixo da "
@@ -94,67 +119,75 @@ _NOTA_DV = ("O DV01 \u00e9 <b>negativo</b> por conven\u00e7\u00e3o do projeto "
 
 Grafico = dashboard.Grafico
 
-REGISTRO = [
+
+def registro(com_compra=False, com_2a=True):
+    """As treze entradas, ja com a combinacao escolhida embutida.
+
+    Funcao e nao constante porque cada combinacao de compra e segunda volta e
+    uma pagina diferente: as figuras precisam nascer sabendo qual delas sao.
+    """
+    nota_aceito = _nota_aceito(com_compra, com_2a)
+    return [
     Grafico("emissao_ntnb", "Por dia de leil\u00e3o",
             "NTN-B \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
-            f"Curta e longa somadas. {_NOTA_ACEITO} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos("NTN-B")),
+            f"Curta e longa somadas. {nota_aceito} {_NOTA_DV}",
+            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B")),
     Grafico("emissao_ntnb_curta", "Por dia de leil\u00e3o",
             "NTN-B curta \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
             "At\u00e9 5 anos de prazo na emiss\u00e3o \u2014 <b>corte provis\u00f3rio</b>, "
             "esperando a defini\u00e7\u00e3o do Tesouro. O dado gravado carrega o "
             "v\u00e9rtice que ele mesmo publica (3, 5, 7, 10, 15, 20, 25, 30, 35 e 40 "
-            f"anos), ent\u00e3o mudar a fronteira \u00e9 uma linha. {_NOTA_ACEITO}",
-            True, "5 anos", _fig_dois_eixos("NTN-B curta")),
+            f"anos), ent\u00e3o mudar a fronteira \u00e9 uma linha. {nota_aceito}",
+            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B curta")),
     Grafico("emissao_ntnb_longa", "Por dia de leil\u00e3o",
             "NTN-B longa \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
-            f"Acima de 5 anos. {_NOTA_ACEITO} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos("NTN-B longa")),
+            f"Acima de 5 anos. {nota_aceito} {_NOTA_DV}",
+            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-B longa")),
     Grafico("emissao_ntnf", "Por dia de leil\u00e3o",
             "NTN-F \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
-            f"{_NOTA_ACEITO} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos("NTN-F")),
+            f"{nota_aceito} {_NOTA_DV}",
+            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="NTN-F")),
     Grafico("emissao_ltn", "Por dia de leil\u00e3o",
             "LTN \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
-            f"{_NOTA_ACEITO} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos("LTN")),
+            f"{nota_aceito} {_NOTA_DV}",
+            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="LTN")),
     Grafico("emissao_pre", "Por dia de leil\u00e3o",
             "LTN + NTN-F \u00b7 financeiro e DV",
             "leiloes.csv e dv_emitido_por_leilao.csv",
-            f"O prefixado inteiro. {_NOTA_ACEITO} {_NOTA_DV}",
-            True, "5 anos", _fig_dois_eixos("LTN + NTN-F")),
+            f"O prefixado inteiro. {nota_aceito} {_NOTA_DV}",
+            True, "5 anos", _fig_dois_eixos(com_compra=com_compra, com_2a=com_2a, recorte="LTN + NTN-F")),
     Grafico("emissao_lft", "Por dia de leil\u00e3o",
             "LFT \u00b7 s\u00f3 financeiro",
             "leiloes.csv",
             "A LFT n\u00e3o tem DV, por decis\u00e3o de modelagem da entrega 2 "
             "(premissa de duration zero) \u2014 ent\u00e3o o segundo eixo n\u00e3o "
             "existe, e a m\u00e9dia m\u00f3vel de 3 meses entra no lugar dele. "
-            f"{_NOTA_ACEITO}",
-            True, "5 anos", _fig_lft),
+            f"{nota_aceito}",
+            True, "5 anos", _fig_lft(com_compra, com_2a)),
     Grafico("emissao_semanal", "Por semana",
             "Soma da semana \u00b7 financeiro e DV",
             "dv_emitido_por_leilao.csv",
             "Sem a LFT: o gr\u00e1fico tem dois eixos e ela s\u00f3 tem um dos dois "
-            f"n\u00fameros. {_NOTA_ACEITO} {_NOTA_DV}",
-            True, "5 anos", _fig_semanal),
+            f"n\u00fameros. {nota_aceito} {_NOTA_DV}",
+            True, "5 anos", _fig_semanal(com_compra, com_2a)),
     Grafico("emissao_empilhado", "Por semana",
             "Financeiro da semana, por papel",
             "leiloes.csv",
             "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, e ela "
-            f"\u00e9 mais da metade dele. {_NOTA_ACEITO}",
-            True, "5 anos", _fig_empilhado),
+            f"\u00e9 mais da metade dele. {nota_aceito}",
+            True, "5 anos", _fig_empilhado(com_compra, com_2a)),
     Grafico("qtd_taxa_pre_linha", "Quantidade e taxa",
             "LTN + NTN-F \u00b7 quantidade e taxa (op\u00e7\u00e3o A: duas s\u00e9ries)",
             "leiloes.csv",
             "Mesmo idioma dos gr\u00e1ficos de dois eixos acima. A taxa \u00e9 a "
             "m\u00e9dia <b>ponderada pelo financeiro</b> do dia \u2014 a simples "
             "trataria um lote de 100 milh\u00f5es e um de 10 bilh\u00f5es como iguais.",
-            True, "5 anos", _fig_qtd_taxa("LTN + NTN-F")),
+            True, "5 anos", _fig_qtd_taxa("LTN + NTN-F", com_2a)),
     Grafico("qtd_taxa_pre_disp", "Quantidade e taxa",
             "LTN + NTN-F \u00b7 taxa contra quantidade (op\u00e7\u00e3o B: "
             "dispers\u00e3o)",
@@ -162,28 +195,75 @@ REGISTRO = [
             "Cada ponto \u00e9 um dia de leil\u00e3o; a cor \u00e9 o ano. Responde "
             "outra pergunta: o Tesouro coloca mais quando a taxa est\u00e1 alta? Num "
             "gr\u00e1fico de duas s\u00e9ries isso s\u00f3 apareceria por acaso.",
-            True, "5 anos", _fig_qtd_taxa("LTN + NTN-F", dispersao=True)),
+            True, "5 anos", _fig_qtd_taxa("LTN + NTN-F", com_2a, dispersao=True)),
     Grafico("qtd_taxa_ntnb_linha", "Quantidade e taxa",
             "NTN-B \u00b7 quantidade e taxa (op\u00e7\u00e3o A: duas s\u00e9ries)",
             "leiloes.csv",
             "A taxa da NTN-B \u00e9 <b>real</b>, e as duas s\u00e9ries dividem o dia "
             "com v\u00e9rtices muito diferentes \u2014 a m\u00e9dia ponderada mistura "
             "3 e 40 anos numa linha s\u00f3.",
-            True, "5 anos", _fig_qtd_taxa("NTN-B")),
+            True, "5 anos", _fig_qtd_taxa("NTN-B", com_2a)),
     Grafico("qtd_taxa_ntnb_disp", "Quantidade e taxa",
             "NTN-B \u00b7 taxa contra quantidade (op\u00e7\u00e3o B: dispers\u00e3o)",
             "leiloes.csv",
             "Aqui a dispers\u00e3o mostra o regime mudando de lugar na nuvem: a taxa "
             "real sai de 5% em 2023 para 8% em 2026, e o tamanho do lote quase "
             "n\u00e3o acompanha.",
-            True, "5 anos", _fig_qtd_taxa("NTN-B", dispersao=True)),
-]
+            True, "5 anos", _fig_qtd_taxa("NTN-B", com_2a, dispersao=True)),
+    ]
 
 
-def grava(caminho=None, recortes=None):
-    """Grava a pagina de emissoes e devolve o caminho."""
+def _barra_das_combinacoes(arquivo_atual):
+    """A faixa no topo que diz qual recorte esta aberto e liga para os outros tres.
+
+    Sao links relativos entre arquivos da mesma pasta, entao continuam funcionando
+    com duplo clique e sem servidor -- que e a propriedade que o dashboard inteiro
+    protege.
+    """
+    partes = ['<div id="combinacoes">', "  <span>recorte:</span>"]
+    for _, _, arquivo, rotulo in COMBINACOES:
+        if arquivo == arquivo_atual:
+            partes.append(f'  <b class="atual">{rotulo}</b>')
+        else:
+            partes.append(f'  <a href="{arquivo}">{rotulo}</a>')
+    partes.append("</div>")
+    return "\n".join(partes)
+
+
+def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
+    """Grava UMA das quatro paginas e devolve o caminho."""
     from .. import config
 
-    caminho = caminho or (config.PROCESSED_DIR / "emissoes.html")
-    return dashboard.grava(caminho, recortes, REGISTRO, GRUPOS,
-                           "Emiss\u00f5es e DV01 \u00b7 vis\u00e3o de leil\u00e3o")
+    arquivo = next((a for c, v, a, _ in COMBINACOES
+                    if c == com_compra and v == com_2a), "emissoes.html")
+    caminho = caminho or (config.PROCESSED_DIR / arquivo)
+    rotulo = next(r for c, v, _, r in COMBINACOES
+                  if c == com_compra and v == com_2a)
+
+    escrito = dashboard.grava(caminho, recortes, registro(com_compra, com_2a),
+                              GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}")
+    # A barra entra depois da montagem, logo antes do <main>: assim o montador do
+    # dashboard continua sem saber que existem quatro paginas.
+    html = escrito.read_text(encoding="utf-8")
+    html = html.replace("<main>", _barra_das_combinacoes(arquivo) + "\n<main>", 1)
+    html = html.replace("</style>", _CSS_COMBINACOES + "</style>", 1)
+    escrito.write_text(html, encoding="utf-8")
+    return escrito
+
+
+def grava_as_quatro(recortes=None):
+    """Grava as quatro combinacoes. Devolve a lista de caminhos."""
+    return [grava(None, recortes, com_compra, com_2a)
+            for com_compra, com_2a, _, _ in COMBINACOES]
+
+
+_CSS_COMBINACOES = """
+#combinacoes { margin: 0 0 14px; font-size: 13px; display: flex;
+               align-items: center; gap: 12px; flex-wrap: wrap; }
+#combinacoes span { color: var(--fraco); }
+#combinacoes a { color: var(--tinta); text-decoration: none;
+                 border-bottom: 1px solid transparent; }
+#combinacoes a:hover { border-bottom-color: var(--tinta); }
+#combinacoes b.atual { color: var(--tinta); border-bottom: 2px solid var(--tinta);
+                       padding-bottom: 1px; }
+"""

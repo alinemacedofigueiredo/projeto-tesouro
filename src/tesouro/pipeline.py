@@ -112,8 +112,12 @@ def main(argumentos=None):
         caminho = dashboard.grava()
         print(f"dashboard gravado em {caminho}")
         from .graficos import painel_emissoes
-        caminho = painel_emissoes.grava()
-        print(f"pagina de emissoes gravada em {caminho}")
+        painel_emissoes.grava_as_quatro()
+        # Os nomes saem da tabela de combinacoes, e nao do retorno da funcao: o
+        # pipeline nao precisa do valor de volta para dizer o que gravou, e
+        # depender dele acoplaria o log ao formato do retorno.
+        for _, _, arquivo, rotulo in painel_emissoes.COMBINACOES:
+            print(f"pagina de emissoes gravada: {arquivo} ({rotulo})")
     except Exception as erro:               # noqa: BLE001
         # O paf.bandas levanta de proposito quando referencia/paf_bandas.csv esta
         # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico
