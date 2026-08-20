@@ -28,7 +28,7 @@ import pandas as pd
 from .. import agenda as dados_agenda
 from . import cronograma, dashboard, estilo
 
-GRUPOS = ["O \u00faltimo leil\u00e3o"]
+GRUPOS = ["O que ele colocou"]
 
 ARQUIVO = "agenda.html"
 
@@ -49,8 +49,18 @@ _NOTA_QUANTIDADE = (
 
 def _fig_ofertado_aceito():
     def figura(janela=None):
-        fig = dashboard._figura(5.0)
+        # Alta o bastante para vinte e quatro barras deitadas: em pe as datas
+        # viravam etiqueta girada e ilegivel.
+        fig = dashboard._figura(9.5)
         cronograma.desenha_ofertado_e_aceito(_comparacao(), fig.subplots())
+        return fig
+    return figura
+
+
+def _fig_lft():
+    def figura(janela=None):
+        fig = dashboard._figura(4.0)
+        cronograma.desenha_quantidade_lft(_comparacao(), fig.subplots())
         return fig
     return figura
 
@@ -84,19 +94,31 @@ def limpar_cache():
 Grafico = dashboard.Grafico
 
 REGISTRO = [
-    Grafico("agenda_ofertado_aceito", "O \u00faltimo leil\u00e3o",
+    Grafico("agenda_ofertado_aceito", "O que ele colocou",
             "Quanto risco ele tentou colocar, e quanto colocou",
             "dv_emitido_por_leilao.csv",
-            "O DV01 <b>ofertado</b> (barra vazada) e o <b>aceito</b> (cheia) no "
-            "\u00faltimo leil\u00e3o de cada fam\u00edlia. A pergunta que isto "
-            "responde, e que o aceito sozinho n\u00e3o responde: ele n\u00e3o "
-            "conseguiu colocar, ou n\u00e3o quis? Medido no agregado do "
-            "hist\u00f3rico, ele coloca <b>68,5% do DV que oferta</b>. "
-            "\u00c9 o \u00faltimo leil\u00e3o <b>de cada fam\u00edlia</b>, e "
-            "n\u00e3o o \u00faltimo dia: LFT e NTN-B v\u00e3o a mercado num dia e "
-            "o prefixado no outro, e a data de cada uma est\u00e1 no eixo. "
-            "A LFT n\u00e3o entra \u2014 sem DV01, por decis\u00e3o de modelagem.",
+            "O DV01 <b>ofertado</b> (barra vazada) e o <b>aceito</b> (cheia) nos "
+            "<b>seis \u00faltimos leil\u00f5es</b> de cada fam\u00edlia. A "
+            "pergunta que isto responde, e que o aceito sozinho n\u00e3o "
+            "responde: ele n\u00e3o conseguiu colocar, ou n\u00e3o quis? Medido "
+            "no agregado do hist\u00f3rico, ele coloca <b>68,5% do DV que "
+            "oferta</b>. "
+            "S\u00e3o os seis \u00faltimos <b>de cada fam\u00edlia</b>, e "
+            "n\u00e3o os seis \u00faltimos dias: LFT e NTN-B v\u00e3o a mercado "
+            "num dia e o prefixado no outro. A linha pontilhada separa uma "
+            "fam\u00edlia da outra. "
+            "A LFT tem gr\u00e1fico pr\u00f3prio, logo abaixo \u2014 ela "
+            "n\u00e3o tem DV01, por decis\u00e3o de modelagem.",
             False, None, _fig_ofertado_aceito()),
+    Grafico("agenda_lft", "O que ele colocou",
+            "LFT \u00b7 em t\u00edtulos, com o financeiro aceito",
+            "dv_emitido_por_leilao.csv",
+            "A LFT n\u00e3o tem DV01, ent\u00e3o a compara\u00e7\u00e3o "
+            "ofertado/aceito dela s\u00f3 existe em <b>t\u00edtulos</b>. O "
+            "financeiro entra como r\u00f3tulo porque \u00e9 a grandeza que se "
+            "compara com o resto do projeto \u2014 e a LFT \u00e9 mais da "
+            "metade da emiss\u00e3o.",
+            False, None, _fig_lft()),
 ]
 
 
@@ -112,30 +134,39 @@ def _celula_taxa(r):
             f'<small> {quando} \u00b7 {idade}d{aviso}</small></span>')
 
 
-def tabela_dos_ultimos(dados=None):
-    """Os ultimos tres leiloes de cada familia: DV ofertado, aceito e a fracao.
+def tabela_dos_ultimos(dados=None, quantos=None):
+    """Os ultimos leiloes de cada familia, no MESMO MOLDE da tabela da agenda.
 
-    POR FAMILIA E NAO POR DATA, porque as familias tem calendarios diferentes: LFT e
+    RECOLHIDA, e antes do calendario. Ela e referencia -- "o que aconteceu" -- e nao
+    o assunto da pagina, que e "o que vem". Deixa-la aberta empurraria a agenda para
+    baixo da dobra, e quem abre a pagina quer ver a agenda.
+
+    A PRIMEIRA LINHA DE CADA DIA SAI EM OUTRA COR, para deixar claro que aquilo ja
+    aconteceu: as duas tabelas tem o mesmo formato, e sem a marca elas se parecem
+    demais.
+
+    POR FAMILIA e nao por data, porque as familias tem calendarios diferentes: LFT e
     NTN-B num dia, prefixado no outro. Uma tabela por data deixaria metade das
-    linhas vazias em cada dia, e a comparacao entre o ultimo leilao e os anteriores
-    -- que e o assunto -- ficaria ilegivel.
-
-    Tres leiloes porque a pergunta e "o ultimo foi diferente?", e para isso os dois
-    anteriores bastam de referencia.
+    linhas vazias em cada dia.
     """
     d = _comparacao() if dados is None else dados
     if d.empty:
         return ""
+    quantos = quantos or dados_agenda.LEILOES_NA_COMPARACAO
+    d = d[d["quantos_atras"] < quantos]
 
-    rotulos = {0: "\u00faltimo", 1: "anterior", 2: "dois atr\u00e1s"}
-    linhas = ['<div id="tabela-ultimos">',
-              "<h2>Os \u00faltimos leil\u00f5es de cada papel</h2>",
+    linhas = ['<details id="tabela-ultimos">',
+              "<summary>Os \u00faltimos "
+              f"{quantos} leil\u00f5es de cada papel</summary>",
               '<p class="legenda">O DV01 que ele <b>ofertou</b> e o que '
-              '<b>aceitou</b>. A fra\u00e7\u00e3o \u00e9 o que ele colocou do '
-              'que tentou colocar \u2014 no agregado do hist\u00f3rico, 68,5%. '
-              'A LFT aparece sem DV01, por decis\u00e3o de modelagem.</p>',
+              '<b>aceitou</b>, e a fra\u00e7\u00e3o entre os dois \u2014 no '
+              'agregado do hist\u00f3rico, 68,5%. A LFT aparece sem DV01, por '
+              'decis\u00e3o de modelagem; para ela a compara\u00e7\u00e3o '
+              'est\u00e1 no gr\u00e1fico acima, em t\u00edtulos.</p>',
               "<table><thead><tr>"
-              "<th>papel</th><th>leil\u00e3o</th><th>data</th>"
+              "<th>papel</th><th>data</th>"
+              '<th class="n">ofertou</th>'
+              '<th class="n">aceitou</th>'
               '<th class="n">DV01 ofertado</th>'
               '<th class="n">DV01 aceito</th>'
               '<th class="n">colocou</th>'
@@ -147,9 +178,11 @@ def tabela_dos_ultimos(dados=None):
         if g.empty:
             continue
         for k, (_, r) in enumerate(g.iterrows()):
-            classe = ' class="dia"' if k == 0 else ""
-            papel = familia if k == 0 else ""
+            classe = ' class="passado"' if k == 0 else ""
+            papel = f"<b>{familia}</b>" if k == 0 else ""
             fracao = r.get("colocado_pct")
+            if pd.isna(fracao):
+                fracao = r.get("colocado_qtd_pct")
             if pd.isna(fracao):
                 marca = "\u2014"
             else:
@@ -157,15 +190,16 @@ def tabela_dos_ultimos(dados=None):
                 marca = f'<span{cor}>{estilo.num_br(fracao * 100, 0)}%</span>'
             linhas.append(
                 f"<tr{classe}><td>{papel}</td>"
-                f"<td>{rotulos.get(r['quantos_atras'], '')}</td>"
                 f"<td>{r['data_leilao']:%d/%m/%Y}</td>"
+                f'<td class="n">{_qtd(r["qtd_ofertada"])}</td>'
+                f'<td class="n">{_qtd(r["qtd_aceita"])}</td>'
                 f'<td class="n">{_mil(r["dv_ofertado"])}</td>'
                 f'<td class="n">{_mil(r["dv_aceito"])}</td>'
                 f'<td class="n">{marca}</td>'
                 f'<td class="n">{estilo.num_br(r["financeiro_milhoes"] / 1000, 2)}'
                 f" bi</td></tr>")
 
-    linhas += ["</tbody></table>", "</div>"]
+    linhas += ["</tbody></table>", "</details>"]
     return "\n".join(linhas)
 
 
@@ -198,26 +232,38 @@ def tabela(dados=None):
               '<th class="n">\u00faltima taxa</th>'
               '<th class="n">ofertou</th>'
               '<th class="n">aceitou</th>'
-              '<th class="n">DV01 por t\u00edtulo</th>'
+              '<th class="n">DV01 ofertado</th>'
+              '<th class="n">DV01 aceito</th>'
               "</tr></thead><tbody>"]
 
     for dia, g in d.groupby("data_leilao"):
         linhas.append(
-            f'<tr class="dia"><td colspan="7">{dia:%d/%m/%Y} \u00b7 '
+            f'<tr class="dia"><td colspan="8">{dia:%d/%m/%Y} \u00b7 '
             f"{len(g)} papel(is)</td></tr>")
         for _, r in g.iterrows():
-            dv_u = ("\u2014" if pd.isna(r["dv_unitario"])
-                    else estilo.num_br(r["dv_unitario"], 3))
+            # O DV DO LOTE, e nao o do titulo: o unitario e propriedade do papel e
+            # nao diz nada sobre o tamanho do leilao. Sai do dv por titulo vezes a
+            # quantidade da vez passada -- que e o que a coluna ao lado mostra.
+            dv_of = _dv_do_lote(r["dv_unitario"], r["oferta_anterior_qtd"])
+            dv_ac = _dv_do_lote(r["dv_unitario"], r["aceito_anterior_qtd"])
             linhas.append(
                 f"<tr><td>{r['titulo']}</td><td>{r['benchmark']}</td>"
                 f"<td>{r['data_vencimento']:%d/%m/%Y}</td>"
                 f'<td class="n">{_celula_taxa(r)}</td>'
                 f'<td class="n">{_qtd(r["oferta_anterior_qtd"])}</td>'
                 f'<td class="n">{_qtd(r["aceito_anterior_qtd"])}</td>'
-                f'<td class="n">{dv_u}</td></tr>')
+                f'<td class="n">{dv_of}</td>'
+                f'<td class="n">{dv_ac}</td></tr>')
 
     linhas += ["</tbody></table>", "</div>"]
     return "\n".join(linhas)
+
+
+def _dv_do_lote(dv_unitario, quantidade):
+    """O DV01 do lote em R$ mil por ponto-base, ou travessao quando falta parte."""
+    if pd.isna(dv_unitario) or pd.isna(quantidade):
+        return "\u2014"
+    return estilo.num_br(dv_unitario * quantidade / 1e6 * 1000, 0)
 
 
 def _qtd(valor):
@@ -241,7 +287,10 @@ _CSS = """
                            padding-top: 9px; }
 #tabela-agenda small { color: var(--fraco); font-size: 11px; }
 #tabela-agenda .velha { color: #a33; }
-#tabela-ultimos { margin: 26px auto 10px; max-width: 1180px; }
+#tabela-ultimos { margin: 26px auto 10px; max-width: 1180px;
+                  border-left: 3px solid #ddd; padding-left: 12px; }
+#tabela-ultimos > summary { cursor: pointer; font-size: 15px; font-weight: 600;
+                            color: var(--tinta); padding: 4px 0; }
 #tabela-ultimos table { border-collapse: collapse; width: 100%;
                         font-size: 13px; }
 #tabela-ultimos th, #tabela-ultimos td { padding: 5px 9px;
@@ -252,7 +301,7 @@ _CSS = """
     font-variant-numeric: tabular-nums; }
 #tabela-ultimos tr.dia td { border-top: 2px solid #ddd;
                             font-weight: 600; padding-top: 9px; }
-#tabela-ultimos .baixo { color: #c00000; font-weight: 600; }
+#tabela-ultimos .baixo { color: #c00000; font-weight: 600; }\n#tabela-ultimos tr.passado td { background: #f0eee9;\n    border-top: 2px solid #ddd; padding-top: 8px; }
 """
 
 

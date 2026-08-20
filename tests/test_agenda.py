@@ -185,15 +185,26 @@ def comparacao():
     return agenda.ofertado_e_aceito()
 
 
-def test_a_comparacao_traz_os_tres_ultimos_leiloes_de_CADA_familia(comparacao):
+def test_a_comparacao_traz_os_ultimos_leiloes_de_CADA_familia(comparacao):
     # POR FAMILIA e nao por data: LFT e NTN-B vao a mercado num dia e o prefixado no
     # outro, entao um corte por data deixaria metade das familias sem linha.
     assert not comparacao.empty
+    esperado = list(range(agenda.LEILOES_NA_COMPARACAO))
     for familia, g in comparacao.groupby("familia"):
-        assert sorted(g["quantos_atras"]) == [0, 1, 2], familia
+        assert sorted(g["quantos_atras"]) == esperado, familia
     # E as datas do "ultimo" NAO sao todas iguais, que e o motivo da regra existir.
     ultimos = comparacao[comparacao["quantos_atras"] == 0]
     assert ultimos["data_leilao"].nunique() > 1
+
+
+def test_a_comparacao_traz_quantidade_alem_do_dv(comparacao):
+    # A LFT nao tem DV: a comparacao ofertado/aceito dela so existe em titulos.
+    lft = comparacao[comparacao["familia"] == "LFT"]
+    assert len(lft) == agenda.LEILOES_NA_COMPARACAO
+    assert lft["dv_ofertado"].fillna(0).eq(0).all()
+    assert (lft["qtd_ofertada"] > 0).all()
+    assert (lft["qtd_aceita"] > 0).all()
+    assert lft["colocado_qtd_pct"].notna().all()
 
 
 def test_o_aceito_nunca_passa_do_ofertado(comparacao):
@@ -202,15 +213,45 @@ def test_o_aceito_nunca_passa_do_ofertado(comparacao):
     assert (com_dv["dv_aceito"] <= com_dv["dv_ofertado"] * 1.001).all()
 
 
-def test_o_grafico_desenha_duas_barras_por_familia(comparacao):
+def test_o_grafico_desenha_duas_barras_por_LEILAO(comparacao):
     import matplotlib.pyplot as plt
     from tesouro.graficos import cronograma
 
     fig, ax = plt.subplots()
-    cronograma.desenha_ofertado_e_aceito(comparacao, ax)
+    cronograma.desenha_ofertado_e_aceito(comparacao, ax, quantos=6)
     familias = [f for f in cronograma.ORDEM_FAMILIAS
                 if f in set(comparacao["familia"])]
-    assert len(ax.patches) == 2 * len(familias)
+    assert len(ax.patches) == 2 * 6 * len(familias)
+    plt.close(fig)
+
+
+def test_a_linha_pontilhada_separa_uma_familia_da_outra(comparacao):
+    # Sem ela, vinte e quatro barras deitadas viram um bloco so e nao se ve onde
+    # uma familia termina e a outra comeca.
+    import matplotlib.pyplot as plt
+    from tesouro.graficos import cronograma
+
+    fig, ax = plt.subplots()
+    cronograma.desenha_ofertado_e_aceito(comparacao, ax, quantos=6)
+    familias = [f for f in cronograma.ORDEM_FAMILIAS
+                if f in set(comparacao["familia"])]
+    pontilhadas = [l for l in ax.get_lines() if l.get_linestyle() in (":", "dotted")]
+    assert len(pontilhadas) == len(familias) - 1
+    plt.close(fig)
+
+
+def test_o_grafico_da_LFT_usa_quantidade_e_escreve_o_financeiro(comparacao):
+    # Ela nao tem DV, entao a comparacao e em titulos -- e o financeiro entra como
+    # rotulo porque e a grandeza que se compara com o resto do projeto.
+    import matplotlib.pyplot as plt
+    from tesouro.graficos import cronograma
+
+    fig, ax = plt.subplots()
+    cronograma.desenha_quantidade_lft(comparacao, ax, quantos=4)
+    assert len(ax.patches) == 2 * 4
+    assert "t\u00edtulos" in ax.get_xlabel()
+    textos = " ".join(a.get_text() for a in ax.texts)
+    assert "R$" in textos and "bi" in textos
     plt.close(fig)
 
 
@@ -223,17 +264,24 @@ def test_a_LFT_fica_de_fora_do_grafico_de_DV(comparacao):
     assert "LFT" not in cronograma.ORDEM_FAMILIAS
 
 
-def test_o_eixo_traz_a_DATA_de_cada_familia(comparacao):
-    # Quatro barras de dias diferentes pareceriam do mesmo leilao sem a data.
+def test_cada_linha_traz_a_DATA_e_o_nome_so_no_comeco_do_bloco(comparacao):
+    # Vinte e quatro barras de dias diferentes pareceriam do mesmo leilao sem a
+    # data. E repetir "NTN-B longa" seis vezes empilhadas e ruido: o nome marca o
+    # bloco, a data identifica a linha.
     import matplotlib.pyplot as plt
     from tesouro.graficos import cronograma
 
     fig, ax = plt.subplots()
-    cronograma.desenha_ofertado_e_aceito(comparacao, ax)
-    rotulos = [r.get_text() for r in ax.get_xticklabels()]
-    assert all(chr(10) in r for r in rotulos), rotulos
-    datas = {r.split(chr(10))[1] for r in rotulos}
-    assert len(datas) > 1, "as datas sao todas iguais"
+    cronograma.desenha_ofertado_e_aceito(comparacao, ax, quantos=6)
+    rotulos = [r.get_text() for r in ax.get_yticklabels()]
+    familias = [f for f in cronograma.ORDEM_FAMILIAS
+                if f in set(comparacao["familia"])]
+    assert len(rotulos) == 6 * len(familias)
+    # Cada familia aparece UMA vez, na primeira linha do bloco dela.
+    for familia in familias:
+        assert sum(1 for r in rotulos if r.startswith(familia)) == 1, familia
+    # E as datas sao todas diferentes dentro de um bloco.
+    assert len({r.strip().split()[-1] for r in rotulos}) > 6
     plt.close(fig)
 
 
@@ -256,12 +304,27 @@ def monkeypatch_module():
     mp.undo()
 
 
-def test_a_pagina_traz_o_grafico_e_as_duas_tabelas(pagina):
+def test_a_pagina_traz_os_dois_graficos_e_as_duas_tabelas(pagina):
     for g in painel_agenda.REGISTRO:
         assert f'id="{g.id}"' in pagina, g.id
-    assert pagina.count("<section") == 1
+    assert pagina.count("<section") == 2
     assert 'id="tabela-ultimos"' in pagina
     assert 'id="tabela-agenda"' in pagina
+
+
+def test_a_tabela_dos_ultimos_e_RECOLHIVEL_e_vem_antes_do_calendario(pagina):
+    # Ela e referencia -- "o que aconteceu" -- e nao o assunto da pagina, que e "o
+    # que vem". Aberta, empurraria a agenda para baixo da dobra.
+    assert '<details id="tabela-ultimos"' in pagina
+    assert "<summary>" in pagina
+    assert pagina.index('id="tabela-ultimos"') < pagina.index('id="tabela-agenda"')
+
+
+def test_a_primeira_linha_de_cada_papel_sai_marcada_como_passado(pagina, comparacao):
+    # As duas tabelas tem o mesmo formato; sem a marca elas se parecem demais, e
+    # nao fica claro qual e leilao que ja aconteceu.
+    familias = comparacao["familia"].nunique()
+    assert pagina.count('class="passado"') == familias
 
 
 def test_a_pagina_diz_que_a_quantidade_nao_esta_no_calendario(pagina):
@@ -277,11 +340,19 @@ def test_a_tabela_dos_ultimos_separa_ofertado_de_aceito(pagina):
     assert "DV01 ofertado" in pagina
     assert "DV01 aceito" in pagina
     assert "colocou" in pagina
+    # E o DV por TITULO saiu da tabela da agenda: o unitario e propriedade do papel
+    # e nao diz nada sobre o tamanho do leilao.
+    assert "DV01 por t\u00edtulo" not in pagina
 
 
-def test_a_tabela_dos_ultimos_mostra_tres_leiloes_por_papel(pagina):
-    for rotulo in ("\u00faltimo", "anterior", "dois atr\u00e1s"):
-        assert rotulo in pagina, rotulo
+def test_a_tabela_dos_ultimos_mostra_seis_leiloes_por_papel(pagina, comparacao):
+    # Uma linha por (familia, leilao), no mesmo molde da tabela da agenda.
+    i = pagina.index('id="tabela-ultimos"')
+    j = pagina.index('id="tabela-agenda"')
+    so_ultimos = pagina[i:j]
+    esperado = len(comparacao[
+        comparacao["quantos_atras"] < agenda.LEILOES_NA_COMPARACAO])
+    assert so_ultimos.count("<tr") == esperado + 1     # +1 do cabecalho
 
 
 def test_a_tabela_da_agenda_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(

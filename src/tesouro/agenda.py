@@ -182,7 +182,11 @@ def _vna_do_mes(quando):
 # pergunta e "o ultimo foi diferente?", e para isso bastam os dois anteriores como
 # referencia -- com mais, a tabela vira serie temporal e ja existe uma pagina para
 # isso.
-LEILOES_NA_COMPARACAO = 3
+LEILOES_NA_COMPARACAO = 6
+
+# A LFT tem grafico proprio, em QUANTIDADE e nao em DV -- ela nao tem DV por decisao
+# de modelagem, e quatro leiloes bastam ali porque a serie dela e mais regular.
+LEILOES_DA_LFT = 4
 
 
 def ofertado_e_aceito(familias=None, quantos=LEILOES_NA_COMPARACAO):
@@ -217,6 +221,10 @@ def ofertado_e_aceito(familias=None, quantos=LEILOES_NA_COMPARACAO):
     por_dia_familia = d.groupby(["familia", "data_leilao"]).agg(
         dv_aceito=("dv_milhoes", "sum"),
         dv_ofertado=("dv_ofertado_milhoes", "sum"),
+        # A QUANTIDADE TAMBEM, porque a LFT nao tem DV: o grafico dela compara
+        # ofertado e aceito em titulos, com o financeiro escrito em cima da barra.
+        qtd_aceita=("quantidade", "sum"),
+        qtd_ofertada=("oferta_qtd", "sum"),
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         papeis=("titulo", "size"),
     ).reset_index()
@@ -237,6 +245,9 @@ def ofertado_e_aceito(familias=None, quantos=LEILOES_NA_COMPARACAO):
                                      "dv_ofertado", "quantos_atras"])
     fora = pd.DataFrame(saida)
     fora["colocado_pct"] = fora["dv_aceito"] / fora["dv_ofertado"].replace(0, pd.NA)
+    # Na LFT a fracao colocada so existe em quantidade, porque o DV e vazio.
+    fora["colocado_qtd_pct"] = (
+        fora["qtd_aceita"] / fora["qtd_ofertada"].replace(0, pd.NA))
     return fora
 
 
