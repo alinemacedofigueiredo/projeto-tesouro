@@ -34,6 +34,12 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
         (dv, "gravar_resultado"),
         (figuras, "gravar_todas"),
     ]
+    # O dashboard tambem: sem este stub, SEIS dos nove testes deste arquivo geravam
+    # os 37 SVGs de verdade -- 15 s cada, 91 s no arquivo -- e sobrescreviam
+    # data/processed/dashboard.html a cada execucao. Pior, uma falha na geracao
+    # pintava de vermelho o teste de rede, que nao tem nada com isso.
+    from tesouro.graficos import dashboard
+    alvos.append((dashboard, "grava"))
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
@@ -93,7 +99,7 @@ def test_sem_coleta_nao_importa_nenhum_coletor_no_topo_do_modulo():
 
 
 # ---------------------------------------------------------------------------
-# Contrato: as sete etapas de gravacao rodam, e nesta ordem -- e o que
+# Contrato: as OITO etapas de gravacao rodam, e nesta ordem -- e o que
 # produz os 22 CSVs (17 da camada de dados + taxa_por_papel, vna,
 # dv_por_papel, decay_por_papel, resultado_mensal) mais as figuras. A
 # contagem exata de linhas/CSVs foi conferida a mao contra o dado real
@@ -101,10 +107,11 @@ def test_sem_coleta_nao_importa_nenhum_coletor_no_topo_do_modulo():
 # chamada exatamente uma vez, na ordem que uma depende da anterior (dv
 # le taxa_por_papel/vna, que so existem depois de parse_bloomberg.gravar;
 # figuras le dv_por_papel/decay_por_papel/resultado_mensal, que so
-# existem depois de dv.gravar_*).
+# existem depois de dv.gravar_*; e o dashboard le os 22 CSVs, entao vem
+# por ultimo).
 # ---------------------------------------------------------------------------
 
-def test_pipeline_grava_as_sete_etapas_na_ordem_certa(monkeypatch):
+def test_pipeline_grava_as_oito_etapas_na_ordem_certa(monkeypatch):
     chamadas = []
     _stub_gravacoes(monkeypatch, chamadas)
 
@@ -119,6 +126,7 @@ def test_pipeline_grava_as_sete_etapas_na_ordem_certa(monkeypatch):
         "tesouro.dv.gravar_decay",
         "tesouro.dv.gravar_resultado",
         "tesouro.figuras.gravar_todas",
+        "tesouro.graficos.dashboard.grava",
     ]
 
 
@@ -205,3 +213,40 @@ def test_import_do_fetch_bloomberg_fica_fora_do_sem_coleta(monkeypatch):
     _stub_gravacoes(monkeypatch)
     codigo = pipeline.main(["--sem-coleta"])
     assert codigo == 0
+
+
+def test_o_pipeline_grava_o_dashboard_depois_das_figuras(monkeypatch):
+    # Os graficos leem os CSVs que as etapas anteriores acabaram de escrever:
+    # gerar o dashboard antes produz um HTML com o dado do mes passado.
+    from tesouro.graficos import dashboard
+
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    monkeypatch.setattr(dashboard, "grava",
+                        lambda *a, **k: chamadas.append("dashboard.grava"))
+
+    assert pipeline.main(["--sem-coleta"]) == 0
+    assert "dashboard.grava" in chamadas
+    # O _stub_gravacoes que ja existe no arquivo registra o nome QUALIFICADO --
+    # "tesouro.figuras.gravar_todas", nao "gravar_todas".
+    assert (chamadas.index("dashboard.grava")
+            > chamadas.index("tesouro.figuras.gravar_todas"))
+
+
+def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatch,
+                                                                     capsys):
+    # O paf.bandas levanta de proposito quando a referencia esta quebrada. Isso
+    # tem de aparecer como falha real, nao sumir no meio do log.
+    from tesouro.graficos import dashboard
+
+    _stub_gravacoes(monkeypatch)
+
+    def _explode(*args, **kwargs):
+        raise ValueError("paf_bandas.csv esta invalido")
+
+    monkeypatch.setattr(dashboard, "grava", _explode)
+
+    assert pipeline.main(["--sem-coleta"]) == 1
+    saida = capsys.readouterr().out
+    assert "dashboard" in saida.lower()
+    assert "paf_bandas.csv" in saida

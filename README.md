@@ -35,6 +35,30 @@ Bloomberg, painel de DV por papel, decay e resultado mensal). O dicionário
 de cada um está em `docs/dicionario-de-dados.md`; as convenções de sinal e
 as fórmulas de cálculo estão em `docs/convencoes-dv.md`.
 
+### O dashboard
+
+Os vinte e um gráficos da dívida num arquivo HTML autocontido, que abre com
+duplo clique e continua funcionando copiado para outra máquina ou mandado
+por e-mail.
+
+PowerShell:
+
+    $env:PYTHONPATH="src"; python -m tesouro.graficos
+
+bash:
+
+    PYTHONPATH=src python -m tesouro.graficos
+
+Grava `data/processed/dashboard.html` (4,9 MB) com duas janelas — 5 anos e
+série completa — e um botão no topo que alterna entre elas. Para um
+recorte específico, com o botão suprimido porque só existe uma janela:
+
+    $env:PYTHONPATH="src"; python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
+    PYTHONPATH=src python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
+
+O `pipeline` já gera o dashboard no fim, depois de reescrever os CSVs; o
+comando acima serve para regerar sem rodar o pipeline inteiro.
+
 ### Cálculo pontual: quanto do DV01 desaparece até uma data escolhida
 
 Além do pipeline, há um comando específico para uma pergunta do dia a dia —

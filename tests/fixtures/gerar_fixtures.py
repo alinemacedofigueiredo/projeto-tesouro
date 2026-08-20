@@ -50,6 +50,14 @@ ABAS_DA_AMOSTRA = [
 # comeco do bloco DPF, e os testes que separam os tres niveis nao teriam
 # como falhar mesmo se o parser misturasse tudo.
 #
+# A 3.4 detalha 60 meses e, DEPOIS deles, traz as linhas de resumo: 'Em 12
+# meses' ate 'Em 60 meses', a linha 'Apos 5 anos' (o balde de tudo o que
+# vence adiante, 2.006,9 bi) e o 'Total'. Com o corte padrao de 40 a
+# amostra para no meio dos meses e nunca alcanca o balde -- o parser que
+# o procura levantaria LookupError na amostra, e um parser que o
+# esquecesse passaria limpo nos testes e gravaria um CSV com 78% do
+# estoque. A aba real tem 80 linhas; usa-se ela inteira.
+#
 # A 5.7 empilha quatro blocos verticais de PAF, cada um com layout
 # proprio; o quarto comeca na linha 55, e a aba inteira tem so 69 linhas.
 # Com o corte padrao de 40, a amostra parava no meio do terceiro bloco e
@@ -60,7 +68,8 @@ ABAS_DA_AMOSTRA = [
 # silencio. Usa-se a aba inteira (69 linhas) para nao depender de onde o
 # quarto bloco termina.
 LINHAS_POR_ABA = {
-    "2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840, "5.7": 69,
+    "2.1": 60, "2.2": 290, "2.7": 150, "2.8": 400, "3.1": 840, "3.4": 80,
+    "5.7": 69,
 }
 
 # A 2.1 tambem precisa de mais colunas (meses) que as demais abas: o

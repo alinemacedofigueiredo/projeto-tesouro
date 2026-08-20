@@ -720,6 +720,28 @@ superar o total (ou ter o sinal oposto). A função `dv.resultado_decomposto()`
 (não persistida — ver `docs/convencoes-dv.md`, seção "Resultado mensal:
 separando a acumulação de índice") separa as duas.
 
+## `dashboard.html` — a camada de gráficos
+
+Não é CSV e não é dado: é a saída visual, gerada a partir dos CSVs acima
+por `python -m tesouro.graficos` (ou pelo `pipeline`, que o chama no fim).
+
+| o que é | um arquivo HTML autocontido, com os 25 SVGs embutidos |
+|---|---|
+| onde fica | `data/processed/dashboard.html` |
+| tamanho | 2,7 MB, contra o limiar de 10 MB que a spec fixou |
+| de onde vem | dezesseis gráficos, cada um lendo os CSVs desta tabela, mais `referencia/paf_bandas.csv` |
+| pode apagar? | **Sim.** É derivado: o pipeline regenera. |
+
+Os dezesseis gráficos, o que cada um lê e as decisões de desenho estão em
+`docs/superpowers/specs/2026-08-18-dashboard-design.md`. As **funções de
+dado** de cada gráfico (`dados_*`) devolvem exatamente o que vai para a
+tela e não conhecem matplotlib — é onde os testes de número vivem.
+
+**Nove dos dezesseis aceitam janela** (5 anos e série completa), e por isso
+são 25 SVGs e não 16. A composição do estoque abre na série completa: a
+queda do câmbio de 51,0% em set/2002 para 3,7% não existe numa janela de
+cinco anos.
+
 ## Verificação
 
 Os vinte e dois nomes abaixo devem bater exatamente com os `.csv` presentes
