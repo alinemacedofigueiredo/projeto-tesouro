@@ -111,15 +111,15 @@ def test_o_vna_recuperado_fica_dentro_da_acumulacao_do_mes(dv):
 # ---------------------------------------------------------------------------
 
 def test_compra_entra_com_sinal_negativo(dv):
-    # Recompra tira risco do mercado. Somar com emissao da o liquido, que e o que
+    # Recompra TIRA risco do mercado. Somar com emissao da o liquido, que e o que
     # interessa -- e por isso o sinal tem de estar no dado, nao no desenho.
     compras = dv[dv["operacao"] == "compra"]
     assert len(compras) > 100
     assert (compras["financeiro_milhoes"] < 0).all()
     assert (compras["quantidade"] < 0).all()
     com_dv = compras[compras["dv_milhoes"].notna()]
-    assert (com_dv["dv_milhoes"] > 0).all(), \
-        "o DV de um titulo e negativo; recomprar devolve DV positivo"
+    assert (com_dv["dv_milhoes"] < 0).all(), \
+        "recomprar RETIRA risco emitido, entao o DV da recompra e negativo"
 
 
 def test_a_lft_entra_com_financeiro_e_sem_dv(dv):
@@ -171,12 +171,36 @@ def test_o_vertice_vem_do_rotulo_do_tesouro_quando_existe():
     assert leiloes_dv._vertice("NTN-B", float("nan"), 21.0) == 20
 
 
-def test_o_dv_e_negativo_em_toda_emissao(dv):
-    # Convencao de sinal do projeto (docs/convencoes-dv.md): o DV de um titulo
-    # prefixado ou indexado e NEGATIVO -- o preco cai quando a taxa sobe.
+def test_o_dv_e_POSITIVO_em_toda_emissao(dv):
+    # A CONVENCAO DE RISCO EMITIDO, e nao a de P&L. docs/convencoes-dv.md ja dizia:
+    # "Risco emitido -- positivo e o Tesouro emitindo; negativo e vencimento ou
+    # recompra".
+    #
+    # A PRIMEIRA VERSAO DESTE MODULO DEIXOU PASSAR O SINAL DE P&L, que e o que
+    # precificacao.dv devolve -- correto la, errado aqui, porque esta tabela mede
+    # EMISSAO. O resultado foi um grafico de emissao com todas as barras para baixo,
+    # que ainda exigiu inverter o eixo do DV para ficar legivel. Nao levantou nada:
+    # o numero estava certo em modulo, e so o lado estava trocado.
     vendas = dv[(dv["operacao"] == "venda") & dv["dv_milhoes"].notna()]
     assert len(vendas) > 10000
-    assert (vendas["dv_milhoes"] < 0).all()
+    assert (vendas["dv_milhoes"] > 0).all()
+    # E o DV unitario segue a mesma convencao, para que o produto feche.
+    assert (vendas["dv_unitario"] > 0).all()
+
+
+def test_o_dv_ofertado_existe_e_e_maior_ou_igual_ao_aceito(dv):
+    # O DV que ele TENTOU colocar. Comparar com o aceito responde uma pergunta que o
+    # aceito sozinho nao responde: nao conseguiu, ou nao quis?
+    vendas = dv[(dv["operacao"] == "venda")
+                & dv["dv_ofertado_milhoes"].notna()
+                & dv["dv_milhoes"].notna()]
+    assert len(vendas) > 10000
+    # Aceitar mais do que ofertou nao existe -- e uma folga minuscula cobre o
+    # arredondamento do proprio dado do Tesouro.
+    assert (vendas["dv_milhoes"] <= vendas["dv_ofertado_milhoes"] * 1.001).all()
+    # E ele de fato deixa de colocar parte: medido, 68,5% do DV ofertado.
+    razao = vendas["dv_milhoes"].sum() / vendas["dv_ofertado_milhoes"].sum()
+    assert 0.5 < razao < 0.9, razao
 
 
 def test_a_ordem_de_grandeza_bate_com_o_estoque(dv):
@@ -186,4 +210,4 @@ def test_a_ordem_de_grandeza_bate_com_o_estoque(dv):
     # quantidade como se estivesse em milhares.
     agosto = dv[(dv["data_leilao"] >= "2026-08-01") & dv["dv_milhoes"].notna()]
     total = agosto["dv_milhoes"].sum()
-    assert -20 < total < 0, f"DV de agosto/26: {total:.2f}"
+    assert 0 < total < 20, f"DV de agosto/26: {total:.2f}"

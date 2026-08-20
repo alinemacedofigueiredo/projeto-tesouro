@@ -70,9 +70,13 @@ ESTAGIO_MAIS_FIRME = "planilha"
 # barra somada pode ter as duas dentro. Afirmar "a taxa e a do leilao anterior" na
 # legenda seria mentira nos dias em que ela digitou todas, que foi o primeiro dia de
 # uso. Quem diz e o aviso do topo da pagina, que conta as duas.
+# CURTO DE PROPOSITO. A primeira versao explicava o estagio inteiro na legenda
+# ("aceito hoje (API) - muda quando a planilha sair"), e a frase competia com o
+# grafico. A explicacao mora no texto da pagina, que e onde se le texto; a legenda
+# so precisa dizer qual barra e qual.
 _ROTULO_DO_ESTAGIO = {
-    "ofertado": "ofertado hoje \u00b7 TETO: a quantidade ainda vai cair",
-    "aceito": "aceito hoje (API) \u00b7 muda quando a planilha sair",
+    "ofertado": "ofertado hoje (teto)",
+    "aceito": "leil\u00e3o de hoje",
 }
 
 
@@ -154,6 +158,36 @@ def por_semana(janela=None, com_compra=False, com_segunda_volta=True):
     return estilo.recorta(saida, janela)
 
 
+def por_semana_por_familia(janela=None, com_compra=False,
+                           com_segunda_volta=True):
+    """A soma da semana, com o financeiro aberto por familia. Sem LFT.
+
+    Sem a LFT pelo mesmo motivo de por_semana(): o grafico tem dois eixos e ela so
+    tem um dos dois numeros -- inclui-la faria o financeiro e o DV falarem de
+    conjuntos diferentes de papel. Ela tem o grafico empilhado so dela.
+    """
+    d = _base(com_compra, com_segunda_volta)
+    d = d[d["familia"] != "LFT"]
+    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+
+    piv = d.pivot_table(index=semana, columns="familia",
+                        values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
+    familias = [f for f in ORDEM_FAMILIAS if f != "LFT"]
+    for familia in familias:
+        if familia not in piv.columns:
+            piv[familia] = 0.0
+    piv = piv[familias]
+
+    resto = d.groupby(semana).agg(
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        dv_milhoes=("dv_milhoes", "sum"),
+        estagio=("estagio", _menos_firme),
+    )
+    saida = piv.join(resto)
+    saida.index.name = "semana"
+    return estilo.recorta(saida, janela)
+
+
 def financeiro_semanal_por_papel(janela=None, com_compra=False,
                                  com_segunda_volta=True):
     """Financeiro por semana, uma coluna por familia -- para a barra empilhada.
@@ -172,6 +206,114 @@ def financeiro_semanal_por_papel(janela=None, com_compra=False,
     piv["estagio"] = d.groupby(semana)["estagio"].apply(_menos_firme).reindex(
         piv.index).fillna(ESTAGIO_MAIS_FIRME)
     return estilo.recorta(piv, janela)
+
+
+def por_dia_por_familia(recorte, janela=None, com_compra=False,
+                        com_segunda_volta=True):
+    """Como por_dia(), mas com o financeiro ABERTO POR FAMILIA de papel.
+
+    Serve aos graficos em que a barra e empilhada: no recorte "LTN + NTN-F" a barra
+    somada esconde qual dos dois moveu o dia, e sao papeis com prazos muito
+    diferentes. O DV continua vindo somado, porque a linha e uma so.
+    """
+    if recorte not in RECORTES:
+        raise LookupError(f"recorte '{recorte}' nao existe: {sorted(RECORTES)}.")
+    d = _base(com_compra, com_segunda_volta)
+    d = d[d["familia"].isin(RECORTES[recorte])]
+
+    piv = d.pivot_table(index="data_leilao", columns="familia",
+                        values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
+    for familia in RECORTES[recorte]:
+        if familia not in piv.columns:
+            piv[familia] = 0.0
+    piv = piv[[f for f in ORDEM_FAMILIAS if f in RECORTES[recorte]]]
+
+    resto = d.groupby("data_leilao").agg(
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        dv_milhoes=("dv_milhoes", "sum"),
+        estagio=("estagio", _menos_firme),
+    )
+    if d["dv_milhoes"].notna().sum() == 0:
+        resto["dv_milhoes"] = float("nan")
+    return estilo.recorta(piv.join(resto), janela)
+
+
+def acumulado(recorte, meses=3, janela=None, com_compra=False,
+              com_segunda_volta=True):
+    """Soma movel dos ultimos N MESES de financeiro e de DV, por dia de leilao.
+
+    A serie diaria de leilao e serrilhada por construcao: o Tesouro leiloa NTN-B num
+    dia e prefixado no outro, entao dia sim dia nao a barra e zero para um recorte.
+    A soma movel tira o serrilhado e mostra o que o trimestre acumulou, que e a
+    escala em que emissao se compara com PAF e com meta.
+
+    A JANELA E DE CALENDARIO, e nao de numero de leiloes: "ultimos 3 meses" tem de
+    querer dizer tres meses mesmo, inclusive quando o Tesouro muda a frequencia dos
+    leiloes no meio do periodo. Por isso a soma corre sobre uma serie diaria
+    reindexada, e nao sobre as linhas.
+    """
+    if recorte not in RECORTES:
+        raise LookupError(f"recorte '{recorte}' nao existe: {sorted(RECORTES)}.")
+    d = _base(com_compra, com_segunda_volta)
+    d = d[d["familia"].isin(RECORTES[recorte])]
+    if d.empty:
+        return pd.DataFrame(columns=["financeiro_milhoes", "dv_milhoes"])
+
+    por_leilao = d.groupby("data_leilao").agg(
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        dv_milhoes=("dv_milhoes", "sum"),
+    )
+    tem_dv = d["dv_milhoes"].notna().sum() > 0
+
+    # Reindexa em dias corridos para que a janela seja de calendario, soma, e volta
+    # a ficar so com os dias em que houve leilao -- desenhar os zeros no meio faria
+    # a linha cair todo dia sem leilao.
+    diario = por_leilao.reindex(
+        pd.date_range(por_leilao.index.min(), por_leilao.index.max(), freq="D")
+    ).fillna(0.0)
+    soma = diario.rolling(f"{int(meses * 30.44)}D").sum()
+    soma = soma.loc[por_leilao.index]
+    if not tem_dv:
+        soma["dv_milhoes"] = float("nan")
+    soma.index.name = "data_leilao"
+    return estilo.recorta(soma, janela)
+
+
+def dv_e_taxa(recorte, janela=None, com_segunda_volta=True):
+    """DV01 emitido no dia e taxa media do dia, para a dispersao.
+
+    ANTES ERA QUANTIDADE, e nao dizia nada: a quantidade de titulos mistura uma LTN
+    de seis meses com uma NTN-B de 35 anos como se fossem a mesma coisa, e a nuvem
+    saia sem forma. O DV emitido e a moeda comum -- e a pergunta que a dispersao
+    responde passa a ser a que interessa: quando a taxa esta alta, ele coloca mais
+    RISCO no mercado, ou menos?
+
+    A taxa e a media PONDERADA pelo financeiro. A simples trataria um lote de 100
+    milhoes e um de 10 bilhoes como iguais, o que nao descreve leilao nenhum.
+    """
+    if recorte not in RECORTES:
+        raise LookupError(f"recorte '{recorte}' nao existe: {sorted(RECORTES)}.")
+    d = _base(com_compra=False, com_segunda_volta=com_segunda_volta)
+    d = d[d["familia"].isin(RECORTES[recorte])]
+    d = d[d["taxa_media_pct"].notna() & (d["financeiro_milhoes"] > 0)]
+    d = d[d["dv_milhoes"].notna()]
+    if d.empty:
+        return pd.DataFrame(columns=["dv_milhoes", "taxa_media_pct",
+                                     "financeiro_milhoes"])
+
+    def ponderada(g):
+        return (g["taxa_media_pct"] * g["financeiro_milhoes"]).sum() \
+            / g["financeiro_milhoes"].sum()
+
+    saida = d.groupby("data_leilao").apply(
+        lambda g: pd.Series({
+            "dv_milhoes": g["dv_milhoes"].sum(),
+            "financeiro_milhoes": g["financeiro_milhoes"].sum(),
+            "taxa_media_pct": ponderada(g),
+        }),
+        include_groups=False,
+    )
+    return estilo.recorta(saida, janela)
 
 
 def quantidade_e_taxa(recorte, janela=None, com_segunda_volta=True):
@@ -285,49 +427,132 @@ def _largura(indice):
     return max(0.8, min(dias * 0.75, 5.0))
 
 
-def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=False):
+def _alinha_zeros(esquerda, direita, dados_esq, dados_dir):
+    """Poe o zero dos dois eixos na MESMA altura da figura.
+
+    O PROBLEMA QUE ISTO RESOLVE: com dois eixos independentes, o zero de um cai a
+    30% da altura e o do outro a 60%. Ai a linha cruza a barra em lugares que nao
+    querem dizer nada, e um periodo de recompra -- em que financeiro e DV ficam
+    negativos -- aparece com as duas series de lados diferentes do proprio zero.
+
+    A conta: a fracao da altura em que o zero fica e |chao| / (teto + |chao|). Basta
+    igualar essa fracao nos dois, esticando o lado que precisa.
+    """
+    def limites(valores, folga=1.12):
+        teto = max(0.0, float(valores.max()) * folga)
+        chao = min(0.0, float(valores.min()) * folga)
+        if teto == 0 and chao == 0:
+            return 0.0, 1.0
+        return chao, teto
+
+    chao_e, teto_e = limites(dados_esq)
+    chao_d, teto_d = limites(dados_dir)
+
+    # A fracao mais generosa dos dois: esticar e sempre seguro, encolher cortaria
+    # dado da tela.
+    fracao_e = (-chao_e / (teto_e - chao_e)) if teto_e > chao_e else 0.0
+    fracao_d = (-chao_d / (teto_d - chao_d)) if teto_d > chao_d else 0.0
+    fracao = max(fracao_e, fracao_d)
+
+    def estica(chao, teto, alvo):
+        if alvo <= 0:
+            return min(chao, 0.0), teto
+        if alvo >= 1:
+            return chao, max(teto, 0.0)
+        # altura total tal que |chao| seja 'alvo' dela, sem cortar nem chao nem teto
+        altura = max(teto / (1 - alvo), (-chao) / alvo)
+        return -altura * alvo, altura * (1 - alvo)
+
+    esquerda.set_ylim(*estica(chao_e, teto_e, fracao))
+    direita.set_ylim(*estica(chao_d, teto_d, fracao))
+
+
+def _marca_pontos(ax, indice, valores, formato, cor, deslocamento=(0, 7),
+                  so_ultimo=False):
+    """Escreve o valor do ULTIMO ponto e dos extremos da serie.
+
+    So tres numeros, e nao um por barra: rotular tudo vira ruido e some com o
+    desenho. O ultimo porque e o que se foi ver; os extremos porque sao a escala.
+
+    'deslocamento' existe porque as duas series de um grafico de dois eixos
+    costumam ter o pico NO MESMO DIA -- entra muito dinheiro e entra muito risco no
+    mesmo leilao -- e ai os dois rotulos caem um em cima do outro. Foi o que
+    aconteceu na primeira versao. Quem chama afasta um dos dois para o lado.
+    """
+    import numbers
+
+    validos = [(i, v) for i, v in zip(indice, valores)
+               if isinstance(v, numbers.Number) and v == v]
+    if not validos:
+        return
+    # O ultimo ponto entra sempre. Os extremos entram DESDE QUE LONGE DELE: numa
+    # serie que so cai, o minimo E o ultimo ou o vizinho dele, e os dois rotulos
+    # saem um por cima do outro. Aconteceu no acumulado de 3 meses.
+    posicao = {chave: k for k, (chave, _) in enumerate(validos)}
+    distancia_minima = max(2, len(validos) // 12)
+
+    escolhidos = {validos[-1][0]: validos[-1][1]}
+    if not so_ultimo and len(validos) > 2:
+        for extremo in (max(validos, key=lambda p: p[1]),
+                        min(validos, key=lambda p: p[1])):
+            longe = all(abs(posicao[extremo[0]] - posicao[j]) >= distancia_minima
+                        for j in escolhidos)
+            if longe:
+                escolhidos[extremo[0]] = extremo[1]
+
+    dx, dy = deslocamento
+    for i, v in escolhidos.items():
+        ax.annotate(formato(v), (i, v), textcoords="offset points",
+                    xytext=(dx, dy if v >= 0 else -abs(dy) - 6),
+                    ha="left" if dx > 0 else ("right" if dx < 0 else "center"),
+                    fontsize=8.5, color=cor, weight="bold",
+                    zorder=6,
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none",
+                              alpha=0.75))
+
+
+def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
     """Barra de financeiro num eixo, linha de DV no outro.
 
-    O SINAL DO DV E O VERDADEIRO, negativo (docs/convencoes-dv.md). A barra sobe e a
-    linha desce: as duas medem a mesma atividade, e o espelho e o assunto -- entra
-    dinheiro e entra risco. Plotar o modulo faria o grafico bater com a intuicao e
-    deixar de bater com o CSV, e o projeto ja recusou essa troca na entrega 2.
+    O SINAL E O DE RISCO EMITIDO (docs/convencoes-dv.md): venda positiva, recompra
+    negativa. As duas series sobem juntas, porque medem a mesma atividade -- entra
+    dinheiro e entra risco.
 
-    Os dois eixos partem do zero, para que a altura de cada serie continue
-    proporcional ao numero.
+    'dv_para_cima' nao faz mais nada. Ele existia para INVERTER o eixo do DV quando
+    o sinal vinha de P&L e a linha morava no teto do grafico; corrigido o sinal na
+    origem, a inversao virou desnecessaria. O parametro sobrevive para nao quebrar
+    quem ja chamava.
     """
     largura = _largura(dados.index)
     estagios = _estagios(dados)
-    ax.bar(dados.index, dados["financeiro_milhoes"] / 1000, width=largura,
+    financeiro = dados["financeiro_milhoes"] / 1000
+    ax.bar(dados.index, financeiro, width=largura,
            label="financeiro aceito", **_aparencia(estagios, _COR_FINANCEIRO))
     ax.set_ylabel("R$ bilh\u00f5es aceitos")
     ax.axhline(0, color="gray", lw=0.8)
+    _marca_pontos(ax, dados.index, financeiro, lambda v: estilo.num_br(v, 2),
+                  "#1f4e79", deslocamento=(-6, 8))
 
     tem_dv = dados["dv_milhoes"].notna().any()
     direita = None
     if tem_dv:
+        # O DV vai para MIL por ponto-base: em milhoes as etiquetas ficam todas em
+        # 0,00 e 0,01, e a serie inteira parece nula.
+        dv = dados["dv_milhoes"] * 1000
         direita = ax.twinx()
-        direita.plot(dados.index, dados["dv_milhoes"], color=_COR_DV, lw=1.8,
+        direita.plot(dados.index, dv, color=_COR_DV, lw=1.8,
                      label="DV01 emitido")
-        direita.set_ylabel("DV01 emitido, R$ milh\u00f5es por ponto-base")
-        # Os dois ancorados no zero: sem isso, uma serie parece maior que a outra
-        # so porque o eixo dela foi cortado mais perto.
-        piso = min(0.0, float(dados["dv_milhoes"].min()) * 1.12)
-        if dv_para_cima:
-            # Eixo invertido: mais risco emitido sobe, junto com a barra. Os
-            # ROTULOS continuam negativos -- o numero nao mente, so a direcao de
-            # leitura muda. E a alternativa a ter a linha morando no teto do
-            # grafico, que foi como saiu na primeira versao.
-            direita.set_ylim(0, piso)
-        else:
-            direita.set_ylim(piso, 0)
+        direita.set_ylabel("DV01 emitido, R$ mil por ponto-base")
+        _marca_pontos(direita, dados.index, dv, lambda v: estilo.num_br(v, 0),
+                      _COR_DV, deslocamento=(8, 8))
+        _alinha_zeros(ax, direita, financeiro, dv)
         direita.spines["top"].set_visible(False)
+        direita.grid(False)
+    else:
+        ax.set_ylim(*_limites_simples(financeiro))
 
-    teto = max(0.0, float(dados["financeiro_milhoes"].max()) / 1000 * 1.12)
-    chao = min(0.0, float(dados["financeiro_milhoes"].min()) / 1000 * 1.12)
-    ax.set_ylim(chao, teto)
-    ax.grid(axis="y", alpha=0.20)
-    estilo.eixo_anual(ax, a_cada=1 if len(dados) < 400 else 2)
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
     ax.set_title(rotulo, fontsize=11, weight="bold", loc="left", pad=10)
 
     marcas, rotulos = ax.get_legend_handles_labels()
@@ -338,6 +563,160 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=False):
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
               ncol=2 + len(extras), frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.10))
+
+
+def _limites_simples(valores, folga=1.12):
+    teto = max(0.0, float(valores.max()) * folga)
+    chao = min(0.0, float(valores.min()) * folga)
+    return (chao, teto) if teto > chao else (0.0, 1.0)
+
+
+def _eixo_do_tempo(ax, indice):
+    """Rotulos que dependem do tamanho da janela.
+
+    "eixo_anual" foi feito para a serie mensal do RMD, de 25 anos. Numa janela de
+    doze meses ele escreve UM rotulo -- "2026" -- e o grafico fica sem eixo. Aqui a
+    janela decide: meses quando ela cabe em dois anos, anos quando nao cabe.
+    """
+    import matplotlib.dates as mdates
+    import matplotlib.ticker as mticker
+
+    def mes_br(x, _pos=None):
+        # O %b do matplotlib devolve "Aug" -- a locale do sistema esta em ingles, e
+        # o projeto ja resolve isso com uma tabela propria em estilo.MES.
+        d = mdates.num2date(x)
+        return f"{estilo.MES[d.month]}/{d.year % 100:02d}"
+
+    dias = (indice.max() - indice.min()).days if len(indice) > 1 else 0
+    if dias <= 120:
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=0, interval=2))
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(
+            lambda x, _p=None: f"{mdates.num2date(x):%d}/"
+                               f"{estilo.MES[mdates.num2date(x).month]}"))
+    elif dias <= 400:
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(mes_br))
+    elif dias <= 900:
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(mes_br))
+    else:
+        estilo.eixo_anual(ax, a_cada=1 if dias < 4000 else 2)
+        return
+    for rotulo in ax.get_xticklabels():
+        rotulo.set_rotation(45)
+        rotulo.set_horizontalalignment("right")
+        rotulo.set_fontsize(8.5)
+
+
+def _grade(ax, eixo="y"):
+    """Grade mais densa: uma linha forte a cada marca, uma fraca no meio.
+
+    A grade anterior tinha so as marcas principais, e ler a altura de uma barra no
+    meio do grafico exigia mirar. As menores entram com metade da opacidade, para
+    ajudar sem competir com o dado.
+    """
+    from matplotlib.ticker import AutoMinorLocator
+
+    if eixo in ("y", "ambos"):
+        ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+        ax.grid(axis="y", which="major", alpha=0.28, lw=0.8)
+        ax.grid(axis="y", which="minor", alpha=0.14, lw=0.6)
+    if eixo in ("x", "ambos"):
+        ax.grid(axis="x", which="major", alpha=0.14, lw=0.6)
+
+
+def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
+    """Como desenha_dois_eixos, mas com a barra ABERTA POR FAMILIA de papel.
+
+    A barra somada de "LTN + NTN-F" esconde qual dos dois moveu o dia, e eles tem
+    prazos muito diferentes: dez bilhoes de LTN curta e dez de NTN-F 2037 sao a
+    mesma barra e coisas incomparaveis. A linha do DV continua uma so, porque o
+    risco do dia e um so.
+    """
+    familias = familias or [f for f in ORDEM_FAMILIAS if f in dados.columns]
+    largura = _largura(dados.index)
+    estagios = _estagios(dados)
+
+    base = pd.Series(0.0, index=dados.index)
+    for familia in familias:
+        altura = dados[familia] / 1000
+        ax.bar(dados.index, altura, bottom=base, width=largura, label=familia,
+               **_aparencia(estagios, estilo.COR[_COR_FAMILIA[familia]], 1.0))
+        base = base + altura
+
+    ax.set_ylabel("R$ bilh\u00f5es aceitos")
+    ax.axhline(0, color="gray", lw=0.8)
+    _marca_pontos(ax, dados.index, base, lambda v: estilo.num_br(v, 2),
+                  "#333333", deslocamento=(-6, 8))
+
+    direita = None
+    if dados["dv_milhoes"].notna().any():
+        dv = dados["dv_milhoes"] * 1000
+        direita = ax.twinx()
+        direita.plot(dados.index, dv, color=_COR_DV, lw=1.8, label="DV01 emitido")
+        direita.set_ylabel("DV01 emitido, R$ mil por ponto-base")
+        _marca_pontos(direita, dados.index, dv, lambda v: estilo.num_br(v, 0),
+                      _COR_DV, deslocamento=(8, 8))
+        _alinha_zeros(ax, direita, base, dv)
+        direita.spines["top"].set_visible(False)
+        direita.grid(False)
+    else:
+        ax.set_ylim(*_limites_simples(base))
+
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
+    ax.set_title(rotulo, fontsize=11, weight="bold", loc="left", pad=10)
+
+    marcas, rotulos = ax.get_legend_handles_labels()
+    if direita is not None:
+        m2, r2 = direita.get_legend_handles_labels()
+        marcas, rotulos = marcas + m2, rotulos + r2
+    extras = _legenda_dos_estagios(estagios)
+    ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
+              ncol=len(marcas) + len(extras), frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.14))
+
+
+def desenha_acumulado(dados, ax, rotulo, meses=3):
+    """A soma movel de N meses: area para o financeiro, linha para o DV.
+
+    AREA E NAO BARRA porque isto e um nivel acumulado, e nao um evento: barra sugere
+    "entrou tanto naquele dia", e o que a serie diz e "nos ultimos tres meses,
+    tanto". O grafico de cima ja mostra o evento.
+    """
+    financeiro = dados["financeiro_milhoes"] / 1000
+    ax.fill_between(dados.index, 0, financeiro, color=_COR_FINANCEIRO, alpha=0.35,
+                    label=f"financeiro, soma de {meses} meses")
+    ax.plot(dados.index, financeiro, color=_COR_FINANCEIRO, lw=1.4)
+    ax.set_ylabel("R$ bilh\u00f5es")
+    ax.axhline(0, color="gray", lw=0.8)
+    _marca_pontos(ax, dados.index, financeiro, lambda v: estilo.num_br(v, 2),
+                  "#1f4e79", deslocamento=(-6, 8))
+
+    direita = None
+    if dados["dv_milhoes"].notna().any():
+        dv = dados["dv_milhoes"] * 1000
+        direita = ax.twinx()
+        direita.plot(dados.index, dv, color=_COR_DV, lw=1.8,
+                     label=f"DV01, soma de {meses} meses")
+        direita.set_ylabel("DV01, R$ mil por ponto-base")
+        _marca_pontos(direita, dados.index, dv, lambda v: estilo.num_br(v, 0),
+                      _COR_DV, deslocamento=(8, 8))
+        _alinha_zeros(ax, direita, financeiro, dv)
+        direita.spines["top"].set_visible(False)
+        direita.grid(False)
+    else:
+        ax.set_ylim(*_limites_simples(financeiro))
+
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
+    ax.set_title(rotulo, fontsize=11, weight="bold", loc="left", pad=10)
+    marcas, rotulos = ax.get_legend_handles_labels()
+    if direita is not None:
+        m2, r2 = direita.get_legend_handles_labels()
+        marcas, rotulos = marcas + m2, rotulos + r2
+    ax.legend(marcas, rotulos, ncol=2, frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.12))
 
 
 def desenha_lft(dados, ax, meses_da_media=3):
@@ -361,8 +740,10 @@ def desenha_lft(dados, ax, meses_da_media=3):
 
     ax.set_ylabel("R$ bilh\u00f5es aceitos")
     ax.axhline(0, color="gray", lw=0.8)
-    ax.grid(axis="y", alpha=0.20)
-    estilo.eixo_anual(ax, a_cada=1 if len(dados) < 400 else 2)
+    _marca_pontos(ax, dados.index, dados["financeiro_milhoes"] / 1000,
+                  lambda v: estilo.num_br(v, 2), "#555555", deslocamento=(-6, 8))
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
     ax.set_title("LFT \u00b7 s\u00f3 financeiro: ela n\u00e3o tem DV, por decis\u00e3o de modelagem",
                  fontsize=11, weight="bold", loc="left", pad=10)
     marcas, rotulos = ax.get_legend_handles_labels()
@@ -385,8 +766,10 @@ def desenha_empilhado(dados, ax):
 
     ax.set_ylabel("R$ bilh\u00f5es aceitos na semana")
     ax.axhline(0, color="gray", lw=0.8)
-    ax.grid(axis="y", alpha=0.20)
-    estilo.eixo_anual(ax, a_cada=1 if len(dados) < 200 else 2)
+    _marca_pontos(ax, dados.index, base, lambda v: estilo.num_br(v, 2),
+                  "#333333", deslocamento=(-6, 8))
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
     marcas, rotulos = ax.get_legend_handles_labels()
     extras = _legenda_dos_estagios(estagios)
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
@@ -394,25 +777,42 @@ def desenha_empilhado(dados, ax):
               loc="upper center", bbox_to_anchor=(0.5, -0.10))
 
 
-def desenha_taxa_contra_quantidade(dados, ax, rotulo):
-    """Dispersao: taxa no eixo Y, quantidade no X, cor pelo tempo.
+def desenha_taxa_contra_dv(dados, ax, rotulo):
+    """Dispersao: taxa no eixo Y, DV01 EMITIDO no X, cor pelo tempo.
 
-    Havia uma OPCAO A -- duas series, no mesmo idioma dos graficos de dois eixos --
-    e ela foi cortada em 20/08/2026. Repetia um idioma que ja aparece sete vezes na
-    pagina, e nao respondia a pergunta que esta responde: o Tesouro coloca MAIS
-    quando a taxa esta alta? Num grafico de duas linhas isso so aparece se as duas
-    subirem juntas por acaso; aqui a relacao e o proprio desenho.
+    ERA CONTRA QUANTIDADE, e nao dizia nada. A quantidade de titulos mistura uma LTN
+    de seis meses com uma NTN-B de 35 anos como se fossem a mesma coisa -- lotes de
+    tamanho parecido com risco dez vezes diferente caiam na mesma coluna da nuvem, e
+    a nuvem saia sem forma.
 
-    A cor e o tempo, entao da para ver o regime mudar de lugar na nuvem.
+    Com o DV emitido no eixo, a pergunta vira a que interessa: quando a taxa esta
+    alta, ele coloca mais RISCO no mercado, ou menos? A cor e o tempo, entao da para
+    ver o regime mudar de lugar.
     """
+    if dados.empty:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "sem dado no recorte", ha="center", va="center",
+                transform=ax.transAxes)
+        return
+
     anos = dados.index.year
-    pontos = ax.scatter(dados["quantidade"] / 1e6, dados["taxa_media_pct"],
-                        c=anos, cmap="viridis", s=26, alpha=0.75,
+    pontos = ax.scatter(dados["dv_milhoes"] * 1000, dados["taxa_media_pct"],
+                        c=anos, cmap="viridis", s=28, alpha=0.8,
                         edgecolor="white", linewidth=0.3)
-    ax.set_xlabel("milh\u00f5es de t\u00edtulos aceitos no dia")
+    ax.set_xlabel("DV01 emitido no dia, R$ mil por ponto-base")
     ax.set_ylabel("taxa m\u00e9dia do dia, % ao ano")
-    ax.grid(alpha=0.20)
+    _grade(ax, "ambos")
     ax.set_title(rotulo, fontsize=11, weight="bold", loc="left", pad=10)
+
+    # O ultimo dia marcado: e o que se foi ver, e num mar de pontos ele some.
+    ultimo = dados.iloc[-1]
+    ax.scatter([ultimo["dv_milhoes"] * 1000], [ultimo["taxa_media_pct"]],
+               s=120, facecolor="none", edgecolor="#c00000", linewidth=1.8,
+               zorder=5)
+    ax.annotate(f"{dados.index[-1]:%d/%m/%y}",
+                (ultimo["dv_milhoes"] * 1000, ultimo["taxa_media_pct"]),
+                textcoords="offset points", xytext=(10, 6), fontsize=8.5,
+                color="#c00000", weight="bold")
 
     barra = ax.get_figure().colorbar(pontos, ax=ax, pad=0.02)
     barra.set_label("ano", fontsize=9)

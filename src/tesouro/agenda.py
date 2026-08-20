@@ -141,8 +141,10 @@ def _dv_unitario(d, cal=None):
                 saida.append(None)
                 continue
         try:
-            saida.append(precificacao.dv(cal, r["titulo"], d0, venc,
-                                         r["taxa_pct"] / 100.0, vna))
+            # Sinal de RISCO EMITIDO, como no dv_emitido_por_leilao.csv: positivo e
+            # o Tesouro emitindo. precificacao.dv devolve o sinal de P&L.
+            saida.append(abs(precificacao.dv(cal, r["titulo"], d0, venc,
+                                             r["taxa_pct"] / 100.0, vna)))
         except Exception:                                # noqa: BLE001
             saida.append(None)
     return saida
@@ -174,6 +176,71 @@ def _vna_do_mes(quando):
     if ate.empty:
         return None
     return float(ate.iloc[-1]["vna"])
+
+
+# Quantos leiloes passados entram na comparacao ofertado x aceito. Tres porque a
+# pergunta e "o ultimo foi diferente?", e para isso bastam os dois anteriores como
+# referencia -- com mais, a tabela vira serie temporal e ja existe uma pagina para
+# isso.
+LEILOES_NA_COMPARACAO = 3
+
+
+def ofertado_e_aceito(familias=None, quantos=LEILOES_NA_COMPARACAO):
+    """Por familia de papel, os ultimos N leiloes com o DV OFERTADO e o ACEITO.
+
+    A PERGUNTA QUE ISTO RESPONDE, e que o aceito sozinho nao responde: ele nao
+    conseguiu colocar, ou nao quis? Medido no agregado, o Tesouro coloca 68,5% do
+    DV que oferta -- e a razao varia muito por papel e por dia.
+
+    "Ultimos N leiloes DAQUELA FAMILIA", e nao os ultimos N dias: LFT e NTN-B vao a
+    mercado num dia e o prefixado no outro, entao um corte por data deixaria metade
+    das familias sem linha. Cada uma tem o seu proprio calendario.
+
+    So VENDA e so PRIMEIRA VOLTA: a segunda volta sai pela taxa media da primeira e
+    tem oferta propria, e somar as duas misturaria dois leiloes num numero so.
+    """
+    from . import config
+
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv",
+                    parse_dates=["data_leilao"])
+    d = d[d["operacao"] == "venda"]
+    d = d[~d["volta"].fillna("").astype(str).str.startswith("2")]
+    if "estagio" in d.columns:
+        # O ofertado ainda nao tem aceito: incluir-lo poria uma barra de aceito
+        # zerada ao lado de uma de ofertado cheia, que se le como "nao colocou
+        # nada" quando o certo e "ainda nao aconteceu".
+        d = d[d["estagio"] != "ofertado"]
+
+    familias = familias or [f for f in _ORDEM_FAMILIAS if f in set(d["familia"])]
+    d = d[d["familia"].isin(familias)]
+
+    por_dia_familia = d.groupby(["familia", "data_leilao"]).agg(
+        dv_aceito=("dv_milhoes", "sum"),
+        dv_ofertado=("dv_ofertado_milhoes", "sum"),
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        papeis=("titulo", "size"),
+    ).reset_index()
+
+    saida = []
+    for familia in familias:
+        g = por_dia_familia[por_dia_familia["familia"] == familia]
+        ultimos = g.nlargest(quantos, "data_leilao").sort_values(
+            "data_leilao", ascending=False)
+        for ordem, (_, r) in enumerate(ultimos.iterrows()):
+            linha = r.to_dict()
+            # 0 = o ultimo, 1 = o anterior, 2 = dois atras. E o que a tabela usa
+            # para rotular sem depender de a data ser a mesma entre familias.
+            linha["quantos_atras"] = ordem
+            saida.append(linha)
+    if not saida:
+        return pd.DataFrame(columns=["familia", "data_leilao", "dv_aceito",
+                                     "dv_ofertado", "quantos_atras"])
+    fora = pd.DataFrame(saida)
+    fora["colocado_pct"] = fora["dv_aceito"] / fora["dv_ofertado"].replace(0, pd.NA)
+    return fora
+
+
+_ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
 
 
 def por_dia(agenda=None, **kwargs):

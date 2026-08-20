@@ -16,6 +16,19 @@ sem que nenhum gráfico pareça errado.
 | **Resultado (P&L)** | Negativo é o **mercado perdendo dinheiro** |
 | **Risco emitido** | Positivo é o **Tesouro emitindo**; negativo é vencimento ou recompra |
 
+### Onde cada uma vale, na prática
+
+| arquivo | convenção | por quê |
+|---|---|---|
+| `dv_painel.csv`, `dv_decay.csv` | **P&L** — `dv` negativo | medem o dinheiro de quem carrega o papel |
+| `dv_emitido_por_leilao.csv` | **risco emitido** — venda positiva, recompra negativa | mede emissão |
+
+**Isto já saiu errado uma vez.** A primeira versão de `leiloes_dv.py` deixou passar o
+sinal de P&L que `precificacao.dv` devolve — correto lá, errado ali — e o resultado
+foi um gráfico de emissão com **todas as barras para baixo**, que ainda exigiu inverter
+o eixo do DV para ficar legível. Não levantou nada: o número estava certo em módulo, e
+só o lado estava trocado. Corrigido em 20/08/2026, e a inversão do eixo saiu junto.
+
 As duas são coerentes entre si: ambas olham da ótica de quem carrega o papel.
 Emissão coloca risco no mercado (positivo); alta de taxa faz quem carrega perder
 (negativo).

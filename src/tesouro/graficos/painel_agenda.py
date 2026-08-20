@@ -28,7 +28,7 @@ import pandas as pd
 from .. import agenda as dados_agenda
 from . import cronograma, dashboard, estilo
 
-GRUPOS = ["A agenda", "Quanto risco vem"]
+GRUPOS = ["O \u00faltimo leil\u00e3o"]
 
 ARQUIVO = "agenda.html"
 
@@ -47,10 +47,10 @@ _NOTA_QUANTIDADE = (
 )
 
 
-def _fig(desenha, altura):
+def _fig_ofertado_aceito():
     def figura(janela=None):
-        fig = dashboard._figura(altura)
-        desenha(_dados(), fig.subplots())
+        fig = dashboard._figura(5.0)
+        cronograma.desenha_ofertado_e_aceito(_comparacao(), fig.subplots())
         return fig
     return figura
 
@@ -70,6 +70,13 @@ def _dados(hoje=None):
     return _EM_CACHE[chave]
 
 
+def _comparacao():
+    """Os ultimos leiloes de cada familia, com DV ofertado e aceito."""
+    if "comparacao" not in _EM_CACHE:
+        _EM_CACHE["comparacao"] = dados_agenda.ofertado_e_aceito()
+    return _EM_CACHE["comparacao"]
+
+
 def limpar_cache():
     _EM_CACHE.clear()
 
@@ -77,36 +84,19 @@ def limpar_cache():
 Grafico = dashboard.Grafico
 
 REGISTRO = [
-    Grafico("agenda_cronograma", "A agenda",
-            "O calend\u00e1rio publicado, por dia e por v\u00e9rtice",
-            "API do Tesouro \u00b7 /calendario",
-            "S\u00f3 fatos: o Tesouro publica quais benchmarks v\u00e3o a mercado em cada "
-            "dia. O v\u00e9rtice fica no eixo vertical para mostrar a <b>cobertura da "
-            "curva</b> de cada dia \u2014 um dia com 3, 7 e 15 anos faz com o prazo "
-            "m\u00e9dio da d\u00edvida algo diferente de um com 5 e 30, e num gr\u00e1fico "
-            "por papel os dois pareceriam iguais. Escala logar\u00edtmica porque os "
-            "v\u00e9rtices v\u00e3o de meio ano a 35.",
-            False, None, _fig(cronograma.desenha_cronograma, 5.0)),
-
-    Grafico("agenda_dv_unitario", "Quanto risco vem",
-            "Quanto risco carrega cada t\u00edtulo da agenda",
-            "API do Tesouro \u00b7 /calendario + hist\u00f3rico de leil\u00f5es",
-            "O n\u00famero mais firme desta p\u00e1gina: <b>n\u00e3o depende de quantidade "
-            "nenhuma</b>, s\u00f3 da taxa. Responde qual dos papeis agendados carrega "
-            "risco \u2014 um NTN-B 35 anos carrega mais de <b>cem vezes</b> o DV01 de "
-            "uma LTN de 6 meses, t\u00edtulo a t\u00edtulo. "
-            "A LFT n\u00e3o aparece: DV01 zero por decis\u00e3o de modelagem da entrega "
-            "2, e n\u00e3o por falha de c\u00e1lculo. " + _NOTA_TAXA,
-            False, None, _fig(cronograma.desenha_dv_unitario, 5.4)),
-
-    Grafico("agenda_dv_por_dia", "Quanto risco vem",
-            "Se ele repetir a \u00faltima oferta de cada papel",
-            "API do Tesouro \u00b7 /calendario + hist\u00f3rico de leil\u00f5es",
-            "<b>Isto n\u00e3o \u00e9 previs\u00e3o</b>, e por isso a barra sai hachurada "
-            "inteira. " + _NOTA_QUANTIDADE + " O que d\u00e1 para ler aqui \u00e9 o "
-            "<b>ritmo</b>: os dias de prefixado (LTN e NTN-F juntos) carregam duas a "
-            "quatro vezes o risco dos dias de LFT e NTN-B.",
-            False, None, _fig(cronograma.desenha_dv_por_dia, 4.6)),
+    Grafico("agenda_ofertado_aceito", "O \u00faltimo leil\u00e3o",
+            "Quanto risco ele tentou colocar, e quanto colocou",
+            "dv_emitido_por_leilao.csv",
+            "O DV01 <b>ofertado</b> (barra vazada) e o <b>aceito</b> (cheia) no "
+            "\u00faltimo leil\u00e3o de cada fam\u00edlia. A pergunta que isto "
+            "responde, e que o aceito sozinho n\u00e3o responde: ele n\u00e3o "
+            "conseguiu colocar, ou n\u00e3o quis? Medido no agregado do "
+            "hist\u00f3rico, ele coloca <b>68,5% do DV que oferta</b>. "
+            "\u00c9 o \u00faltimo leil\u00e3o <b>de cada fam\u00edlia</b>, e "
+            "n\u00e3o o \u00faltimo dia: LFT e NTN-B v\u00e3o a mercado num dia e "
+            "o prefixado no outro, e a data de cada uma est\u00e1 no eixo. "
+            "A LFT n\u00e3o entra \u2014 sem DV01, por decis\u00e3o de modelagem.",
+            False, None, _fig_ofertado_aceito()),
 ]
 
 
@@ -122,10 +112,74 @@ def _celula_taxa(r):
             f'<small> {quando} \u00b7 {idade}d{aviso}</small></span>')
 
 
+def tabela_dos_ultimos(dados=None):
+    """Os ultimos tres leiloes de cada familia: DV ofertado, aceito e a fracao.
+
+    POR FAMILIA E NAO POR DATA, porque as familias tem calendarios diferentes: LFT e
+    NTN-B num dia, prefixado no outro. Uma tabela por data deixaria metade das
+    linhas vazias em cada dia, e a comparacao entre o ultimo leilao e os anteriores
+    -- que e o assunto -- ficaria ilegivel.
+
+    Tres leiloes porque a pergunta e "o ultimo foi diferente?", e para isso os dois
+    anteriores bastam de referencia.
+    """
+    d = _comparacao() if dados is None else dados
+    if d.empty:
+        return ""
+
+    rotulos = {0: "\u00faltimo", 1: "anterior", 2: "dois atr\u00e1s"}
+    linhas = ['<div id="tabela-ultimos">',
+              "<h2>Os \u00faltimos leil\u00f5es de cada papel</h2>",
+              '<p class="legenda">O DV01 que ele <b>ofertou</b> e o que '
+              '<b>aceitou</b>. A fra\u00e7\u00e3o \u00e9 o que ele colocou do '
+              'que tentou colocar \u2014 no agregado do hist\u00f3rico, 68,5%. '
+              'A LFT aparece sem DV01, por decis\u00e3o de modelagem.</p>',
+              "<table><thead><tr>"
+              "<th>papel</th><th>leil\u00e3o</th><th>data</th>"
+              '<th class="n">DV01 ofertado</th>'
+              '<th class="n">DV01 aceito</th>'
+              '<th class="n">colocou</th>'
+              '<th class="n">financeiro</th>'
+              "</tr></thead><tbody>"]
+
+    for familia in dados_agenda._ORDEM_FAMILIAS:
+        g = d[d["familia"] == familia].sort_values("quantos_atras")
+        if g.empty:
+            continue
+        for k, (_, r) in enumerate(g.iterrows()):
+            classe = ' class="dia"' if k == 0 else ""
+            papel = familia if k == 0 else ""
+            fracao = r.get("colocado_pct")
+            if pd.isna(fracao):
+                marca = "\u2014"
+            else:
+                cor = "" if fracao > 0.95 else ' class="baixo"'
+                marca = f'<span{cor}>{estilo.num_br(fracao * 100, 0)}%</span>'
+            linhas.append(
+                f"<tr{classe}><td>{papel}</td>"
+                f"<td>{rotulos.get(r['quantos_atras'], '')}</td>"
+                f"<td>{r['data_leilao']:%d/%m/%Y}</td>"
+                f'<td class="n">{_mil(r["dv_ofertado"])}</td>'
+                f'<td class="n">{_mil(r["dv_aceito"])}</td>'
+                f'<td class="n">{marca}</td>'
+                f'<td class="n">{estilo.num_br(r["financeiro_milhoes"] / 1000, 2)}'
+                f" bi</td></tr>")
+
+    linhas += ["</tbody></table>", "</div>"]
+    return "\n".join(linhas)
+
+
+def _mil(dv):
+    """O DV em R$ mil por ponto-base. Vazio quando nao ha DV (LFT)."""
+    if pd.isna(dv) or dv == 0:
+        return "\u2014"
+    return estilo.num_br(dv * 1000, 0)
+
+
 def tabela(dados=None):
     """A agenda inteira, em HTML, agrupada por dia de leilao.
 
-    Vem DEPOIS dos graficos: ninguem le cinquenta linhas para saber o formato da
+    Vem DEPOIS do grafico: ninguem le cinquenta linhas para saber o formato da
     semana. Ela existe para conferir papel a papel e para copiar.
     """
     d = _dados() if dados is None else dados
@@ -135,41 +189,42 @@ def tabela(dados=None):
 
     linhas = ['<div id="tabela-agenda">',
               "<h2>A agenda, papel a papel</h2>",
-              f"<p class=\"legenda\">{_NOTA_QUANTIDADE} {_NOTA_TAXA} "
+              f'<p class="legenda">{_NOTA_QUANTIDADE} {_NOTA_TAXA} '
               "O \u26a0 marca a taxa com mais de 45 dias, fora da faixa em que o "
               "erro foi medido.</p>",
               "<table>",
               "<thead><tr>"
               "<th>papel</th><th>benchmark</th><th>vencimento</th>"
-              "<th class=\"n\">\u00faltima taxa</th>"
-              "<th class=\"n\">ofertou da vez passada</th>"
-              "<th class=\"n\">DV01 por t\u00edtulo</th>"
-              "<th class=\"n\">DV01 se repetir</th>"
+              '<th class="n">\u00faltima taxa</th>'
+              '<th class="n">ofertou</th>'
+              '<th class="n">aceitou</th>'
+              '<th class="n">DV01 por t\u00edtulo</th>'
               "</tr></thead><tbody>"]
 
     for dia, g in d.groupby("data_leilao"):
-        soma = g["dv_se_repetir"].sum()
         linhas.append(
-            f'<tr class="dia"><td colspan="6">{dia:%d/%m/%Y} \u00b7 '
-            f'{len(g)} papel(is)</td>'
-            f'<td class="n">{estilo.num_br(soma, 3)}</td></tr>')
+            f'<tr class="dia"><td colspan="7">{dia:%d/%m/%Y} \u00b7 '
+            f"{len(g)} papel(is)</td></tr>")
         for _, r in g.iterrows():
-            oferta = ("\u2014" if pd.isna(r["oferta_anterior_qtd"])
-                      else estilo.num_br(r["oferta_anterior_qtd"] / 1000, 0) + " mil")
             dv_u = ("\u2014" if pd.isna(r["dv_unitario"])
                     else estilo.num_br(r["dv_unitario"], 3))
-            dv_r = ("\u2014" if pd.isna(r["dv_se_repetir"])
-                    else estilo.num_br(r["dv_se_repetir"], 3))
             linhas.append(
                 f"<tr><td>{r['titulo']}</td><td>{r['benchmark']}</td>"
                 f"<td>{r['data_vencimento']:%d/%m/%Y}</td>"
                 f'<td class="n">{_celula_taxa(r)}</td>'
-                f'<td class="n">{oferta}</td>'
-                f'<td class="n">{dv_u}</td>'
-                f'<td class="n">{dv_r}</td></tr>')
+                f'<td class="n">{_qtd(r["oferta_anterior_qtd"])}</td>'
+                f'<td class="n">{_qtd(r["aceito_anterior_qtd"])}</td>'
+                f'<td class="n">{dv_u}</td></tr>')
 
     linhas += ["</tbody></table>", "</div>"]
     return "\n".join(linhas)
+
+
+def _qtd(valor):
+    """Quantidade em milhares de titulos, ou travessao quando nao ha."""
+    if pd.isna(valor):
+        return "\u2014"
+    return estilo.num_br(valor / 1000, 0) + " mil"
 
 
 _CSS = """
@@ -186,6 +241,18 @@ _CSS = """
                            padding-top: 9px; }
 #tabela-agenda small { color: var(--fraco); font-size: 11px; }
 #tabela-agenda .velha { color: #a33; }
+#tabela-ultimos { margin: 26px auto 10px; max-width: 1180px; }
+#tabela-ultimos table { border-collapse: collapse; width: 100%;
+                        font-size: 13px; }
+#tabela-ultimos th, #tabela-ultimos td { padding: 5px 9px;
+    text-align: left; border-bottom: 1px solid #e6e6e6; }
+#tabela-ultimos th { font-weight: 600; color: var(--fraco);
+                     border-bottom: 2px solid #ccc; }
+#tabela-ultimos td.n, #tabela-ultimos th.n { text-align: right;
+    font-variant-numeric: tabular-nums; }
+#tabela-ultimos tr.dia td { border-top: 2px solid #ddd;
+                            font-weight: 600; padding-top: 9px; }
+#tabela-ultimos .baixo { color: #c00000; font-weight: 600; }
 """
 
 
@@ -202,7 +269,10 @@ def grava(caminho=None, hoje=None):
     escrito = dashboard.grava(caminho, [("agenda", None)], REGISTRO, GRUPOS,
                               "Agenda de leil\u00f5es")
     html = escrito.read_text(encoding="utf-8")
-    html = html.replace("</main>", tabela() + "\n</main>", 1)
+    # As DUAS tabelas: a dos ultimos leiloes primeiro, porque responde a
+    # pergunta da pagina; a agenda depois, que e referencia para conferir.
+    html = html.replace(
+        "</main>", tabela_dos_ultimos() + "\n" + tabela() + "\n</main>", 1)
     html = html.replace("</style>", _CSS + "</style>", 1)
     escrito.write_text(html, encoding="utf-8")
     return escrito

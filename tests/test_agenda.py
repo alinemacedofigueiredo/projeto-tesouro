@@ -82,8 +82,8 @@ def test_o_dv_unitario_encurta_conforme_o_leilao_se_afasta(dados):
         if len(g) < 2:
             continue
         repetidos += 1
-        modulos = list(g.sort_values("data_leilao")["dv_unitario"].abs())
-        assert modulos == sorted(modulos, reverse=True), benchmark
+        valores = list(g.sort_values("data_leilao")["dv_unitario"])
+        assert valores == sorted(valores, reverse=True), benchmark
     assert repetidos > 0, "a agenda precisa repetir algum benchmark"
 
 
@@ -100,16 +100,18 @@ def test_a_quantidade_nao_entra_no_dv_unitario(dados):
     assert mod._dv_unitario(uma)[0] == pytest.approx(esperado)
 
 
-def test_o_dv_unitario_e_negativo_e_cresce_com_o_vertice(dados):
-    # Convencao do projeto (docs/convencoes-dv.md): negativo, porque preco cai
-    # quando a taxa sobe. E em modulo cresce com o prazo -- se nao crescesse, a
-    # precificacao estaria errada de um jeito grosseiro.
+def test_o_dv_unitario_e_POSITIVO_e_cresce_com_o_vertice(dados):
+    # Convencao de RISCO EMITIDO (docs/convencoes-dv.md): positivo e o Tesouro
+    # emitindo. A mesma do dv_emitido_por_leilao.csv -- se as duas divergissem, o
+    # numero da agenda e o do historico teriam sinais diferentes na mesma tela.
     com_dv = dados[dados["dv_unitario"].notna()].drop_duplicates("benchmark")
-    assert (com_dv["dv_unitario"] < 0).all()
+    assert (com_dv["dv_unitario"] > 0).all()
 
+    # E cresce com o prazo. Se nao crescesse, a precificacao estaria errada de um
+    # jeito grosseiro.
     ntnb = com_dv[com_dv["titulo"] == "NTN-B"].sort_values("vertice_anos")
-    modulos = list(ntnb["dv_unitario"].abs())
-    assert modulos == sorted(modulos)
+    valores = list(ntnb["dv_unitario"])
+    assert valores == sorted(valores)
 
 
 def test_a_lft_entra_na_agenda_mas_sem_dv(dados):
@@ -170,45 +172,68 @@ def test_por_dia_soma_o_dia_e_marca_a_taxa_velha(dados):
 
 
 # --------------------------------------------------------------------------
-# Os desenhos
+# O desenho
+#
+# Os TRES graficos anteriores -- cronograma de pontos, DV por titulo, e "DV se
+# repetir a ultima oferta" -- foram recusados na revisao de 20/08/2026 e sairam
+# junto com os testes deles. O que entrou responde uma pergunta que nenhuma
+# outra pagina responde: ele nao conseguiu colocar, ou nao quis?
 # --------------------------------------------------------------------------
 
-def test_o_cronograma_desenha_um_ponto_por_papel(dados):
+@pytest.fixture(scope="module")
+def comparacao():
+    return agenda.ofertado_e_aceito()
+
+
+def test_a_comparacao_traz_os_tres_ultimos_leiloes_de_CADA_familia(comparacao):
+    # POR FAMILIA e nao por data: LFT e NTN-B vao a mercado num dia e o prefixado no
+    # outro, entao um corte por data deixaria metade das familias sem linha.
+    assert not comparacao.empty
+    for familia, g in comparacao.groupby("familia"):
+        assert sorted(g["quantos_atras"]) == [0, 1, 2], familia
+    # E as datas do "ultimo" NAO sao todas iguais, que e o motivo da regra existir.
+    ultimos = comparacao[comparacao["quantos_atras"] == 0]
+    assert ultimos["data_leilao"].nunique() > 1
+
+
+def test_o_aceito_nunca_passa_do_ofertado(comparacao):
+    com_dv = comparacao[comparacao["dv_ofertado"] > 0]
+    assert len(com_dv) > 0
+    assert (com_dv["dv_aceito"] <= com_dv["dv_ofertado"] * 1.001).all()
+
+
+def test_o_grafico_desenha_duas_barras_por_familia(comparacao):
     import matplotlib.pyplot as plt
+    from tesouro.graficos import cronograma
 
     fig, ax = plt.subplots()
-    cronograma.desenha_cronograma(dados, ax)
-    pontos = sum(len(c.get_offsets()) for c in ax.collections)
-    assert pontos == len(dados)
-    # O eixo do vertice e logaritmico: linear empilharia meio ano e 35 anos numa
-    # faixa de dois pixels.
-    assert ax.get_yscale() == "log"
+    cronograma.desenha_ofertado_e_aceito(comparacao, ax)
+    familias = [f for f in cronograma.ORDEM_FAMILIAS
+                if f in set(comparacao["familia"])]
+    assert len(ax.patches) == 2 * len(familias)
     plt.close(fig)
 
 
-def test_a_barra_do_dv_por_dia_sai_HACHURADA(dados):
-    # A marca que impede a leitura de previsao. Sem ela a barra pareceria um numero
-    # medido, e nao um produto por uma quantidade do passado.
+def test_a_LFT_fica_de_fora_do_grafico_de_DV(comparacao):
+    # Sem DV por decisao de modelagem: duas barras zeradas ao lado das outras se
+    # leriam como "nao colocou nada", que e outra coisa.
+    from tesouro.graficos import cronograma
+
+    assert "LFT" in set(comparacao["familia"])
+    assert "LFT" not in cronograma.ORDEM_FAMILIAS
+
+
+def test_o_eixo_traz_a_DATA_de_cada_familia(comparacao):
+    # Quatro barras de dias diferentes pareceriam do mesmo leilao sem a data.
     import matplotlib.pyplot as plt
+    from tesouro.graficos import cronograma
 
     fig, ax = plt.subplots()
-    cronograma.desenha_dv_por_dia(dados, ax)
-    barras = [p for p in ax.patches if p.get_hatch()]
-    assert len(barras) == dados["data_leilao"].nunique()
-    assert all(p.get_hatch() == cronograma.HACHURA_SUPOSTO for p in barras)
-    plt.close(fig)
-
-
-def test_o_dv_unitario_desenha_uma_barra_por_PAPEL_e_nao_por_linha(dados):
-    # O mesmo benchmark aparece varias vezes no calendario; repetir a barra nao
-    # acrescenta nada e sugeriria que ele pesa mais.
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots()
-    cronograma.desenha_dv_unitario(dados, ax)
-    com_dv = dados[dados["dv_unitario"].notna()]
-    assert len(ax.patches) == com_dv["benchmark"].nunique()
-    assert len(ax.patches) < len(com_dv)      # ha repeticao no calendario
+    cronograma.desenha_ofertado_e_aceito(comparacao, ax)
+    rotulos = [r.get_text() for r in ax.get_xticklabels()]
+    assert all(chr(10) in r for r in rotulos), rotulos
+    datas = {r.split(chr(10))[1] for r in rotulos}
+    assert len(datas) > 1, "as datas sao todas iguais"
     plt.close(fig)
 
 
@@ -231,25 +256,42 @@ def monkeypatch_module():
     mp.undo()
 
 
-def test_a_pagina_traz_os_tres_graficos_e_a_tabela(pagina):
+def test_a_pagina_traz_o_grafico_e_as_duas_tabelas(pagina):
     for g in painel_agenda.REGISTRO:
         assert f'id="{g.id}"' in pagina, g.id
-    assert pagina.count("<section") == 3
+    assert pagina.count("<section") == 1
+    assert 'id="tabela-ultimos"' in pagina
     assert 'id="tabela-agenda"' in pagina
 
 
 def test_a_pagina_diz_que_a_quantidade_nao_esta_no_calendario(pagina):
-    # O texto que impede a leitura errada. Se sumir, a pagina vira previsao aos
-    # olhos de quem a le.
+    # O texto que impede a leitura errada da TABELA da agenda: ela e o que vem pela
+    # frente, e o calendario nao traz quantidade.
     assert "n\u00e3o est\u00e1 no calend\u00e1rio" in pagina
     assert "10h30" in pagina
-    assert "n\u00e3o \u00e9 previs\u00e3o" in pagina
 
 
-def test_a_tabela_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(pagina, dados):
-    assert pagina.count('<tr class="dia"') == dados["data_leilao"].nunique()
-    # Uma linha por papel, mais os cabecalhos de dia, mais o do <thead>.
-    assert pagina.count("<tr") == len(dados) + dados["data_leilao"].nunique() + 1
+def test_a_tabela_dos_ultimos_separa_ofertado_de_aceito(pagina):
+    # A pergunta da pagina inteira. Sem as duas colunas, so da para ver o que ele
+    # colocou -- e nao o que tentou colocar.
+    assert "DV01 ofertado" in pagina
+    assert "DV01 aceito" in pagina
+    assert "colocou" in pagina
+
+
+def test_a_tabela_dos_ultimos_mostra_tres_leiloes_por_papel(pagina):
+    for rotulo in ("\u00faltimo", "anterior", "dois atr\u00e1s"):
+        assert rotulo in pagina, rotulo
+
+
+def test_a_tabela_da_agenda_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(
+        pagina, dados):
+    # A pagina tem DUAS tabelas agora, entao a contagem e so da agenda: uma linha
+    # por papel, mais um cabecalho por dia, mais o do <thead>.
+    i = pagina.index('id="tabela-agenda"')
+    so_agenda = pagina[i:]
+    assert so_agenda.count('<tr class="dia"') == dados["data_leilao"].nunique()
+    assert so_agenda.count("<tr") == len(dados) + dados["data_leilao"].nunique() + 1
 
 
 def test_a_tabela_marca_a_taxa_velha(pagina, dados):

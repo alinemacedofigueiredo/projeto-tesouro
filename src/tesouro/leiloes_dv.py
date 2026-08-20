@@ -192,7 +192,19 @@ def dv_por_leilao(ate_o_estagio="planilha"):
         vnas.append(vna_do_dia)
         mensais.append(do_mes)
 
-    d["dv_unitario"] = unitarios
+    # O SINAL AQUI E O DE RISCO EMITIDO, e nao o de P&L. Conferido contra
+    # docs/convencoes-dv.md, que ja dizia: "Risco emitido -- positivo e o Tesouro
+    # emitindo; negativo e vencimento ou recompra".
+    #
+    # precificacao.dv devolve NEGATIVO, que e a convencao de P&L: o dinheiro que
+    # quem carrega o papel perde num choque de +1 bp. Correta la, errada aqui --
+    # esta tabela mede EMISSAO, e emissao positiva e emissao.
+    #
+    # A primeira versao deste modulo deixou o sinal de P&L passar, e o resultado foi
+    # um grafico de emissao com todas as barras para baixo, que exigiu inverter o
+    # eixo do DV para ficar legivel. Invertido o sinal na origem, a inversao do eixo
+    # deixou de ser necessaria.
+    d["dv_unitario"] = [None if u is None else abs(u) for u in unitarios]
     d["vna_usado"] = vnas
     d["vna_do_mes"] = mensais
 
@@ -202,7 +214,16 @@ def dv_por_leilao(ate_o_estagio="planilha"):
     # proprio financeiro do Tesouro: qtd x PU da exatamente financeiro_milhoes x 1e6
     # em todo leilao (razao 1,0000). Com a escala errada o DV saia mil vezes maior, e
     # mil vezes maior ainda parece numero, so que grande demais.
+    # quantidade ja carrega o sinal da operacao (venda +, compra -), entao o
+    # produto sai positivo na venda e negativo na recompra, que e a convencao.
     d["dv_milhoes"] = d["dv_unitario"] * d["quantidade"] / 1e6
+
+    # O DV QUE ELE TENTOU COLOCAR, e nao o que colocou. A oferta e o teto do dia, e
+    # comparar os dois responde uma pergunta que o aceito sozinho nao responde: ele
+    # nao conseguiu colocar, ou nao quis? Medido: aceita 83,9% da quantidade
+    # ofertada no agregado, e de 62,5% a 88,0% conforme o papel.
+    d["oferta_qtd"] = d["oferta_qtd"] * sinal
+    d["dv_ofertado_milhoes"] = d["dv_unitario"] * d["oferta_qtd"] / 1e6
 
     d["prazo_anos"] = ((d["data_vencimento"] - d["data_leilao"]).dt.days / 365.25)
     d["vertice_anos"] = [
@@ -218,8 +239,10 @@ def dv_por_leilao(ate_o_estagio="planilha"):
     colunas = [ESTAGIO, "taxa_suposta",
                "data_leilao", "data_liquidacao", "titulo", "familia", "operacao",
                "volta", "data_vencimento", "prazo_anos", "vertice_anos",
-               "quantidade", "financeiro_milhoes", "taxa_media_pct",
-               "taxa_corte_pct", "dv_unitario", "dv_milhoes", "vna_usado",
+               "quantidade", "oferta_qtd", "financeiro_milhoes",
+               "taxa_media_pct",
+               "taxa_corte_pct", "dv_unitario", "dv_milhoes",
+               "dv_ofertado_milhoes", "vna_usado",
                "vna_do_mes"]
     return d[colunas].sort_values(["data_leilao", "titulo",
                                    "data_vencimento"]).reset_index(drop=True)
