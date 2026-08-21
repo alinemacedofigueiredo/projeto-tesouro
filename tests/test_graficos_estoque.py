@@ -423,16 +423,43 @@ def test_a_duration_sai_do_DV_dividido_pelo_valor_de_mercado():
     assert 5 < obtido < 6.5, obtido
 
 
-def test_a_LFT_nao_tem_linha_de_duration():
-    # DV zero sobre valor positivo da duration zero, que e verdade e nao ajuda:
-    # a LFT nao tem duration de TAXA. Uma linha em zero ao lado de duas linhas
-    # reais convida a comparar coisas que nao se comparam.
+def test_a_LFT_NAO_TEM_LINHA_em_nenhum_dos_dois_paineis():
+    # Ela ficou no painel de cima ate 21/08/2026, como uma reta em zero: verdadeira,
+    # e ruido. "So esta poluindo." Saiu dos dois.
+    #
+    # No de duration nunca esteve, por outro motivo: DV zero sobre valor positivo
+    # da duration zero, que e verdade e nao ajuda -- a LFT nao tem duration de
+    # TAXA, e uma linha em zero ao lado de duas reais convida a comparar coisas
+    # que nao se comparam.
+    assert "Taxa Flutuante" not in estoque.ORDEM_DO_DV
     assert "Taxa Flutuante" not in estoque.DURATION_DE
     dados = estoque.dados_dv_do_estoque()
-    assert "dur Taxa Flutuante" not in dados.columns
-    # Mas ela CONTINUA no painel de cima, com DV zero, que la e a informacao.
-    assert "Taxa Flutuante" in estoque.ORDEM_DO_DV
-    assert (dados["Taxa Flutuante"] == 0).all()
+    for coluna in ("Taxa Flutuante", "dur Taxa Flutuante"):
+        assert coluna not in dados.columns
+
+
+def test_tirar_a_LFT_NAO_MUDA_O_TOTAL():
+    # E o que autoriza tira-la sem passar a mentir: ela somava zero. Se um dia a
+    # LFT ganhar DV -- outra fonte de taxa, outro criterio -- o total passa a ser
+    # menor do que e, e este teste avisa.
+    d = _dv_bruto()
+    lft = d[d["titulo"] == "LFT"]
+    assert len(lft) > 2000, "a LFT sumiu do arquivo"
+    assert lft["dv_posicao_milhoes"].fillna(0).abs().max() == 0
+
+    dados = estoque.dados_dv_do_estoque()
+    soma = dados[estoque.ORDEM_DO_DV].sum(axis=1)
+    assert (dados["total"] - soma).abs().max() < 1e-9
+
+
+def test_o_DV_do_estoque_NAO_TEM_media_movel():
+    # Uma de tres meses foi tentada em 21/08/2026 e recusada por quem le: "nao
+    # serviu para nada". E o desenho concorda -- a serie e mensal e ja e suave,
+    # porque o estoque muda por leilao e por vencimento, e nao por preco. Alisar o
+    # que ja e liso so acrescenta uma linha para o olho separar.
+    assert not hasattr(estoque, "MESES_DA_MEDIA")
+    dados = estoque.dados_dv_do_estoque()
+    assert not [c for c in dados.columns if str(c).startswith("mm")]
 
 
 def test_o_DV_do_estoque_sao_DOIS_PAINEIS():
@@ -443,8 +470,11 @@ def test_o_DV_do_estoque_sao_DOIS_PAINEIS():
     assert cima.get_position().y0 > baixo.get_position().y0
     assert cima.get_ylabel().startswith("R$")
     assert baixo.get_ylabel() == "anos"
-    # Quatro linhas em cima (total + tres indexadores) e duas embaixo.
-    assert len(cima.lines) == 4 and len(baixo.lines) == 2
+    # Em cima, TRES linhas -- total, Indice de Precos e Prefixado. A LFT saiu, e
+    # nao ha media movel. Embaixo, as duas de duration.
+    assert len(cima.lines) == 3, [l.get_label() for l in cima.lines]
+    assert len(baixo.lines) == 2
+    assert [l.get_label() for l in cima.lines][0] == "total"
     plt.close(fig)
 
 

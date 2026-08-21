@@ -351,7 +351,14 @@ INDEXADOR_DO_PAPEL = {"LTN": "Prefixado", "NTN-F": "Prefixado",
                       "NTN-B": "\u00cdndice Pre\u00e7os", "NTN-C": "\u00cdndice Pre\u00e7os",
                       "LFT": "Taxa Flutuante"}
 
-ORDEM_DO_DV = ["\u00cdndice Pre\u00e7os", "Prefixado", "Taxa Flutuante"]
+# A LFT SAIU DAQUI em 21/08/2026. Ela era uma linha reta em zero ao longo de toda a
+# serie -- verdadeira, e ruido: "so esta poluindo", disse a dona do projeto. O fato
+# de ela ser 54,3% do estoque e 0,0% do DV01 continua dito, no texto do grafico, que
+# e onde se le um numero que nao muda.
+#
+# O total nao se altera com a saida: a LFT somava zero.
+ORDEM_DO_DV = ["\u00cdndice Pre\u00e7os", "Prefixado"]
+
 
 # Quais ganham linha de duration. A LFT fica fora -- ver dados_dv_do_estoque.
 DURATION_DE = ["\u00cdndice Pre\u00e7os", "Prefixado"]
@@ -417,21 +424,23 @@ def desenha_dv_do_estoque(dados, fig):
     hoje. O risco cresceu por TAMANHO e nao por prazo: e mais divida, mais curta.
     Separados em dois graficos, essa leitura nao acontece.
 
+SEM MEDIA MOVEL. Uma de tres meses foi tentada em 21/08/2026 e recusada por quem
+    le: "nao serviu para nada". E o desenho concorda com ela -- a serie de DV01 e
+    mensal e ja e suave, porque o estoque muda por leilao e por vencimento, e nao
+    por preco. Alisar o que ja e liso so acrescenta uma linha para o olho separar.
+
     Recebe a FIGURA, como desenha_estoque_total.
     """
     cima, baixo = fig.subplots(2, 1, sharex=True,
                                gridspec_kw={"height_ratios": [2, 1],
                                             "hspace": 0.26})
 
-    cima.plot(dados.index, dados["total"], color="#1f3864", lw=2.8, zorder=4,
-              label="total")
-    for coluna in ORDEM_DO_DV:
-        cima.plot(dados.index, dados[coluna], lw=1.8, zorder=3, label=coluna,
-                  color=estilo.COR[_CHAVE_COR[coluna]])
     for coluna in ["total"] + ORDEM_DO_DV:
-        _rotulo_do_fim(cima, dados, coluna,
-                       "#1f3864" if coluna == "total"
-                       else estilo.COR[_CHAVE_COR[coluna]], 0)
+        cor = _COR_DA_LINHA_DO_DV(coluna)
+        cima.plot(dados.index, dados[coluna], color=cor,
+                  lw=2.8 if coluna == "total" else 1.8,
+                  zorder=4 if coluna == "total" else 3, label=coluna)
+        _rotulo_do_fim(cima, dados, coluna, cor, 0)
 
     for coluna in DURATION_DE:
         baixo.plot(dados.index, dados["dur " + coluna], lw=1.8,
@@ -455,8 +464,13 @@ def desenha_dv_do_estoque(dados, fig):
         eixo.set_axisbelow(True)
     estilo.eixo_anual(baixo, a_cada=2)
 
-    cima.legend(ncol=4, frameon=False, loc="upper left",
-                title="quanto a carteira perde num choque de +1 bp em toda a curva")
+    cima.legend(ncol=3, frameon=False, loc="upper left",
+                title="quanto a carteira perde num choque de +1 bp em toda a "
+                      "curva")
+
+
+def _COR_DA_LINHA_DO_DV(coluna):
+    return "#1f3864" if coluna == "total" else estilo.COR[_CHAVE_COR[coluna]]
 
 
 def _rotulo_do_fim(ax, dados, coluna, cor, casas):

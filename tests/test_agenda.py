@@ -292,6 +292,24 @@ def test_o_grafico_da_LFT_usa_quantidade_e_escreve_o_financeiro(lft):
 
 @pytest.fixture(scope="module")
 def pagina(tmp_path_factory, registros, monkeypatch_module):
+    """A pagina montada a partir da AMOSTRA CONGELADA, e nao da API.
+
+    O monkeypatch estava sendo pedido e nao usado: a fixture recebia 'registros' e
+    'monkeypatch_module' e nao amarrava um no outro. painel_agenda.grava chama
+    agenda.proximos() SEM registros, e proximos() sem registros vai a rede.
+
+    Passou despercebido porque a API respondia. Em 21/08/2026 ela nao respondeu, e
+    dezessete testes deste arquivo quebraram com ConnectionError -- num commit que
+    nao tocava em nada disso. Teste que depende da rede e teste que um dia acusa
+    quem nao tem culpa, e o docstring deste arquivo ja prometia o contrario.
+    """
+    from tesouro import api_leiloes
+
+    def nao_va_a_rede(nome):
+        assert nome == "calendario", f"a pagina pediu '{nome}' a API"
+        return registros, {"origem": "amostra congelada do teste"}
+
+    monkeypatch_module.setattr(api_leiloes, "buscar", nao_va_a_rede)
     destino = tmp_path_factory.mktemp("agenda") / painel_agenda.ARQUIVO
     return painel_agenda.grava(destino, hoje=HOJE).read_text(encoding="utf-8")
 

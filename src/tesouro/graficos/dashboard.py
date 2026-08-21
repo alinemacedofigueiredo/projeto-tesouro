@@ -231,17 +231,17 @@ REGISTRO = [
     Grafico("estoque_total", "O total",
             "O estoque da DPF, interna e externa, com a banda do PAF",
             "aba 2.1 e referencia/paf_bandas.csv",
-            "<b>Quanto \u00e99 a d\u00edvida, e ela est\u00e2 onde o PAF prometeu.</b> A linha "
-            "escura \u00e99 a DPF em mercado \u2014 a mesma que o PAF mira, e que "
+            "<b>Quanto \u00e9 a d\u00edvida, e ela est\u00e2 onde o PAF prometeu.</b> A linha "
+            "escura \u00e9 a DPF em mercado \u2014 a mesma que o PAF mira, e que "
             "<b>n\u00e3o inclui a carteira do Banco Central</b> (R$ 2.971,0 bi em "
-            "jun/2026). A faixa vermelha \u00e99 a meta do ano; onde houve revis\u00e3o, "
+            "jun/2026). A faixa vermelha \u00e9 a meta do ano; onde houve revis\u00e3o, "
             "a banda original aparece pontilhada. "
             "<b>A externa vai num painel pr\u00f3prio</b>, e n\u00e3o no mesmo eixo: ela "
-            "era 31,0% da d\u00edvida em set/2002 e hoje \u00e99 3,8%, ent\u00e3o no eixo de "
-            "cima seria um fio colado no ch\u00e3o \u2014 e o movimento dela \u00e99 "
+            "era 31,0% da d\u00edvida em set/2002 e hoje \u00e9 3,8%, ent\u00e3o no eixo de "
+            "cima seria um fio colado no ch\u00e3o \u2014 e o movimento dela \u00e9 "
             "informa\u00e7\u00e3o, de 222,5 para 349,2 bi em cinco anos. "
             "A escala enquadra o dado e a banda em vez de partir do zero: a "
-            "refer@Encia contra a qual o n\u00edvel se l@E \u00e99 a banda, e n\u00e3o o zero.",
+            "refer@Encia contra a qual o n\u00edvel se l@E \u00e9 a banda, e n\u00e3o o zero.",
             True, "completa", _fig_estoque_total),
     Grafico("funding_net", "Funding",
             "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
@@ -295,17 +295,19 @@ REGISTRO = [
             "curva, e <b>quantos anos de duration</b> ela carrega. "
             "O gr\u00e3fico acima diz quanto da d\u00edvida est\u00e3 em cada indexador; este "
             "diz quanto do <b>risco de taxa</b> est\u00e3 em cada um, e os dois "
-            "n\u00fameros n\u00e3o se parecem: a <b>LFT \u00e99 54,3% do estoque e 0,0% do "
+            "n\u00fameros n\u00e3o se parecem: a <b>LFT \u00e9 54,3% do estoque e 0,0% do "
             "DV01</b> \u2014 o cupom acompanha a Selic e o PU n\u00e3o anda com a curva "
-            "\u2014 enquanto a <b>NTN-B \u00e99 23,3% do estoque e 74,5% do DV01</b>, "
-            "porque \u00e99 onde est\u00e3o os prazos longos. "
+            "\u2014 enquanto a <b>NTN-B \u00e9 23,3% do estoque e 74,5% do DV01</b>, "
+            "porque \u00e9 onde est\u00e3o os prazos longos \u2014 e a LFT, por isso mesmo, "
+            "<b>n\u00e3o tem linha aqui</b>: seria uma reta em zero ao longo de "
+            "dezesseis anos. "
             "<b>Os dois pain\u00e9is contam o contr\u00e3rio um do outro:</b> o DV01 da "
             "NTN-B triplicou desde 2010 e a duration dela <i>encolheu</i>, de "
             "8,77 anos em out/2019 para 5,57 hoje. O risco cresceu por "
             "<b>tamanho</b>, e n\u00e3o por prazo. "
-            "A duration \u00e99 a modificada, ponderada pelo valor de mercado; a LFT "
+            "A duration \u00e9 a modificada, ponderada pelo valor de mercado; a LFT "
             "n\u00e3o entra nela, porque n\u00e3o tem duration de taxa. "
-            "A s\u00e9rie \u00e99 mensal e come\u00e7a em <b>jan/2010</b>: n\u00e3o h\u00e3 DV "
+            "A s\u00e9rie \u00e9 mensal e come\u00e7a em <b>jan/2010</b>: n\u00e3o h\u00e3 DV "
             "calculado antes disso, e por isso ela n\u00e3o vai a 2000 como as "
             "vizinhas. "
             "<b>Quatro pap\u00e9is ficam de fora</b>, porque n\u00e3o h\u00e3 taxa de mercado "
@@ -314,7 +316,7 @@ REGISTRO = [
             "Tr\u00eas dos quatro s\u00e3o Tesouro Direto, que esta p\u00e3gina n\u00e3o leva; a "
             "NTN-C fica de fora por falta de taxa, e sozinha vale perto de 2%. "
             "O sinal vem invertido do arquivo, na conven\u00e7\u00e3o de P&amp;L; aqui se "
-            "desenha o m\u00f5dulo, do lado de quem pergunta de quanto \u00e99 o pr\u00f3prio "
+            "desenha o m\u00f5dulo, do lado de quem pergunta de quanto \u00e9 o pr\u00f3prio "
             "risco.",
             True, "completa", _fig_dv_do_estoque),
     Grafico("estoque_lft", "Estoque",

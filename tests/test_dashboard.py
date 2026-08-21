@@ -424,3 +424,24 @@ def test_o_conteudo_nao_estoura_a_largura(pagina_gravada):
     # Rolagem horizontal fazia o cabecalho grudado ficar preso a uma largura maior
     # que a tela, e ai ele parecia travado ao rolar de lado.
     assert "section > div { max-width: 100%; overflow-x: auto; }" in pagina_gravada
+
+
+def test_nenhuma_legenda_tem_ACENTO_SEGUIDO_DE_DIGITO():
+    # O RASTRO DE UM ESCAPE MAL FEITO. Os .py deste projeto sao ASCII por regra, e
+    # os acentos entram como uXXXX escapado. Um script de edicao que troca "@e" por
+    # o escape de e-agudo transforma "@e9" no e-agudo seguido do algarismo NOVE.
+    # Nada quebra: o arquivo continua ASCII, os testes passam, e a pagina publica
+    # "a LFT e9 54,3% do estoque".
+    #
+    # Aconteceu doze vezes em 21/08/2026, em duas legendas, e foi para o ar. So se
+    # ve lendo o texto renderizado -- que e o que este teste faz.
+    import re
+
+    suspeitos = []
+    for g in dashboard.REGISTRO:
+        for campo in (g.titulo, g.nota, g.fonte):
+            for m in re.finditer(".{0,20}[\u00c0-\u00ff][0-9].{0,20}", campo):
+                suspeitos.append(g.id + ": ..." + m.group(0) + "...")
+    assert not suspeitos, (
+        "acento colado num algarismo, quase certamente escape mal feito:"
+        + chr(10) + chr(10).join(suspeitos))
