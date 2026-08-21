@@ -292,7 +292,7 @@ def test_o_grafico_da_LFT_usa_quantidade_e_escreve_o_financeiro(lft):
 
 @pytest.fixture(scope="module")
 def pagina(tmp_path_factory, registros, monkeypatch_module):
-    destino = tmp_path_factory.mktemp("agenda") / "agenda.html"
+    destino = tmp_path_factory.mktemp("agenda") / painel_agenda.ARQUIVO
     return painel_agenda.grava(destino, hoje=HOJE).read_text(encoding="utf-8")
 
 
@@ -310,15 +310,60 @@ def test_a_pagina_traz_os_dois_graficos_e_as_duas_tabelas(pagina):
         assert f'id="{g.id}"' in pagina, g.id
     assert pagina.count("<section") == 2
     assert 'id="tabela-ultimos"' in pagina
-    assert 'id="tabela-agenda"' in pagina
+    assert 'id="tabela-calendario"' in pagina
 
 
-def test_a_tabela_dos_ultimos_e_RECOLHIVEL_e_vem_antes_do_calendario(pagina):
-    # Ela e referencia -- "o que aconteceu" -- e nao o assunto da pagina, que e "o
-    # que vem". Aberta, empurraria a agenda para baixo da dobra.
-    assert '<details id="tabela-ultimos"' in pagina
-    assert "<summary>" in pagina
-    assert pagina.index('id="tabela-ultimos"') < pagina.index('id="tabela-agenda"')
+def test_a_pagina_tem_TRES_SECOES_recolhiveis(pagina):
+    # Sem elas a pagina tem quase dois metros de rolagem. <details>/<summary> e HTML
+    # puro: a setinha nao custa uma linha de JavaScript, e o conteudo continua no
+    # arquivo -- quem procurar com Ctrl+F acha, e quem imprimir leva tudo.
+    import re
+
+    corpo = pagina[pagina.index("<main>"):pagina.index("</main>")]
+    achadas = re.findall(r'secao-(\w+)"( open)?><summary>', corpo)
+    assert [a[0] for a in achadas] == [chave for chave, _, _ in
+                                       painel_agenda.SECOES]
+
+    # A PRIMEIRA ABERTA e as outras fechadas: quem abre a pagina ve os graficos.
+    abertas = [bool(a[1]) for a in achadas]
+    assert abertas == [aberta for _, _, aberta in painel_agenda.SECOES]
+    assert abertas[0] is True
+
+
+def test_os_graficos_ficam_DENTRO_da_primeira_secao(pagina):
+    corpo = pagina[pagina.index("<main>"):pagina.index("</main>")]
+    i = corpo.index('secao-graficos')
+    j = corpo.index('secao-ultimos')
+    assert corpo[i:j].count("<section") == len(painel_agenda.REGISTRO)
+
+
+def test_o_historico_e_o_calendario_tem_CORES_diferentes(pagina):
+    # As duas tabelas tem o mesmo formato de proposito, e a cor e o que diz num
+    # relance qual delas se esta lendo -- o que ja aconteceu ou o que ainda vai.
+    assert ".secao-ultimos > summary { border-left-color:" in pagina
+    assert ".secao-calendario > summary { border-left-color:" in pagina
+    # E as duas cores sao diferentes.
+    import re
+
+    cores = re.findall(r"\.secao-(?:ultimos|calendario) > summary "
+                       r"\{ border-left-color: (#[0-9a-f]{6}); \}", pagina)
+    assert len(cores) == 2 and cores[0] != cores[1], cores
+
+
+def test_a_palavra_agenda_nao_aparece_mais_na_tela(pagina):
+    # Ela chama de calendario. Duas palavras para a mesma coisa fazem quem le
+    # procurar a diferenca.
+    import re
+
+    visiveis = re.findall(r">[^<]*[Aa]genda[^<]*<", pagina)
+    assert visiveis == [], visiveis[:2]
+
+
+def test_o_historico_vem_antes_do_calendario(pagina):
+    # A ordem das secoes: graficos, historico, calendario. O que aconteceu explica o
+    # que vem, e nao o contrario.
+    assert (pagina.index('id="tabela-ultimos"')
+            < pagina.index('id="tabela-calendario"'))
 
 
 def test_a_linha_do_LEILAO_sai_marcada_e_traz_o_total(pagina, por_dia):
@@ -354,7 +399,7 @@ def test_a_tabela_dos_ultimos_desce_ao_nivel_de_PAPEL_E_VENCIMENTO(pagina):
     # ai nao dava para ver que dentro de "NTN-B longa" o corte foi num vencimento so.
     detalhe = agenda.ultimos_leiloes()
     i = pagina.index('id="tabela-ultimos"')
-    j = pagina.index('id="tabela-agenda"')
+    j = pagina.index('id="tabela-calendario"')
     so_ultimos = pagina[i:j]
 
     leiloes = detalhe["data_leilao"].nunique()
@@ -377,7 +422,7 @@ def test_a_LFT_aparece_na_tabela_sem_DV_mas_com_financeiro(pagina):
     assert (lft["qtd_ofertada"] > 0).all()
 
     i = pagina.index('id="tabela-ultimos"')
-    j = pagina.index('id="tabela-agenda"')
+    j = pagina.index('id="tabela-calendario"')
     assert "LFT" in pagina[i:j]
 
 
@@ -406,14 +451,15 @@ def test_a_taxa_da_tabela_e_ponderada_pelo_financeiro(pagina):
     assert (prefixados["taxa_media_pct"] > 1).all()
 
 
-def test_a_tabela_da_agenda_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(
+def test_a_tabela_do_calendario_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(
         pagina, dados):
-    # A pagina tem DUAS tabelas agora, entao a contagem e so da agenda: uma linha
-    # por papel, mais um cabecalho por dia, mais o do <thead>.
-    i = pagina.index('id="tabela-agenda"')
-    so_agenda = pagina[i:]
-    assert so_agenda.count('<tr class="dia"') == dados["data_leilao"].nunique()
-    assert so_agenda.count("<tr") == len(dados) + dados["data_leilao"].nunique() + 1
+    # A pagina tem DUAS tabelas, entao a contagem e so do calendario: uma linha por
+    # papel, mais um cabecalho por dia, mais o do <thead>.
+    i = pagina.index('id="tabela-calendario"')
+    so_calendario = pagina[i:]
+    assert so_calendario.count('<tr class="dia"') == dados["data_leilao"].nunique()
+    assert (so_calendario.count("<tr")
+            == len(dados) + dados["data_leilao"].nunique() + 1)
 
 
 def test_a_tabela_marca_a_taxa_velha(pagina, dados):
@@ -437,6 +483,9 @@ def test_a_barra_liga_as_paginas_irmas(pagina):
     assert 'id="paginas"' in pagina
     # Uma marca de pagina atual, e nenhuma a mais: duas confundiriam quem le.
     assert pagina.count('class="atual"') == 1
+    # E o arquivo desta pagina esta na lista das irmas -- se o nome mudar num lugar
+    # e nao no outro, os links das outras paginas quebram em silencio.
+    assert painel_agenda.ARQUIVO in [a for a, _ in dashboard.PAGINAS]
     for arquivo, _ in dashboard.PAGINAS:
         if arquivo != painel_agenda.ARQUIVO:
             assert f'href="{arquivo}"' in pagina

@@ -30,7 +30,7 @@ from . import cronograma, dashboard, estilo
 
 GRUPOS = ["O que ele colocou"]
 
-ARQUIVO = "agenda.html"
+ARQUIVO = "calendario.html"
 
 _NOTA_TAXA = (
     "A taxa de cada papel \u00e9 a do <b>\u00faltimo leil\u00e3o dele</b>, e n\u00e3o uma "
@@ -109,7 +109,7 @@ Grafico = dashboard.Grafico
 
 REGISTRO = [
     Grafico("agenda_ofertado_aceito", "O que ele colocou",
-            "Quanto risco ele tentou colocar, e quanto colocou",
+            "Ofertado x colocado",
             "dv_emitido_por_leilao.csv",
             "O DV01 <b>ofertado</b> (barra de cima, vazada) e o <b>aceito</b> "
             "(de baixo, cheia) nos <b>seis \u00faltimos leil\u00f5es</b>. A "
@@ -173,9 +173,8 @@ def tabela_dos_ultimos(dados=None, quantos=None):
     d = d[d["quantos_atras"] < quantos]
     totais = dados_agenda.total_dos_leiloes(d).set_index("data_leilao")
 
-    linhas = ['<details id="tabela-ultimos">',
-              f"<summary>Os \u00faltimos {quantos} leil\u00f5es</summary>",
-              '<p class="legenda">Mesmo formato da agenda abaixo, para poderem ser '
+    linhas = ['<div id="tabela-ultimos">',
+              '<p class="legenda">Mesmo formato do calend\u00e1rio abaixo, para poderem ser '
               'lidas lado a lado. A linha em destaque \u00e9 a <b>soma do '
               'leil\u00e3o</b> \u2014 DV01 e financeiro. A fra\u00e7\u00e3o '
               '\u00e9 o que ele colocou do que ofertou; no agregado do '
@@ -222,7 +221,7 @@ def tabela_dos_ultimos(dados=None, quantos=None):
                 f'<td class="n">'
                 f'{estilo.num_br(r["financeiro_milhoes"] / 1000, 2)} bi</td></tr>')
 
-    linhas += ["</tbody></table>", "</details>"]
+    linhas += ["</tbody></table>", "</div>"]
     return "\n".join(linhas)
 
 
@@ -252,11 +251,11 @@ def tabela(dados=None):
     """
     d = _dados() if dados is None else dados
     if d.empty:
-        return ('<div id="tabela-agenda"><p>O calend\u00e1rio publicado n\u00e3o tem '
+        return ('<div id="tabela-calendario"><p>O calend\u00e1rio publicado n\u00e3o tem '
                 'nenhum leil\u00e3o daqui para a frente.</p></div>')
 
-    linhas = ['<div id="tabela-agenda">',
-              "<h2>A agenda, papel a papel</h2>",
+    linhas = ['<div id="tabela-calendario">',
+              "<h2>O calend\u00e1rio, papel a papel</h2>",
               f'<p class="legenda">{_NOTA_QUANTIDADE} {_NOTA_TAXA} '
               "O \u26a0 marca a taxa com mais de 45 dias, fora da faixa em que o "
               "erro foi medido.</p>",
@@ -308,23 +307,30 @@ def _qtd(valor):
 
 
 _CSS = """
-#tabela-agenda { margin: 26px auto 40px; max-width: 1180px; }
-#tabela-agenda table { border-collapse: collapse; width: 100%;
+#tabela-calendario { margin: 26px auto 40px; max-width: 1180px; }
+#tabela-calendario table { border-collapse: collapse; width: 100%;
                        font-size: 13px; }
-#tabela-agenda th, #tabela-agenda td { padding: 5px 9px; text-align: left;
+#tabela-calendario th, #tabela-calendario td { padding: 5px 9px; text-align: left;
                                        border-bottom: 1px solid #e6e6e6; }
-#tabela-agenda th { font-weight: 600; color: var(--fraco);
+#tabela-calendario th { font-weight: 600; color: var(--fraco);
                     border-bottom: 2px solid #ccc; }
-#tabela-agenda td.n, #tabela-agenda th.n { text-align: right;
+#tabela-calendario td.n, #tabela-calendario th.n { text-align: right;
                                            font-variant-numeric: tabular-nums; }
-#tabela-agenda tr.dia td { background: #f4f4f4; font-weight: 600;
+#tabela-calendario tr.dia td { background: #eaf1f8; font-weight: 600;
                            padding-top: 9px; }
-#tabela-agenda small { color: var(--fraco); font-size: 11px; }
-#tabela-agenda .velha { color: #a33; }
-#tabela-ultimos { margin: 26px auto 10px; max-width: 1180px;
-                  border-left: 3px solid #ddd; padding-left: 12px; }
-#tabela-ultimos > summary { cursor: pointer; font-size: 15px; font-weight: 600;
-                            color: var(--tinta); padding: 4px 0; }
+#tabela-calendario small { color: var(--fraco); font-size: 11px; }
+#tabela-calendario .velha { color: #a33; }
+.secao { margin: 0 auto 18px; max-width: 1180px; }
+.secao > summary { cursor: pointer; font-size: 16px; font-weight: 600;
+  color: var(--tinta); padding: 8px 0 8px 10px; border-left: 4px solid #ccc;
+  list-style-position: outside; }
+.secao > summary:hover { background: #fafafa; }
+/* O HISTORICO em tom quente, o CALENDARIO em tom frio. As duas tabelas tem o
+   mesmo formato de proposito, e a cor e o que diz num relance qual delas se esta
+   lendo -- o que ja aconteceu ou o que ainda vai acontecer. */
+.secao-ultimos > summary { border-left-color: #b08968; }
+.secao-calendario > summary { border-left-color: #3d7ab8; }
+#tabela-ultimos { margin: 8px auto 10px; max-width: 1180px; }
 #tabela-ultimos table { border-collapse: collapse; width: 100%;
                         font-size: 13px; }
 #tabela-ultimos th, #tabela-ultimos td { padding: 5px 9px;
@@ -335,12 +341,34 @@ _CSS = """
     font-variant-numeric: tabular-nums; }
 #tabela-ultimos tr.dia td { border-top: 2px solid #ddd;
                             font-weight: 600; padding-top: 9px; }
-#tabela-ultimos .baixo { color: #c00000; font-weight: 600; }\n#tabela-ultimos tr.passado td { background: #f0eee9;\n    border-top: 2px solid #ddd; padding-top: 8px; }
+#tabela-ultimos .baixo { color: #c00000; font-weight: 600; }\n#tabela-ultimos tr.passado td { background: #f4efe8;\n    border-top: 2px solid #ddd; padding-top: 8px; }
 """
 
 
+# As tres secoes da pagina, na ordem em que aparecem. Todas RECOLHIVEIS, e a
+# primeira aberta: quem abre a pagina ve os graficos, e desce para o resto quando
+# quiser. Sem isso a pagina tem quase dois metros de rolagem.
+SECOES = [
+    ("graficos", "Os gr\u00e1ficos", True),
+    ("ultimos", "Os \u00faltimos leil\u00f5es \u00b7 hist\u00f3rico", False),
+    ("calendario", "O calend\u00e1rio \u00b7 o que vem pela frente", False),
+]
+
+
+def _recolhe(conteudo, chave, rotulo, aberta):
+    """Poe um bloco dentro de um <details>, com a setinha e o rotulo.
+
+    <details>/<summary> e HTML puro: a setinha nao custa uma linha de JavaScript, e
+    o conteudo continua no arquivo -- quem procurar com Ctrl+F acha, e quem imprimir
+    leva tudo.
+    """
+    marca = " open" if aberta else ""
+    return (f'<details class="secao secao-{chave}"{marca}>'
+            f"<summary>{rotulo}</summary>\n{conteudo}\n</details>")
+
+
 def grava(caminho=None, hoje=None):
-    """Grava a pagina da agenda e devolve o caminho."""
+    """Grava a pagina do calendario e devolve o caminho."""
     from .. import config
 
     limpar_cache()
@@ -350,12 +378,22 @@ def grava(caminho=None, hoje=None):
 
     caminho = caminho or (config.PROCESSED_DIR / ARQUIVO)
     escrito = dashboard.grava(caminho, [("agenda", None)], REGISTRO, GRUPOS,
-                              "Agenda de leil\u00f5es")
+                              "Calend\u00e1rio de leil\u00f5es")
     html = escrito.read_text(encoding="utf-8")
-    # As DUAS tabelas: a dos ultimos leiloes primeiro, porque responde a
-    # pergunta da pagina; a agenda depois, que e referencia para conferir.
-    html = html.replace(
-        "</main>", tabela_dos_ultimos() + "\n" + tabela() + "\n</main>", 1)
+
+    # OS GRAFICOS ficam entre <main> e </main>, montados pelo dashboard. Aqui eles
+    # sao envolvidos num <details> sem que o montador precise saber disso -- a mesma
+    # tecnica da barra de paginas.
+    inicio = html.index("<main>") + len("<main>")
+    fim = html.index("</main>")
+    graficos = html[inicio:fim]
+
+    corpo = "\n".join([
+        _recolhe(graficos, *SECOES[0][:1] + SECOES[0][1:]),
+        _recolhe(tabela_dos_ultimos(), *SECOES[1][:1] + SECOES[1][1:]),
+        _recolhe(tabela(), *SECOES[2][:1] + SECOES[2][1:]),
+    ])
+    html = html[:inicio] + "\n" + corpo + "\n" + html[fim:]
     html = html.replace("</style>", _CSS + "</style>", 1)
     escrito.write_text(html, encoding="utf-8")
     return escrito

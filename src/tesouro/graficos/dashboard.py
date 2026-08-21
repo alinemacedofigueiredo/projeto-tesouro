@@ -509,7 +509,7 @@ def svg_de(figura, prefixo=""):
 PAGINAS = [
     ("dashboard.html", "o dashboard do RMD"),
     ("emissoes.html", "o que j\u00e1 foi emitido"),
-    ("agenda.html", "a agenda"),
+    ("calendario.html", "o calend\u00e1rio"),
 ]
 
 

@@ -246,53 +246,60 @@ trinta dias de leilão não é um número possível.
 
 ---
 
-## A página da agenda
+## A página do calendário
 
-`data/processed/agenda.html` — o que o Tesouro **planeja** ofertar, até onde ele
-publicou. Regravada pelo `pipeline`, e sozinha por
+`data/processed/calendario.html` — o que ele já colocou, e o que planeja ofertar.
+Regravada pelo `pipeline`, e sozinha por
 
 ```bash
 python -c "from tesouro.graficos import painel_agenda; painel_agenda.grava()"
 ```
 
-Três gráficos, na ordem **do mais firme para o mais suposto**:
+**Três seções recolhíveis**, a primeira aberta — sem elas a página tem quase dois
+metros de rolagem:
 
-1. **O cronograma** — só fatos publicados. O vértice fica no eixo vertical para
-   mostrar a **cobertura da curva** de cada dia: um dia com 3, 7 e 15 anos faz com o
-   prazo médio da dívida algo diferente de um com 5 e 30, e num gráfico por papel os
-   dois pareceriam iguais;
-2. **O DV01 por título** — calculado da última taxa, mas **sem quantidade nenhuma
-   dentro**. É o número mais firme da página, e responde qual dos papeis agendados
-   carrega risco: um NTN-B 35 anos carrega **mais de cem vezes** o DV01 de uma LTN de
-   6 meses, título a título;
-3. **O DV01 do dia, se ele repetir a última oferta** — hachurado inteiro, porque
-   **não é previsão**.
+| seção | o que traz |
+|---|---|
+| **Os gráficos** | ofertado × colocado nos seis últimos leilões, e a LFT em títulos |
+| **Os últimos leilões** · histórico | tabela papel a papel, com a soma de cada leilão |
+| **O calendário** · o que vem | tabela papel a papel do que ele planeja ofertar |
 
-E uma **tabela** com tudo, papel a papel, agrupada por dia — para conferir e copiar.
+**O histórico sai em tom quente e o calendário em tom frio.** As duas tabelas têm o
+mesmo formato de propósito — respondem a mesma pergunta em tempos diferentes, e ler
+as duas exige as colunas no mesmo lugar. A cor é o que diz num relance qual delas
+você está lendo.
 
-### O que a página não é
+### Ofertado × colocado
 
-**O calendário não traz quantidade.** Ela sai no edital, a partir das 10h30 do
-próprio dia. O que aparece na página é o que ele ofertou da **vez passada** daquele
-papel — e ele muda de tamanho de leilão para leilão (aceita tudo em 42,6% das linhas,
-zero em 19,5%).
+O DV01 que ele **ofertou** (barra de cima, vazada) e o que **aceitou** (de baixo,
+cheia), nos seis últimos leilões. A pergunta que isto responde, e que o aceito
+sozinho não responde: **ele não conseguiu colocar, ou não quis?**
+
+Medido no agregado do histórico: ele coloca **68,5% do DV que oferta**.
+
+O número na ponta é o **total do leilão**, e a barra vem empilhada por papel para
+que a soma não apague a composição — num dia de prefixado a LTN e a NTN-F somam.
+
+A **LFT** tem gráfico próprio, em títulos: ela não tem DV01 por decisão de
+modelagem, e uma fatia de espessura zero dentro da pilha não se distingue de
+ausência. O financeiro dela entra escrito ao lado da barra — e ela é mais da metade
+da emissão.
+
+### O que o calendário não traz
+
+**Quantidade.** Ela sai no edital, a partir das 10h30 do próprio dia. O que aparece
+na tabela é o que ele ofertou e aceitou da **vez passada** daquele papel.
 
 A **taxa** de cada papel é a do último leilão dele, e o ⚠ marca as que passaram de
 45 dias — fora da faixa em que o erro de 11 bp foi medido.
-
-### O ritmo que ela revela
-
-Os dias alternam: **prefixado** (três LTN + três NTN-F, DV01 de −2,4 a −3,0 milhões
-por p.b.) e **LFT + NTN-B** (quatro papeis, −0,65 a −1,65). Os dias de pré carregam
-duas a quatro vezes o risco dos outros.
 
 ### As cinco páginas
 
 Uma barra no topo liga todas, com links relativos — funcionam com duplo clique, sem
 servidor:
 
-`dashboard.html` · `emissoes.html` (mais dois recortes) · `agenda.html`
+`dashboard.html` · `emissoes.html` (mais dois recortes) · `calendario.html`
 
-A barra passou a ser montada num lugar só (`dashboard.grava`) em 20/08/2026: antes
-cada painel tinha a sua cópia da lista, e o `dashboard.html` — que não é montado por
-painel nenhum — ficava sem saída para os outros.
+A barra é montada num lugar só (`dashboard.grava`): antes cada painel tinha a sua
+cópia da lista, e o `dashboard.html` — que não é montado por painel nenhum — ficava
+sem saída para os outros.
