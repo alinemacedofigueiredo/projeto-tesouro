@@ -377,15 +377,22 @@ def grava(caminho=None, hoje=None):
         _EM_CACHE[str(None)] = _EM_CACHE[str(hoje)]
 
     caminho = caminho or (config.PROCESSED_DIR / ARQUIVO)
+    # agrupar=False: esta pagina faz o proprio seccionamento em tres, e com o
+    # agrupamento do dashboard por cima ela saia com duas setinhas aninhadas
+    # dizendo quase a mesma coisa.
     escrito = dashboard.grava(caminho, [("agenda", None)], REGISTRO, GRUPOS,
-                              "Calend\u00e1rio de leil\u00f5es")
+                              "Calend\u00e1rio de leil\u00f5es", agrupar=False)
     html = escrito.read_text(encoding="utf-8")
 
     # OS GRAFICOS ficam entre <main> e </main>, montados pelo dashboard. Aqui eles
     # sao envolvidos num <details> sem que o montador precise saber disso -- a mesma
     # tecnica da barra de paginas.
-    inicio = html.index("<main>") + len("<main>")
-    fim = html.index("</main>")
+    # ANCORADO NO FIM DO CABECALHO, e nao na abertura do <main>: a marca do main
+    # aparece antes, dentro de um comentario do CSS, e o recorte pegava metade da
+    # folha de estilo junto. A do cabecalho so existe uma vez.
+    marca = "</header>"
+    inicio = html.index(marca) + len(marca)
+    fim = html.rindex("</main>")
     graficos = html[inicio:fim]
 
     corpo = "\n".join([

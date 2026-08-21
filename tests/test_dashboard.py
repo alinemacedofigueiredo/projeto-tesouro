@@ -16,10 +16,23 @@ def html():
     return dashboard.monta()
 
 
+@pytest.fixture(scope="module")
+def pagina_gravada(tmp_path_factory):
+    """O HTML como o arquivo fica no disco.
+
+    monta() nao injeta a barra de paginas -- quem faz isso e grava(), porque a
+    lista de irmas depende do NOME do arquivo. Testar o cabecalho exige passar
+    pelo caminho de verdade.
+    """
+    destino = tmp_path_factory.mktemp("dash") / "dashboard.html"
+    return dashboard.grava(destino).read_text(encoding="utf-8")
+
+
 def test_o_registro_tem_os_vinte_e_cinco_graficos():
     # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
     # atras de uma setinha, e a composicao empilhada em 100%. Em 20/08 entrou o
-    # estoque em titulos por vencimento, um grafico por papel -- quatro, porque a\n    # NTN-C tem um vencimento so.
+    # estoque em titulos por vencimento, um grafico por papel -- quatro, porque
+    # a NTN-C tem um vencimento so.
     assert len(dashboard.REGISTRO) == 25
     ids = [g.id for g in dashboard.REGISTRO]
     assert len(set(ids)) == 25, "id repetido no registro"
@@ -149,18 +162,24 @@ def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):
         assert grupo in html
 
 
-def test_os_graficos_com_janela_trazem_as_duas_versoes_embutidas(html):
+def test_os_graficos_com_janela_trazem_TODAS_as_versoes_embutidas(html):
+    # Eram duas janelas ate 20/08/2026; entraram "12 meses" e "3 anos" em 21/08.
+    # A conta sai do numero de recortes, e nao de um dois cravado -- senao
+    # acrescentar uma janela quebra o teste sem que nada esteja errado.
+    quantas = len(dashboard.JANELAS)
     for g in dashboard.REGISTRO:
         marcas = html.count(f'data-grafico="{g.id}" data-janela=')
-        esperado = (2 if g.janela else 1) * (2 if g.variantes else 1)
+        esperado = (quantas if g.janela else 1) * (2 if g.variantes else 1)
         assert marcas == esperado, f"{g.id} tem {marcas} versoes, esperava {esperado}"
 
 
-def test_a_caixa_da_dpfe_traz_as_quatro_combinacoes(html):
-    # Dois eixos de troca no mesmo grafico: janela (5 anos / completa) e variante
-    # (com / sem DPFe). As quatro vao embutidas, como as duas janelas ja iam.
-    assert html.count('data-grafico="custo_estoque" data-janela=') == 4
-    for janela in ("5 anos", "completa"):
+def test_a_caixa_da_dpfe_traz_todas_as_combinacoes(html):
+    # Dois eixos de troca no mesmo grafico: janela e variante (com / sem DPFe).
+    # Todas vao embutidas, como as janelas ja iam.
+    janelas = [nome for nome, _ in dashboard.JANELAS]
+    assert (html.count('data-grafico="custo_estoque" data-janela=')
+            == len(janelas) * 2)
+    for janela in janelas:
         for variante in ("False", "True"):
             marca = (f'data-grafico="custo_estoque" data-janela="{janela}" '
                      f'data-variante="{variante}"')
@@ -323,3 +342,73 @@ def test_o_arquivo_cabe_no_limiar_de_dez_megabytes(tmp_path):
         f"o dashboard passou de 10 MB ({tamanho / 1024 / 1024:.1f} MB). A spec "
         f"manda trocar os SVGs embutidos por arquivos ao lado e registrar a troca."
     )
+
+
+# --------------------------------------------------------------------------
+# O CABECALHO.
+#
+# O defeito que estes testes protegem foi visto na tela e nao no codigo: a
+# barra de paginas ficava FORA do <main>, irma do indice fixo de 250px, e
+# como nao tinha margem era desenhada por baixo dele. As duas coisas se
+# entrelacavam no alto da pagina.
+#
+# E havia duas faixas grudadas no topo competindo pelo mesmo lugar -- a de
+# paginas e a de janelas -- o que fazia o alto da tela parecer travado.
+# --------------------------------------------------------------------------
+
+def test_ha_UM_cabecalho_so_e_ele_fica_dentro_do_conteudo(pagina_gravada):
+    # Dentro do <main>: e o que lhe da a margem de 250px e o tira de baixo do
+    # indice fixo. Fora dele, a barra escorregava para debaixo da lateral.
+    assert pagina_gravada.count('<header id="topo">') == 1
+    inicio_main = pagina_gravada.index("\n<main>")
+    assert pagina_gravada.index('<header id="topo">') > inicio_main
+    assert pagina_gravada.index('<header id="topo">') < pagina_gravada.index("</main>")
+
+
+def test_as_duas_faixas_moram_dentro_do_cabecalho(pagina_gravada):
+    inicio = pagina_gravada.index('<header id="topo">')
+    fim = pagina_gravada.index("</header>")
+    cabecalho = pagina_gravada[inicio:fim]
+    assert 'id="paginas"' in cabecalho
+    assert 'id="troca-periodo"' in cabecalho
+    # E nenhuma delas aparece FORA dele.
+    assert pagina_gravada.count('id="paginas"') == 1
+    assert pagina_gravada.count('id="troca-periodo"') == 1
+
+
+def test_o_cabecalho_gruda_no_topo_e_e_opaco(pagina_gravada):
+    # Opaco porque o grafico passa por tras dele ao rolar; grudado porque o
+    # seletor de janela tem de estar a mao em qualquer altura da pagina.
+    assert "#topo { position: sticky; top: 0;" in pagina_gravada
+    assert "background: var(--fundo);" in pagina_gravada
+
+
+def test_as_duas_faixas_ficam_na_MESMA_LINHA(pagina_gravada):
+    # Empilhadas, o cabecalho tinha 86px e comia um decimo da tela o tempo todo --
+    # e um cabecalho fixo que ocupa tanto parece travado. Lado a lado cai para ~52.
+    inicio = pagina_gravada.index("#topo { position: sticky")
+    regra = pagina_gravada[inicio:pagina_gravada.index("}", inicio)]
+    assert "display: flex" in regra
+    assert "justify-content: space-between" in regra
+    # E volta a empilhar em tela estreita, que e quando o espaco justifica.
+    assert "flex-wrap: wrap" in regra
+
+
+def test_nenhum_comentario_do_css_contem_TAG_literal(pagina_gravada):
+    # O DEFEITO QUE ISTO PEGA: o CSS vai inteiro para dentro do HTML, e um
+    # comentario que escreva "<main>" faz quem procurar essa marca no arquivo
+    # achar o comentario primeiro. Foi o que quebrou o recorte da pagina do
+    # calendario, que ancorava nessa marca -- metade da folha de estilo foi parar
+    # dentro de uma secao recolhivel.
+    import re
+
+    estilo_ = pagina_gravada[pagina_gravada.index("<style>"):pagina_gravada.index("</style>")]
+    for comentario in re.findall(r"/\*.*?\*/", estilo_, flags=re.S):
+        for tag in ("<main>", "<nav>", "<header", "<section", "<details"):
+            assert tag not in comentario, (tag, comentario[:80])
+
+
+def test_o_conteudo_nao_estoura_a_largura(pagina_gravada):
+    # Rolagem horizontal fazia o cabecalho grudado ficar preso a uma largura maior
+    # que a tela, e ai ele parecia travado ao rolar de lado.
+    assert "section > div { max-width: 100%; overflow-x: auto; }" in pagina_gravada

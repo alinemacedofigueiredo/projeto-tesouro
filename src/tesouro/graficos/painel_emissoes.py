@@ -297,25 +297,6 @@ def registro(com_compra=False, com_2a=True):
             "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, e ela "
             f"\u00e9 mais da metade dele. {nota_aceito} {_NOTA_SEMANAL}",
             True, JANELA_PADRAO, _fig_empilhado(com_compra, com_2a)),
-    Grafico("demanda_resumo", "Demanda",
-            "Fra\u00e7\u00e3o colocada, por papel",
-            "dv_emitido_por_leilao.csv",
-            "A pergunta que a emiss\u00e3o sozinha n\u00e3o responde: ele "
-            "<b>n\u00e3o conseguiu colocar, ou n\u00e3o quis</b>? Uma barra "
-            "baixa de emiss\u00e3o pode ser um dia em que ofertou pouco, ou um "
-            "em que ofertou muito e o mercado n\u00e3o levou \u2014 e s\u00e3o "
-            "coisas opostas. "
-            "A fra\u00e7\u00e3o \u00e9 medida em <b>DV01</b>, n\u00e3o em "
-            "quantidade: em quantidade, um lote de LTN de seis meses pesa igual a "
-            "um de NTN-B de trinta anos. A LFT entra pela quantidade, porque "
-            "n\u00e3o tem DV01. "
-            "<b>Houve uma quebra em 2021</b>: a NTN-B longa saiu de 20,7% em 2020 "
-            "para 80,9% em 2021, e est\u00e1 em 95,6% em 2026. Os dois lados "
-            "mudaram \u2014 ele passou a leiloar o dobro de vezes (25 para 50 "
-            "dias por ano), em lotes 44% menores, e a colocar quase tudo. "
-            "N\u00e3o \u00e9 artefato do dado: \u00e9 mudan\u00e7a de "
-            "estrat\u00e9gia.",
-            True, JANELA_PADRAO, _fig_colocado(com_2a)),
     Grafico("demanda_ntnb", "Demanda",
             "NTN-B \u00b7 ofertado e colocado",
             "dv_emitido_por_leilao.csv",
@@ -407,7 +388,17 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
                                       for _, _, a, r in COMBINACOES],
                               familia="emissoes.html")
     html = escrito.read_text(encoding="utf-8")
-    html = html.replace("<main>", _uma_linha_do_estado() + "\n<main>", 1)
+    # LOGO DEPOIS DO CABECALHO, e dentro do <main>. Duas coisas, nesta ordem:
+    #
+    # dentro do main, porque fora dele a linha nao tem a margem de 250px e e
+    # desenhada por baixo do indice fixo -- mesmo defeito que a barra de paginas
+    # tinha;
+    #
+    # e FORA do cabecalho grudado, porque dentro dele o cabecalho ia a 145px e
+    # comia um sexto da tela o tempo todo. Isto aqui e contexto que se le uma
+    # vez, e nao um controle que se usa a toda hora: pode rolar junto.
+    html = html.replace("</header>",
+                        "</header>" + _uma_linha_do_estado(), 1)
     html = html.replace("</style>", _CSS_PROVISORIO + "</style>", 1)
     escrito.write_text(html, encoding="utf-8")
     return escrito

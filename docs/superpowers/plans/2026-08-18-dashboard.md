@@ -4850,7 +4850,14 @@ git commit -m "Adiciona os tres graficos candidatos"
   - `Grafico` -> namedtuple `id grupo titulo fonte nota janela padrao figura`
   - `REGISTRO` -> **lista literal** com os dezesseis
   - `GRUPOS` -> ordem dos grupos no índice
-  - `JANELAS = (("5 anos", 5), ("completa", None))`
+  - `# AS JANELAS DO DASHBOARD DO RMD. Eram duas -- "5 anos" e "completa" -- e cinco
+# anos e muito para quem quer ver o que mudou no ano. Entraram "12 meses" e
+# "3 anos" em 21/08/2026.
+#
+# Medido, porque cada janela multiplica o numero de SVGs embutidos: com as quatro o
+# arquivo vai a 7,65 MB, contra 5,26 com duas e o limiar de 10 da spec. Uma quinta
+# janela nao cabe.
+JANELAS = (("12 meses", 1), ("3 anos", 3), ("5 anos", 5), ("completa", None))`
   - `svg_de(figura)` -> str, o SVG pronto para embutir
   - `monta(recortes=None)` -> str, o HTML inteiro
   - `grava(caminho=None, recortes=None)` -> Path
@@ -5648,7 +5655,10 @@ body { margin: 0; font-family: Segoe UI, Arial, sans-serif; color: var(--tinta);
        background: var(--fundo); }
 #indice { position: fixed; top: 0; left: 0; width: 250px; height: 100vh;
           overflow-y: auto; border-right: 1px solid var(--linha);
-          padding: 18px 14px; font-size: 13.5px; }
+          padding: 18px 14px 40px; font-size: 13.5px;
+          background: var(--fundo); z-index: 30; }
+#indice h1 { position: sticky; top: -18px; background: var(--fundo);
+             padding: 4px 0 8px; z-index: 1; }
 #indice h1 { font-size: 15px; margin: 0 0 4px; }
 #indice .data { color: var(--fraco); font-size: 12px; margin-bottom: 14px; }
 #indice .grupo { font-weight: 600; margin: 12px 0 4px; font-size: 12px;
@@ -5657,10 +5667,31 @@ body { margin: 0; font-family: Segoe UI, Arial, sans-serif; color: var(--tinta);
 #indice a { display: block; color: var(--tinta); text-decoration: none;
             padding: 3px 0 3px 8px; border-left: 2px solid transparent; }
 #indice a:hover { border-left-color: var(--tinta); }
-main { margin-left: 250px; padding: 22px 30px 60px; max-width: 1180px; }
-#troca-periodo { position: sticky; top: 0; background: var(--fundo);
-                 padding: 10px 0; border-bottom: 1px solid var(--linha);
-                 z-index: 5; }
+main { margin-left: 250px; padding: 0 34px 60px; max-width: 1240px; }
+/* O SVG de cada grafico nao pode passar da largura do conteudo: sem isto, um
+   grafico largo empurra a pagina e cria rolagem horizontal, que e o que fazia o
+   cabecalho parecer "travado" -- ele ficava preso a uma largura maior que a tela. */
+section > div { max-width: 100%; overflow-x: auto; }
+/* UM CABECALHO SO, e nao dois. Antes a barra de paginas ficava fora da area de
+   conteudo e escorregava para debaixo do indice fixo, e o seletor de janela
+   grudava sozinho no alto da tela -- duas faixas competindo pelo mesmo lugar.
+   Agora e um bloco unico, grudado no topo, com a largura do conteudo.
+   ATENCAO: nenhum comentario deste CSS pode conter tag entre sinais de menor e
+   maior. Ele vai inteiro para dentro do HTML, e quem procurar a tag no arquivo
+   acha o comentario primeiro -- foi o que quebrou a pagina do calendario. */
+#topo { position: sticky; top: 0; z-index: 20; background: var(--fundo);
+        padding: 10px 0 9px; margin-bottom: 6px;
+        border-bottom: 1px solid var(--linha);
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 18px; flex-wrap: wrap; }
+/* AS DUAS FAIXAS NA MESMA LINHA. Empilhadas, o cabecalho grudado tinha 86px e
+   comia um decimo da tela o tempo todo -- e um cabecalho fixo que ocupa tanto
+   parece travado. Lado a lado ele cai para ~44px. Em tela estreita o flex-wrap
+   os empilha de novo, que e quando o espaco justifica. */
+#topo #paginas { margin: 0; flex: 1 1 auto; }
+#topo #troca-periodo { position: static; padding: 0; border: 0;
+                       background: transparent; flex: 0 0 auto; }
+#troca-periodo { padding: 10px 0; }
 #troca-periodo button { font: inherit; padding: 5px 14px; margin-right: 6px;
                         border: 1px solid var(--linha); background: #fff;
                         cursor: pointer; border-radius: 3px; }

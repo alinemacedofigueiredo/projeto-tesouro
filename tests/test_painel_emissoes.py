@@ -44,7 +44,7 @@ def test_o_registro_muda_com_a_combinacao():
     # mudasse, as tres paginas seriam indistinguiveis para quem le.
     so_venda = painel_emissoes.registro(com_compra=False, com_2a=True)
     com_compra = painel_emissoes.registro(com_compra=True, com_2a=True)
-    assert len(so_venda) == len(com_compra) == 15
+    assert len(so_venda) == len(com_compra) == 14
     assert "S\u00f3 venda" in so_venda[0].nota
     assert "compra" in com_compra[0].nota
     assert so_venda[0].nota != com_compra[0].nota
@@ -638,5 +638,33 @@ def test_a_barra_do_colocado_fica_DENTRO_da_do_ofertado():
 
 def test_o_grupo_demanda_esta_na_pagina(pagina):
     assert "Demanda" in painel_emissoes.GRUPOS
-    for identificador in ("demanda_resumo", "demanda_ntnb"):
-        assert f'id="{identificador}"' in pagina, identificador
+    assert 'id="demanda_ntnb"' in pagina
+
+
+def test_a_fracao_por_papel_saiu_da_pagina(pagina):
+    # Recusada na revisao de 21/08/2026: nao trazia informacao. O resumo por
+    # familia mostrava o nivel de cada papel, mas quem quer saber se ele cortou
+    # olha o grafico do papel -- e la a linha da fracao esta.
+    assert 'id="demanda_resumo"' not in pagina
+    assert "demanda_resumo" not in [g.id for g in painel_emissoes.registro()]
+    # A funcao de dado continua existindo: ela e usada pelo teste da quebra de
+    # 2021, que trava um achado sobre o dado e nao sobre o desenho.
+    assert hasattr(emissao, "colocado_por_familia")
+
+
+def test_a_linha_do_estado_fica_dentro_do_conteudo_e_fora_do_cabecalho(pagina):
+    # DUAS COISAS, e as duas foram vistas na tela e nao no codigo.
+    #
+    # DENTRO do <main>, porque fora dele ela nao tem a margem de 250px e e
+    # desenhada por baixo do indice fixo -- foi assim que ela saiu, e as duas
+    # coisas se entrelacavam no alto da pagina.
+    #
+    # E FORA do cabecalho grudado: dentro dele o cabecalho ia a 145px e comia um
+    # sexto da tela o tempo todo. Isto e contexto que se le uma vez, e nao um
+    # controle que se usa a toda hora.
+    i_main = pagina.index("\n<main>")
+    i_header = pagina.index("</header>")
+    i_estado = pagina.index('id="estado"')
+    assert i_estado > i_main, "a linha do estado ficou fora do main"
+    assert i_estado > i_header, "a linha do estado entrou no cabecalho grudado"
+    assert i_estado < pagina.index("</main>")
