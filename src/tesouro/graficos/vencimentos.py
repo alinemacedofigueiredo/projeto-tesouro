@@ -350,3 +350,112 @@ def desenha_perfil_completo(dados, ax, excluido):
         fontsize=9, loc="left", color=estilo.COR["neutro"], pad=10)
     ax.legend(ncol=6, frameon=False, loc="upper right")
     ax.grid(axis="y", alpha=0.25)
+
+
+# ---------------------------------------------------------------------------
+# Estoque em QUANTIDADE, por vencimento e por papel.
+#
+# Diferente do perfil logo acima em duas coisas, e as duas importam: aquele
+# soma por ANO e conta em FINANCEIRO; este poe uma barra por VENCIMENTO e
+# conta TITULOS.
+#
+# A ARMADILHA DA QUANTIDADE, medida em 30/06/2026: um titulo nao vale o mesmo
+# que outro. Um de LFT vale R$ 19.220; um de LFT-TD1 Reserva vale R$ 10,68 --
+# mil e oitocentas vezes menos. Os papeis do Tesouro Direto (LFT-TD1 e as duas
+# NTN-B1) sao 10,8% da QUANTIDADE e 0,2% do FINANCEIRO.
+#
+# Eles NAO sao escondidos: o pedido foi "todos os papeis", e a barra alta deles
+# e um fato sobre o estoque -- ha muitos papeizinhos. O que o desenho faz e
+# DIZER isso, num rodape com o numero medido, para que ninguem leia a barra
+# como divida.
+# ---------------------------------------------------------------------------
+
+# Os papeis vendidos no Tesouro Direto, cujo valor unitario e de outra ordem.
+PAPEIS_DE_VAREJO = ("LFT-TD1 Reserva", "NTN-B1 EducA+", "NTN-B1 RendA+")
+
+
+def dados_estoque_por_vencimento():
+    """Uma linha por (vencimento, titulo), com a quantidade em estoque.
+
+    Ordenada por VENCIMENTO, que e a ordem em que o eixo os desenha. O mesmo
+    vencimento pode ter ate tres papeis diferentes -- 15/05/2035 tem NTN-B,
+    NTN-B Principal e NTN-B1 -- e cada um vira a sua barra.
+
+    So o que TEM estoque: papel ja vencido fica no CSV com quantidade zero, e
+    incluir zeros poria dezenas de barras de altura nenhuma no eixo.
+    """
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    u = e[(e["data"] == e["data"].max()) & (e["quantidade_mil"] > 0)].copy()
+    u["familia"] = [_FAMILIA[t] for t in u["titulo"]]
+    u["varejo"] = u["titulo"].isin(PAPEIS_DE_VAREJO)
+    # O valor unitario nao entra no desenho, mas entra no CSV: e o numero que
+    # explica por que a barra de um papel de varejo e alta.
+    u["valor_unitario"] = (u["financeiro_milhoes"] * 1e6
+                           / (u["quantidade_mil"] * 1000))
+    colunas = ["vencimento", "titulo", "familia", "varejo", "quantidade_mil",
+               "financeiro_milhoes", "valor_unitario"]
+    return u[colunas].sort_values(["vencimento", "titulo"]).reset_index(drop=True)
+
+
+def quanto_e_varejo(dados=None):
+    """A fatia dos papeis de varejo, em quantidade e em financeiro.
+
+    Existe para o rodape do desenho poder dizer o numero, e para o teste poder
+    conferir que o numero dito e o numero medido.
+    """
+    d = dados_estoque_por_vencimento() if dados is None else dados
+    varejo = d[d["varejo"]]
+    return (varejo["quantidade_mil"].sum() / d["quantidade_mil"].sum(),
+            varejo["financeiro_milhoes"].sum() / d["financeiro_milhoes"].sum())
+
+
+def desenha_estoque_por_vencimento(dados, ax):
+    """Uma barra por papel-vencimento, em ordem de vencimento.
+
+    O EIXO E CATEGORICO e nao continuo, pelo mesmo motivo do perfil acima: entre
+    2060 e 2084 ha quatro vencimentos e vinte e quatro anos, e um eixo continuo
+    gastaria metade da largura com vazio.
+
+    A cor e a familia do papel. Os de varejo saem HACHURADOS -- a cor ja diz a
+    familia, e roubar uma cor para dizer "varejo" criaria duas leituras para o
+    mesmo sinal. E a hachura e o mesmo idioma que a pagina de emissoes usa para
+    "este numero merece uma ressalva".
+    """
+    posicoes = list(range(len(dados)))
+    cores = [estilo.COR[_COR_FAMILIA[f]] for f in dados["familia"]]
+    hachuras = ["///" if v else "" for v in dados["varejo"]]
+
+    ax.bar(posicoes, dados["quantidade_mil"] / 1000, width=0.78, color=cores,
+           hatch=hachuras, edgecolor="#333333",
+           linewidth=[0.5 if v else 0.0 for v in dados["varejo"]])
+
+    ax.set_xticks(posicoes)
+    ax.set_xticklabels([f"{v:%m/%y}" for v in dados["vencimento"]],
+                       rotation=90, fontsize=6.5)
+    ax.set_ylabel("milh\u00f5es de t\u00edtulos em estoque")
+    ax.margins(x=0.005)
+    ax.grid(axis="y", which="major", alpha=0.28, lw=0.8)
+    ax.set_axisbelow(True)
+    # Folga no topo para o rodape nao cair em cima da barra mais alta -- que e
+    # justamente a que ele explica.
+    ax.set_ylim(0, float(dados["quantidade_mil"].max()) / 1000 * 1.16)
+
+    from matplotlib.patches import Patch
+    marcas = [Patch(facecolor=estilo.COR[_COR_FAMILIA[f]], label=f)
+              for f in ORDEM_FAMILIAS if f in set(dados["familia"])]
+    marcas.append(Patch(facecolor="white", edgecolor="#333333", hatch="///",
+                        label="Tesouro Direto"))
+    ax.legend(handles=marcas, ncol=len(marcas), frameon=False,
+              loc="upper center", bbox_to_anchor=(0.5, -0.16), fontsize=9)
+
+    # O RODAPE QUE IMPEDE A LEITURA ERRADA. Sem ele, a barra mais alta do grafico
+    # e um papel que vale R$ 10,68 e que responde por 0,2% da divida.
+    em_qtd, em_fin = quanto_e_varejo(dados)
+    ax.text(0.995, 0.97,
+            f"Tesouro Direto ({', '.join(PAPEIS_DE_VAREJO)}): "
+            f"{estilo.num_br(em_qtd * 100, 1)}% dos t\u00edtulos e "
+            f"{estilo.num_br(em_fin * 100, 1)}% do financeiro \u2014 "
+            f"um t\u00edtulo n\u00e3o vale o mesmo que outro.",
+            transform=ax.transAxes, ha="right", va="top", fontsize=8.5,
+            color="#666666")

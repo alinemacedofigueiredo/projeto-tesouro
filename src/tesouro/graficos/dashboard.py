@@ -153,6 +153,13 @@ def _fig_prazo(janela):
     return fig
 
 
+def _fig_estoque_por_vencimento(janela=None):
+    fig = _figura(6.6)
+    vencimentos.desenha_estoque_por_vencimento(
+        vencimentos.dados_estoque_por_vencimento(), fig.subplots())
+    return fig
+
+
 def _fig_custo(janela, com_dpfe=False):
     fig = _figura()
     custo.desenha_custo(custo.dados_custo(janela, com_dpfe=com_dpfe),
@@ -311,6 +318,22 @@ REGISTRO = [
             "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
             "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
             False, None, _fig_perfil_completo),
+    Grafico("estoque_por_vencimento", "Vencimentos",
+            "Estoque em t\u00edtulos, por vencimento",
+            "aba 2.2",
+            "Uma barra por papel-vencimento, em ordem de vencimento, contando "
+            "<b>t\u00edtulos</b> e n\u00e3o reais \u2014 o gr\u00e1fico acima "
+            "soma por ano e conta financeiro. "
+            "<b>Um t\u00edtulo n\u00e3o vale o mesmo que outro</b>: em "
+            "30/06/2026 um de LFT valia R$ 19.220 e um de LFT-TD1 Reserva, R$ "
+            "10,68 \u2014 mil e oitocentas vezes menos. Os papeis do Tesouro "
+            "Direto (LFT-TD1 e as duas NTN-B1) s\u00e3o <b>10,8% dos "
+            "t\u00edtulos e 0,2% do financeiro</b>, e por isso saem hachurados: "
+            "a barra alta deles \u00e9 um fato sobre o estoque, e n\u00e3o "
+            "sobre a d\u00edvida. "
+            "O eixo \u00e9 categ\u00f3rico, e n\u00e3o cont\u00ednuo: entre "
+            "2060 e 2084 h\u00e1 quatro vencimentos e vinte e quatro anos.",
+            False, None, _fig_estoque_por_vencimento),
     Grafico("prazo_medio", "Prazo",
             "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",
             "aba 3.7 e referencia/paf_bandas.csv",

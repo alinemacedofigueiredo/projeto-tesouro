@@ -16,12 +16,13 @@ def html():
     return dashboard.monta()
 
 
-def test_o_registro_tem_os_vinte_e_um_graficos():
+def test_o_registro_tem_os_vinte_e_dois_graficos():
     # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
-    # atras de uma setinha, e a composicao empilhada em 100%.
-    assert len(dashboard.REGISTRO) == 21
+    # atras de uma setinha, e a composicao empilhada em 100%. Em 20/08 entrou o
+    # estoque em titulos por vencimento, que conta a mesma divida noutra unidade.
+    assert len(dashboard.REGISTRO) == 22
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 21, "id repetido no registro"
+    assert len(set(ids)) == 22, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -62,7 +63,9 @@ def test_a_contagem_de_svgs_sai_do_registro():
 
     total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
                 for g in dashboard.REGISTRO)
-    assert total == 37
+    # 37 ate 19/08/2026; o estoque em titulos por vencimento entrou SEM janela --
+    # e um retrato de uma data, e dizer "5 anos" nele seria atributo que mente.
+    assert total == 38
 
 
 def test_as_quatro_quebras_por_papel_ficam_recolhidas():

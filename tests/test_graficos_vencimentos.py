@@ -280,3 +280,103 @@ def test_a_banda_cobre_todo_ano_visivel_hoje():
     # Uma banda por ano visivel: 2006 (inicio da nossa serie) a 2026, sem buraco,
     # desde que a tabela de bandas fechou a lacuna de 2023 a 2025.
     assert len(faixas_desenhadas) == 21
+
+
+# --------------------------------------------------------------------------
+# Estoque em QUANTIDADE, por vencimento e por papel.
+#
+# O RISCO DESTE GRAFICO nao e calcular errado -- e somar titulos como se um
+# valesse o mesmo que outro. Medido em 30/06/2026: um de LFT vale R$ 19.220 e
+# um de LFT-TD1 Reserva, R$ 10,68. Mil e oitocentas vezes menos.
+# --------------------------------------------------------------------------
+
+def test_o_estoque_traz_uma_linha_por_papel_e_vencimento():
+    d = vencimentos.dados_estoque_por_vencimento()
+    assert len(d) > 50
+    assert not d.duplicated(subset=["vencimento", "titulo"]).any()
+    # Em ordem de vencimento, que e a ordem em que o eixo os desenha.
+    assert list(d["vencimento"]) == sorted(d["vencimento"])
+
+
+def test_o_estoque_so_traz_papel_que_ainda_tem_estoque():
+    # Papel ja vencido fica no CSV com quantidade zero. Incluir zeros poria dezenas
+    # de barras de altura nenhuma no eixo.
+    d = vencimentos.dados_estoque_por_vencimento()
+    assert (d["quantidade_mil"] > 0).all()
+
+
+def test_o_estoque_vem_da_data_mais_recente():
+    import pandas as pd
+    from tesouro import config
+
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data"])
+    d = vencimentos.dados_estoque_por_vencimento()
+    esperado = e["data"].max()
+    total = e[(e["data"] == esperado) & (e["quantidade_mil"] > 0)]
+    assert len(d) == len(total)
+
+
+def test_UM_TITULO_NAO_VALE_O_MESMO_QUE_OUTRO():
+    # A medicao que obriga o rodape a existir. Se um dia os valores unitarios
+    # convergirem, o aviso vira ruido -- mas ate la ele e o que impede a barra mais
+    # alta do grafico de ser lida como divida.
+    d = vencimentos.dados_estoque_por_vencimento()
+    por_papel = d.groupby("titulo")["valor_unitario"].median()
+    assert por_papel["LFT"] > 15000
+    assert por_papel["LFT-TD1 Reserva"] < 50
+    assert por_papel["LFT"] / por_papel["LFT-TD1 Reserva"] > 500
+
+
+def test_o_varejo_e_muito_dos_titulos_e_quase_nada_da_divida():
+    em_qtd, em_fin = vencimentos.quanto_e_varejo()
+    assert em_qtd > 0.05, "os papeis de varejo deixaram de pesar na quantidade"
+    assert em_fin < 0.01, "eles passaram a pesar no financeiro"
+    # E a distancia entre as duas leituras e de mais de uma ordem de grandeza.
+    assert em_qtd / em_fin > 20
+
+
+def test_os_papeis_de_varejo_saem_HACHURADOS_e_nao_escondidos():
+    # O pedido foi "todos os papeis", e a barra alta deles e um fato sobre o
+    # estoque. O que o desenho faz e DIZER isso -- em vez de escond\u00ea-los, como o
+    # perfil por ano faz com a NTN-B1.
+    import matplotlib.pyplot as plt
+
+    d = vencimentos.dados_estoque_por_vencimento()
+    varejo = d[d["varejo"]]
+    assert len(varejo) > 0
+    assert set(varejo["titulo"]) <= set(vencimentos.PAPEIS_DE_VAREJO)
+
+    fig, ax = plt.subplots()
+    vencimentos.desenha_estoque_por_vencimento(d, ax)
+    hachuradas = [p for p in ax.patches if p.get_hatch()]
+    assert len(hachuradas) == len(varejo)
+    plt.close(fig)
+
+
+def test_o_rodape_diz_o_numero_medido():
+    # O aviso tem de trazer O NUMERO, e nao uma frase generica: e o numero que
+    # permite julgar o tamanho da ressalva.
+    import matplotlib.pyplot as plt
+
+    d = vencimentos.dados_estoque_por_vencimento()
+    em_qtd, em_fin = vencimentos.quanto_e_varejo(d)
+    fig, ax = plt.subplots()
+    vencimentos.desenha_estoque_por_vencimento(d, ax)
+    textos = " ".join(t.get_text() for t in ax.texts)
+    assert f"{em_qtd * 100:.1f}".replace(".", ",") in textos
+    assert f"{em_fin * 100:.1f}".replace(".", ",") in textos
+    plt.close(fig)
+
+
+def test_uma_barra_por_linha_do_dado():
+    import matplotlib.pyplot as plt
+
+    d = vencimentos.dados_estoque_por_vencimento()
+    fig, ax = plt.subplots()
+    vencimentos.desenha_estoque_por_vencimento(d, ax)
+    assert len(ax.patches) == len(d)
+    # O eixo e CATEGORICO: entre 2060 e 2084 ha quatro vencimentos e vinte e quatro
+    # anos, e um eixo continuo gastaria metade da largura com vazio.
+    assert len(ax.get_xticks()) == len(d)
+    plt.close(fig)
