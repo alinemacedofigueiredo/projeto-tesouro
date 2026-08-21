@@ -491,3 +491,173 @@ def test_papel_novo_sem_indexador_LEVANTA_em_vez_de_sumir():
     finally:
         estoque.INDEXADOR_DO_PAPEL.clear()
         estoque.INDEXADOR_DO_PAPEL.update(guardados)
+
+
+# ---------------------------------------------------------------------------
+# De onde veio a variacao do DV01 no mes.
+# ---------------------------------------------------------------------------
+
+PRECO = "pre\u00e7o"
+EMISSAO = "emiss\u00e3o"
+
+
+def test_as_partes_SOMAM_A_VARIACAO_em_todos_os_meses():
+    # E A PROMESSA DO GRAFICO, escrita na legenda: "as cinco colunas somam a
+    # variacao, exatamente". Se um residuo de cruzamento aparecer, a legenda passa
+    # a mentir e ninguem percebe -- as barras continuam bonitas.
+    d = estoque.dados_variacao_do_dv()
+    assert len(d) > 190
+    soma = d[estoque.FATORES].sum(axis=1)
+    erro = (d["variacao"] - soma).abs()
+    assert erro.max() < 1e-9, f"maior residuo: {erro.max()}"
+
+
+def test_a_variacao_bate_com_a_SERIE_DE_DV01_do_grafico_de_cima():
+    # Os dois graficos vivem lado a lado. Se a variacao daqui nao for a diferenca
+    # de la, sao duas contas diferentes com o mesmo nome.
+    nivel = estoque.dados_dv_do_estoque()["total"]
+    d = estoque.dados_variacao_do_dv()
+    esperado = nivel.diff().reindex(d.index)
+    assert (d["variacao"] - esperado).abs().max() < 1e-6
+
+
+def test_o_decay_TIRA_risco_e_a_emissao_POE_em_todo_mes():
+    # Nao e coincidencia dos ultimos meses: e o que a legenda afirma sobre os 197,
+    # e a frase "a divida ganha DV01 porque emite mais risco do que o tempo
+    # destroi" depende disso.
+    d = estoque.dados_variacao_do_dv()
+    assert (d["decay"] < 0).all(), d.loc[d["decay"] >= 0, "decay"]
+    assert (d[EMISSAO] > 0).all(), d.loc[d[EMISSAO] <= 0, EMISSAO]
+    assert d["decay"].mean() < -10
+    assert d[EMISSAO].mean() > 15
+
+
+def test_o_RESGATE_pesa_pouco_como_ela_previu():
+    # "Resgates mudam pouco o DV01, porque ja esta muito curto." Media de -1,0
+    # contra +17,4 da emissao.
+    d = estoque.dados_variacao_do_dv()
+    assert abs(d["resgate"].mean()) < 2
+    assert abs(d["resgate"].mean()) < d[EMISSAO].mean() / 10
+
+
+def test_quem_faz_o_grafico_balancar_e_o_PRECO():
+    # A media do preco e quase zero e o desvio-padrao e o maior dos cinco: ele nao
+    # tem direcao, tem tamanho. E o que distingue os dois lados da conta.
+    d = estoque.dados_variacao_do_dv()
+    desvios = d[estoque.FATORES].std()
+    assert desvios.idxmax() == PRECO
+    assert desvios[PRECO] > desvios["decay"] * 3
+    assert desvios[PRECO] > desvios[EMISSAO] * 2
+
+
+def test_o_DECAY_e_medido_REPRECIFICANDO_com_a_taxa_velha():
+    # Nao e estimativa por duration. O teste refaz a conta de UM papel a mao e
+    # confere que o sinal e o tamanho batem: a NTN-B 2050 num mes qualquer.
+    from tesouro import calendario, config, precificacao
+
+    cal = calendario.padrao()
+    b = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data", "vencimento"])
+    b = b[(b["titulo"] == "NTN-B")
+          & (b["vencimento"] == pd.Timestamp("2050-08-15"))].sort_values("data")
+    antes, depois = b.iloc[-2], b.iloc[-1]
+
+    congelado = -precificacao.dv(cal, "NTN-B", depois["data"].date(),
+                                 antes["vencimento"].date(),
+                                 antes["taxa_pct"] / 100, antes["vna"])
+    # Um mes a menos de prazo, com a MESMA taxa e o MESMO VNA, da menos DV.
+    assert congelado < -antes["dv_unitario"]
+    # E a diferenca e pequena perto da que o preco faz: e um mes num papel de 24
+    # anos. Se as duas fossem parecidas, o decay estaria comendo taxa.
+    so_tempo = abs(congelado - (-antes["dv_unitario"]))
+    com_tudo = abs((-depois["dv_unitario"]) - (-antes["dv_unitario"]))
+    assert so_tempo < com_tudo
+
+
+def test_papel_que_VENCE_vai_todo_para_resgate_e_nao_para_preco():
+    # ARMADILHA: um papel presente num mes e ausente no outro nao tem "preco novo".
+    # Atribuir a diferenca a marcacao poria uma coluna enorme de preco no mes em
+    # que uma NTN-B venceu -- e a leitura do grafico inteiro mudaria.
+    from tesouro import config
+
+    b = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data"])
+    b = b[b["titulo"] != "LFT"]
+    datas = sorted(b["data"].unique())
+    d = estoque.dados_variacao_do_dv()
+
+    sumiram = []
+    for anterior, atual in zip(datas[:-1], datas[1:]):
+        antes = b[b["data"] == anterior]
+        # SO OS QUE TINHAM DV MEDIDO. Papel que saiu do estoque sem nunca ter tido
+        # taxa contribuia zero para o nivel, entao a saida dele nao muda nada -- e
+        # exigir resgate negativo ali seria exigir efeito de quem nao tinha efeito.
+        # Aconteceu em fev/2012, e o teste acusou.
+        com_dv = set(antes.loc[antes["dv_posicao_milhoes"].notna(), "isin"])
+        if com_dv - set(b[b["data"] == atual]["isin"]):
+            sumiram.append(pd.Timestamp(atual))
+    assert len(sumiram) > 10, "quase nenhum papel saiu do estoque no historico"
+    for data in sumiram:
+        assert d.loc[data, "resgate"] < 0, data
+
+    # O TESTE ACIMA NAO BASTA, e a verificacao com dentes mostrou: mandar o papel
+    # vencido para "preco" deixa o resgate negativo do mesmo jeito, porque posicao
+    # que so encolhe tambem e resgate. E preciso um mes onde a SAIDA seja grande e
+    # conferir que ela esta na coluna certa.
+    #
+    # Em dez/2010 uma NTN-B venceu levando 14,22 milhoes por bp -- trinta vezes a
+    # segunda maior saida do historico. Se ela estiver em "preco", o teste acusa.
+    a = b[b["data"] == datas[datas.index(pd.Timestamp("2010-12-31")) - 1]]
+    saiu = a[~a["isin"].isin(b[b["data"] == pd.Timestamp("2010-12-31")]["isin"])
+             & a["dv_posicao_milhoes"].notna()]
+    dv_que_saiu = saiu["dv_posicao_milhoes"].abs().sum()
+    assert dv_que_saiu > 14, dv_que_saiu
+    assert d.loc[pd.Timestamp("2010-12-31"), "resgate"] <= -dv_que_saiu + 0.01, (
+        "o papel que venceu nao foi para o resgate")
+
+
+def test_a_faixa_SEM_TAXA_existe_e_e_pequena():
+    # Ela e o residuo honesto: papel sem cotacao num dos dois meses, cuja variacao
+    # nao da para atribuir. Some-la dentro de outra barra seria pior. Mas se ela
+    # crescer, o grafico deixou de explicar o que promete.
+    d = estoque.dados_variacao_do_dv()
+    assert "sem taxa" in estoque.FATORES
+    quantos = (d["sem taxa"].abs() > 0.01).sum()
+    assert 0 < quantos <= 15, quantos
+    assert d["sem taxa"].abs().max() < 10
+
+
+def test_as_barras_empilham_positivo_para_CIMA_e_negativo_para_BAIXO():
+    # Empilhar tudo a partir do zero misturaria os sinais, e a altura da pilha
+    # deixaria de querer dizer alguma coisa.
+    fig, ax = plt.subplots(figsize=(13, 5.6))
+    d = estoque.dados_variacao_do_dv(3)
+    estoque.desenha_variacao_do_dv(d, ax)
+    for barra in ax.patches:
+        base, altura = barra.get_y(), barra.get_height()
+        if altura > 0:
+            assert base >= -1e-9, (base, altura)
+        elif altura < 0:
+            assert base <= 1e-9, (base, altura)
+    plt.close(fig)
+
+
+def test_a_legenda_do_grafico_nao_afirma_numero_que_o_dado_desmente():
+    # A nota traz oito numeros medidos. Numero em legenda envelhece calado: o dado
+    # e reprocessado todo mes e a frase fica.
+    from tesouro.graficos import dashboard
+
+    d = estoque.dados_variacao_do_dv()
+    nota = [g for g in dashboard.REGISTRO if g.id == "variacao_do_dv"][0].nota
+
+    assert str(len(d)) + " dos " + str(len(d)) in nota, (
+        "a nota fala de outro numero de meses")
+    assert estilo.num_br(abs(d["decay"].mean()), 1) in nota
+    assert estilo.num_br(d[EMISSAO].mean(), 1) in nota
+    assert estilo.num_br(abs(d["resgate"].mean()), 1) in nota
+
+    pior = d["variacao"].idxmin()
+    assert pior.year == 2020 and pior.month == 3
+    assert estilo.num_br(abs(d.loc[pior, PRECO]), 1) in nota
+    fracao = d[PRECO].std() / d[estoque.FATORES].std().sum()
+    assert str(round(fracao * 100)) + "%" in nota

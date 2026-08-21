@@ -99,6 +99,13 @@ def _fig_dv_do_estoque(janela):
     return fig
 
 
+def _fig_variacao_do_dv(janela):
+    fig = _figura(5.6)
+    estoque.desenha_variacao_do_dv(estoque.dados_variacao_do_dv(janela),
+                                   fig.subplots())
+    return fig
+
+
 def _fig_composicao_100(janela):
     fig = _figura()
     estoque.desenha_composicao_100(estoque.dados_composicao(janela), fig.subplots())
@@ -319,6 +326,34 @@ REGISTRO = [
             "desenha o m\u00f5dulo, do lado de quem pergunta de quanto \u00e9 o pr\u00f3prio "
             "risco.",
             True, "completa", _fig_dv_do_estoque),
+    Grafico("variacao_do_dv", "Estoque",
+            "De onde veio a mudan\u00e7a do DV01 no m\u00eas",
+            "dv_por_papel.csv",
+            "O gr\u00e1fico acima diz <b>de quanto \u00e9 o risco</b>; este diz "
+            "<b>de onde veio a mudan\u00e7a dele</b>. Cada m\u00eas abre em quatro "
+            "partes que <b>somam a varia\u00e7\u00e3o exatamente</b> \u2014 n\u00e3o \u00e9 "
+            "aproxima\u00e7\u00e3o, e o tra\u00e7o preto marca o total. "
+            "<b>Decay</b> \u00e9 s\u00f3 a passagem do tempo: cada papel reprecificado no "
+            "m\u00eas novo com a <i>taxa e o VNA velhos</i>. "
+            "<b>Pre\u00e7o</b> \u00e9 o que sobrou \u2014 a curva e a corre\u00e7\u00e3o do VNA. "
+            "<b>Emiss\u00e3o</b> e <b>resgate</b> s\u00e3o a carteira mudando de tamanho. "
+            "<b>O que o gr\u00e1fico mostra \u00e9 uma m\u00e1quina de duas pe\u00e7as.</b> O "
+            "decay tirou risco em <b>197 dos 197 meses</b> (m\u00e9dia de "
+            "\u221212,1 milh\u00f5es por bp) e a emiss\u00e3o p\u00f3s risco em <b>197 dos "
+            "197</b> (+17,4). A d\u00edvida ganha DV01 porque o Tesouro emite mais "
+            "risco do que o tempo destr\u00f3i, e n\u00e3o porque o mercado se mexeu. "
+            "<b>E os resgates mudam pouco</b>, como se esperava de papel que "
+            "vence curto: m\u00e9dia de \u22121,0 contra os +17,4 da emiss\u00e3o. "
+            "O <b>pre\u00e7o</b> \u00e9 quem faz o gr\u00e1fico balan\u00e7ar \u2014 sozinho, 65% do "
+            "desvio-padr\u00e3o mensal. Em <b>mar\u00e7o de 2020</b> ele tirou 160,6 "
+            "milh\u00f5es por bp num m\u00eas, a curva abrindo; em dezembro do mesmo ano "
+            "devolveu 97,4. "
+            "A quinta faixa, <b>sem taxa</b>, \u00e9 papel que ficou sem cota\u00e7\u00e3o num "
+            "dos dois meses e por isso n\u00e3o d\u00e1 para atribuir: aparece em 10 dos "
+            "197 meses, no m\u00e1ximo 7,3. Ela existe para a soma fechar \u2014 esconder "
+            "um res\u00edduo dentro de outra barra seria pior. "
+            "Como no gr\u00e1fico acima, a <b>LFT n\u00e3o entra</b>.",
+            True, "5 anos", _fig_variacao_do_dv),
     Grafico("estoque_lft", "Estoque",
             "LFT \u00b7 estoque por vencimento",
             "aba 2.2",

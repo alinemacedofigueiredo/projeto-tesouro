@@ -481,3 +481,172 @@ def _rotulo_do_fim(ax, dados, coluna, cor, casas):
     ax.annotate(estilo.num_br(valor, casas), xy=(dados.index[-1], valor),
                 xytext=(6, 0), textcoords="offset points", fontsize=9.5,
                 weight="bold", color=cor, va="center", annotation_clip=False)
+
+
+# ---------------------------------------------------------------------------
+# DE ONDE VEM A VARIACAO DO DV01 NO MES.
+#
+# A pergunta e da dona do projeto, e ela ja trouxe a resposta em duas partes:
+# muda o preco do que ja esta em carteira, e muda a carteira.
+#
+# A CONTA E EXATA, e nao uma aproximacao. Para cada ISIN, com dv positivo
+# (magnitude) e q a posicao:
+#
+#   DECAY    = [dv(t, taxa e VNA de t-1) - dv(t-1)] x q(t-1)
+#   PRECO    = [dv(t)                    - dv(t, taxa e VNA de t-1)] x q(t-1)
+#   EMISSAO  = [q(t) - q(t-1)] x dv(t),  quando a posicao CRESCEU
+#   RESGATE  = [q(t) - q(t-1)] x dv(t),  quando a posicao CAIU
+#
+# Somando, o termo do meio se cancela duas vezes e sobra dv(t)q(t) - dv(t-1)q(t-1),
+# que e a variacao. Nao ha residuo de cruzamento escondido em lugar nenhum -- um
+# teste confere isso mes a mes, nos 197.
+#
+# O DECAY E MEDIDO REPRECIFICANDO, e nao estimado por duration: reprecificar cada
+# papel na data nova com a taxa e o VNA VELHOS e a "Conta B" da spec. Congelar o
+# VNA importa: o IPCA corrigindo o VNA aumenta o DV01 sem que nada tenha mudado no
+# risco, e isso pertence a PRECO e nao a decay.
+#
+# ARMADILHA: papel que aparece so num dos dois meses. Se nasceu, e emissao inteira;
+# se sumiu, e resgate inteiro. Atribuir a diferenca a preco poria uma coluna enorme
+# de "marcacao" no mes em que uma NTN-B venceu.
+#
+# ARMADILHA 2: papel sem taxa num dos dois meses. Ele nao tem DV medido, entao a
+# variacao dele nao e atribuivel a nada -- e some da conta, deixando a soma das
+# partes menor do que a variacao. Aconteceu em 10 dos 197 meses, ate 7,3 milhoes
+# por bp. Em vez de esconder, vira a sua propria coluna: "sem taxa no mes".
+#
+# A LFT NAO ENTRA, como no grafico de cima: DV zero em todos os meses, e as quatro
+# colunas dela seriam quatro zeros.
+# ---------------------------------------------------------------------------
+
+FATORES = ["decay", "pre\u00e7o", "emiss\u00e3o", "resgate", "sem taxa"]
+
+_COR_DO_FATOR = {"decay": "#8faadc", "pre\u00e7o": "#ed7d31",
+                 "emiss\u00e3o": "#2ca02c", "resgate": "#c00000",
+                 "sem taxa": "#c9c9c9"}
+
+# A conta reprecifica cada papel de cada mes: sao ~8 mil chamadas a precificacao,
+# e a pagina desenha o mesmo grafico em quatro janelas. Sem cache, quatro vezes.
+_DECOMPOSICAO_EM_CACHE = {}
+
+
+def dados_variacao_do_dv(janela=None):
+    """Variacao mensal do DV01, aberta em decay, preco, emissao e resgate.
+
+    Em R$ milhoes por ponto-base, e em MAGNITUDE: positivo e risco ENTRANDO na
+    carteira. Ver o cabecalho da secao para a algebra e para as duas armadilhas.
+    """
+    if not _DECOMPOSICAO_EM_CACHE:
+        _DECOMPOSICAO_EM_CACHE["tudo"] = _calcula_decomposicao()
+    return estilo.recorta(_DECOMPOSICAO_EM_CACHE["tudo"], janela)
+
+
+def _calcula_decomposicao():
+    from .. import calendario, precificacao
+
+    cal = calendario.padrao()
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data", "vencimento"])
+    d = d[d["titulo"] != "LFT"].copy()
+    d["dvpos"] = -d["dv_unitario"]
+    d["qtd"] = d["quantidade_mil"] * 1000
+
+    datas = sorted(d["data"].unique())
+    linhas = []
+    for anterior, atual in zip(datas[:-1], datas[1:]):
+        a = d[d["data"] == anterior].set_index("isin")
+        b = d[d["data"] == atual].set_index("isin")
+        parte = dict.fromkeys(FATORES, 0.0)
+
+        # SORTED, e nao o set cru: a ordem de iteracao de um set de strings
+        # depende do PYTHONHASHSEED, e soma de float nao e associativa. Sem isto
+        # o mesmo dado dava SVGs diferentes em processos diferentes -- e o
+        # test_o_html_e_reprodutivel_entre_processos pegou.
+        for isin in sorted(set(a.index) | set(b.index)):
+            ra = a.loc[isin] if isin in a.index else None
+            rb = b.loc[isin] if isin in b.index else None
+            antes = 0.0 if ra is None or pd.isna(ra["dvpos"]) else (
+                ra["dvpos"] * ra["qtd"])
+            depois = 0.0 if rb is None or pd.isna(rb["dvpos"]) else (
+                rb["dvpos"] * rb["qtd"])
+
+            if ra is None:
+                parte["emiss\u00e3o"] += depois
+                continue
+            if rb is None:
+                parte["resgate"] -= antes
+                continue
+            if pd.isna(ra["dvpos"]) or pd.isna(rb["dvpos"]):
+                # Sem DV num dos dois meses: nao da para dizer de onde veio.
+                parte["sem taxa"] += depois - antes
+                continue
+
+            congelado = precificacao.dv(
+                cal, ra["titulo"], pd.Timestamp(atual).date(),
+                ra["vencimento"].date(), ra["taxa_pct"] / 100,
+                None if pd.isna(ra["vna"]) else ra["vna"])
+            if congelado is None:
+                parte["sem taxa"] += depois - antes
+                continue
+            congelado = -congelado
+
+            parte["decay"] += (congelado - ra["dvpos"]) * ra["qtd"]
+            parte["pre\u00e7o"] += (rb["dvpos"] - congelado) * ra["qtd"]
+            dq = rb["qtd"] - ra["qtd"]
+            parte["emiss\u00e3o" if dq >= 0 else "resgate"] += dq * rb["dvpos"]
+
+        linha = {f: parte[f] / 1e6 for f in FATORES}
+        linha["variacao"] = ((b["dvpos"] * b["qtd"]).sum()
+                              - (a["dvpos"] * a["qtd"]).sum()) / 1e6
+        linha["data"] = pd.Timestamp(atual)
+        linhas.append(linha)
+
+    return pd.DataFrame(linhas).set_index("data")
+
+
+def desenha_variacao_do_dv(dados, ax):
+    """Barras empilhadas por mes, com a variacao liquida marcada por cima.
+
+    EMPILHADA foi a sugestao dela, e e a certa: as partes SOMAM a variacao, e barra
+    empilhada e o desenho que diz "isto soma aquilo". Lado a lado diria "compare
+    estes", que e outra pergunta.
+
+    Positivas para cima e negativas para baixo, cada lado com a sua base. Empilhar
+    tudo a partir do zero misturaria os sinais e a altura da pilha deixaria de
+    querer dizer alguma coisa.
+    """
+    largura = 20 if len(dados) > 40 else 24
+    cima = pd.Series(0.0, index=dados.index)
+    baixo = pd.Series(0.0, index=dados.index)
+    for fator in FATORES:
+        valores = dados[fator].fillna(0.0)
+        positivo = valores.clip(lower=0)
+        negativo = valores.clip(upper=0)
+        ax.bar(dados.index, positivo, bottom=cima, width=largura,
+               color=_COR_DO_FATOR[fator], label=fator, zorder=2)
+        ax.bar(dados.index, negativo, bottom=baixo, width=largura,
+               color=_COR_DO_FATOR[fator], zorder=2)
+        cima = cima + positivo
+        baixo = baixo + negativo
+
+    ax.plot(dados.index, dados["variacao"], color="#111111", lw=0, marker="_",
+            markersize=6, markeredgewidth=1.6, label="varia\u00e7\u00e3o do m\u00eas",
+            zorder=4)
+    ax.axhline(0, color="#333333", lw=0.9, zorder=3)
+
+    ax.set_ylabel("R$ milh\u00f5es por ponto-base")
+    # FOLGA NO TOPO PARA A LEGENDA. Ela tem seis entradas e mora dentro do quadro;
+    # sem folga, ela deita sobre as barras mais altas -- que sao justamente os
+    # meses que se quer olhar. A folga sai da pilha positiva mais alta, e nao de um
+    # numero cravado, senao ela some quando a escala muda de janela.
+    pilha = cima.max()
+    fundo = baixo.min()
+    ax.set_ylim(fundo * 1.08, max(pilha, 1.0) * 1.42)
+    estilo.eixo_anual(ax, a_cada=2)
+    ax.grid(axis="y", alpha=0.25)
+    ax.set_axisbelow(True)
+    folga = (dados.index[-1] - dados.index[0]) * 0.02
+    ax.set_xlim(dados.index[0] - folga, dados.index[-1] + folga)
+    ax.legend(ncol=6, frameon=False, loc="upper left", fontsize=9,
+              title="de onde veio a mudan\u00e7a do DV01 no m\u00eas \u2014 as cinco "
+                    "colunas somam a varia\u00e7\u00e3o, exatamente")
