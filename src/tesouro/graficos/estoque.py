@@ -147,3 +147,167 @@ def desenha_composicao(dados, bandas, ax):
     estilo.eixo_anual(ax, a_cada=2)
     ax.legend(ncol=4, frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.08))
+
+
+# ---------------------------------------------------------------------------
+# O TOTAL DA DIVIDA: interna, externa e a banda do PAF.
+#
+# E o primeiro grafico da pagina, e responde a pergunta que vem antes de todas as
+# outras -- de quanto e a divida, e ela esta onde o PAF prometeu?
+#
+# QUAL SERIE E "O TOTAL". Sao quatro niveis no CSV, e escolher errado erra o
+# grafico inteiro. O que o PAF mira e "Estoque da DPF em Mercado", que no nosso
+# dado se chama "DPF em poder do publico" -- e NAO inclui a carteira do Banco
+# Central, R$ 2.971,0 bi em jun/2026. Somar a carteira do Bacen daria uma divida
+# 32% maior do que a que o PAF persegue, e a banda pareceria estourada todo ano.
+#
+# CONFERIDO, e nao suposto: a coluna "realizado" do paf_bandas.csv bate com o nosso
+# dezembro em 22 dos 23 anos ATE A PRIMEIRA CASA DECIMAL. O unico que discorda e
+# 2003, por 0,95% -- numero antigo, republicado depois. E DPMFi + DPFe da o total
+# em todos os 307 meses, com erro zero.
+#
+# DOIS PAINEIS, e nao dois eixos no mesmo. A externa era 31,0% da divida em
+# set/2002 e hoje e 3,8%: num eixo so ela e uma linha viva no comeco da serie e um
+# fio colado no chao no resto, e nas janelas curtas some de vez. Mas o proprio
+# movimento dela e informacao -- de 222,5 para 349,2 bi em cinco anos, 57% de alta.
+#
+# A PRIMEIRA TENTATIVA FOI UM SEGUNDO EIXO A DIREITA, e ficou pior do que o
+# problema: a linha da externa, esticada ate o topo da sua escala, passava por cima
+# da linha do total e se lia como se a divida externa fosse a maior das tres. Um
+# cruzamento que so existe no desenho e uma mentira que o leitor nao tem como
+# desconfiar.
+#
+# Dois paineis empilhados, com o mesmo eixo do tempo: cada linha na sua escala, e
+# nenhuma passa por cima de nenhuma. O de baixo e um terco da altura, porque a
+# pergunta principal esta no de cima.
+# ---------------------------------------------------------------------------
+
+# O nivel que o PAF mira. O nome no CSV vem sem acento, do parser.
+NIVEL_TOTAL = "DPF em poder do publico"
+
+_COR_NIVEL = {"total": "#1f3864", "DPMFi": "#1f6feb", "DPFe": "#ed7d31"}
+
+
+def dados_estoque_total(janela=None):
+    """Estoque da DPF em mercado, e a quebra entre interna e externa, em R$ milhoes.
+
+    Tres colunas: 'total', 'DPMFi' e 'DPFe'. O total e a linha PUBLICADA, e nao a
+    soma que fariamos aqui -- as duas dao o mesmo em todos os 307 meses, e usar a
+    publicada faz o teste que compara as duas ter alguma coisa para comparar.
+
+    ARMADILHA: as linhas agregadas do CSV sao as que tem 'entidade' E 'titulo'
+    vazios. Filtrar so por nivel traz tambem uma linha por titulo e uma por
+    entidade, e o estoque sai multiplicado.
+    """
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_dpf.csv",
+                    parse_dates=["data"])
+    agregado = e[e["entidade"].isna() & e["titulo"].isna()]
+    piv = agregado.pivot_table(index="data", columns="nivel",
+                               values="valor_milhoes", aggfunc="sum")
+    saida = pd.DataFrame({"total": piv[NIVEL_TOTAL],
+                          "DPMFi": piv["DPMFi"],
+                          "DPFe": piv["DPFe"]}).dropna(how="all")
+    return estilo.recorta(saida, janela)
+
+
+def desenha_estoque_total(dados, banda, fig):
+    """Total e interna em cima, externa embaixo, com a banda do PAF no de cima.
+
+    Recebe a FIGURA e nao um eixo, porque sao dois paineis -- o mesmo que
+    vencimentos.desenha_cronograma e detentores.desenha_participacao ja fazem.
+
+    A banda vale para o TOTAL, e a legenda diz isso: deixar o leitor supor que ela
+    vale para a linha mais grossa qualquer que seja e como um grafico mente sem
+    dizer nada falso.
+    """
+    cima, baixo = fig.subplots(2, 1, sharex=True,
+                               gridspec_kw={"height_ratios": [3, 1],
+                                            "hspace": 0.26})
+
+    _banda_do_paf(dados, banda, cima)
+
+    cima.plot(dados.index, dados["total"] / 1000, color=_COR_NIVEL["total"],
+              lw=2.8, zorder=4, label="DPF em mercado")
+    cima.plot(dados.index, dados["DPMFi"] / 1000, color=_COR_NIVEL["DPMFi"],
+              lw=1.8, zorder=3, label="DPMFi \u2014 interna")
+    baixo.plot(dados.index, dados["DPFe"] / 1000, color=_COR_NIVEL["DPFe"],
+               lw=1.8, zorder=3, label="DPFe \u2014 externa")
+
+    for eixo, coluna in ((cima, "total"), (cima, "DPMFi"), (baixo, "DPFe")):
+        valor = dados[coluna].iloc[-1] / 1000
+        eixo.annotate(estilo.num_br(valor, 0), xy=(dados.index[-1], valor),
+                      xytext=(6, 0), textcoords="offset points", fontsize=9.5,
+                      weight="bold", color=_COR_NIVEL[coluna], va="center",
+                      zorder=5, annotation_clip=False)
+
+    # A ESCALA ENQUADRA O DADO E A BANDA, e nao parte do zero a forca. Com o zero
+    # cravado, a janela de 12 meses gastava 80% do painel em espaco vazio -- a
+    # divida vai de 7,6 a 9,3 mil bi no periodo, e o movimento virava um risco
+    # achatado no topo. Na serie completa o minimo e 654 bi contra um teto de
+    # 10.300, entao o piso fica em 6% da altura e o grafico sai igual ao que
+    # partiria do zero.
+    #
+    # O que torna isto honesto e a BANDA estar sempre dentro do quadro: ela e a
+    # referencia contra a qual o nivel se le, e nao o zero.
+    anos = range(dados.index.min().year, dados.index.max().year + 1)
+    faixa = banda.reindex(anos)
+    _enquadra(cima, [dados["total"] / 1000, dados["DPMFi"] / 1000,
+                     faixa["minimo"], faixa["maximo"]])
+    _enquadra(baixo, [dados["DPFe"] / 1000])
+
+    cima.set_ylabel("R$ bilh\u00f5es")
+    baixo.set_ylabel("R$ bilh\u00f5es")
+    baixo.set_title("d\u00edvida externa (DPFe) \u2014 escala pr\u00f3pria, um trigesimo da "
+                    "de cima", fontsize=9, loc="left",
+                    color=estilo.COR["neutro"], pad=4)
+
+    # O EIXO DO TEMPO PARA ONDE O DADO PARA. Sem isto o matplotlib folga os dois
+    # lados, e na janela de 12 meses o quadro ia de jan/25 a jan/27 para desenhar
+    # jul/25 a jul/26 -- metade da largura em branco. A folga a direita fica so a
+    # que o rotulo do ultimo valor precisa.
+    folga = (dados.index[-1] - dados.index[0]) * 0.06
+    for eixo in (cima, baixo):
+        eixo.set_xlim(dados.index[0], dados.index[-1] + folga)
+        eixo.grid(axis="y", alpha=0.25)
+        eixo.set_axisbelow(True)
+    estilo.eixo_anual(baixo, a_cada=2)
+
+    cima.legend(ncol=2, frameon=False, loc="upper left",
+                title="faixa vermelha: meta do PAF para o estoque da DPF em "
+                      "mercado")
+
+
+def _enquadra(ax, series, folga=0.10):
+    """Limites do eixo y que cabem tudo, com folga, e nunca abaixo de zero."""
+    valores = pd.concat([pd.Series(s).dropna() for s in series])
+    baixo, alto = float(valores.min()), float(valores.max())
+    margem = (alto - baixo) * folga or max(alto * 0.1, 1.0)
+    ax.set_ylim(max(0.0, baixo - margem), alto + margem)
+
+
+def _banda_do_paf(dados, banda, ax):
+    """A faixa do PAF, ano a ano, no fundo do painel de cima.
+
+    A banda ja vem em R$ BILHOES do paf_bandas.csv, e o eixo esta em bilhoes: nao
+    ha conversao a fazer. A primeira versao multiplicava por 1000 e punha a faixa em
+    9,7 milhoes de bilhoes, fora da figura. Ela simplesmente nao aparecia.
+    """
+    for ano in range(dados.index.min().year, dados.index.max().year + 1):
+        if ano not in banda.index:
+            continue
+        inicio = pd.Timestamp(year=ano, month=1, day=1)
+        fim = pd.Timestamp(year=ano, month=12, day=31)
+        ax.fill_between([inicio, fim], banda.loc[ano, "minimo"],
+                        banda.loc[ano, "maximo"], color=estilo.COR["banda"],
+                        alpha=0.13, linewidth=0, zorder=1)
+        # A banda ORIGINAL so vira pontilhado quando ela de fato mudou. Em 2018 e
+        # 2024 houve "revisao" que repetiu os mesmos numeros, e desenhar as duas
+        # poria um pontilhado exatamente sobre a borda da faixa.
+        if pd.isna(banda.loc[ano, "minimo_original"]):
+            continue
+        mudou = (banda.loc[ano, "minimo_original"] != banda.loc[ano, "minimo"]
+                 or banda.loc[ano, "maximo_original"] != banda.loc[ano, "maximo"])
+        if mudou:
+            for nivel in ("minimo_original", "maximo_original"):
+                ax.plot([inicio, fim], [banda.loc[ano, nivel]] * 2,
+                        color=estilo.COR["banda"], lw=0.8, ls=":", zorder=2)

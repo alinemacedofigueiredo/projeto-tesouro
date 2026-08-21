@@ -40,8 +40,11 @@ Grafico.__new__.__defaults__ = (None, False)
 # "Candidatos" deixou de existir em 19/08/2026: os tres que estavam la entraram nos
 # grupos a que pertencem. Guardar grafico bom num apendice chamado "candidato" e uma
 # forma de nunca decidir sobre ele.
-GRUPOS = ["Funding", "Estoque", "Detentores", "Vencimentos", "Prazo", "Custo",
-          "Reserva"]
+# "O total" entrou em 21/08/2026 e vem PRIMEIRO de proposito: e a pergunta que
+# antecede todas as outras da pagina -- de quanto e a divida, e ela esta onde o PAF
+# prometeu? Sendo o primeiro grupo, e o unico que abre com a pagina.
+GRUPOS = ["O total", "Funding", "Estoque", "Detentores", "Vencimentos", "Prazo",
+          "Custo", "Reserva"]
 
 # AS JANELAS DO DASHBOARD DO RMD. Eram duas -- "5 anos" e "completa" -- e cinco
 # anos e muito para quem quer ver o que mudou no ano. Entraram "12 meses" e
@@ -80,6 +83,13 @@ def _fig_emissao_anual(janela):
     fig = _figura()
     funding.desenha_emissao_anual(dados, fig.subplots(),
                                  funding.ultimo_mes_com_emissao().year)
+    return fig
+
+
+def _fig_estoque_total(janela):
+    fig = _figura(6.6)
+    estoque.desenha_estoque_total(estoque.dados_estoque_total(janela),
+                                  paf.bandas("estoque_bilhoes"), fig)
     return fig
 
 
@@ -212,6 +222,21 @@ def _fig_emissao_papel(janela):
 
 
 REGISTRO = [
+    Grafico("estoque_total", "O total",
+            "O estoque da DPF, interna e externa, com a banda do PAF",
+            "aba 2.1 e referencia/paf_bandas.csv",
+            "<b>Quanto \u00e99 a d\u00edvida, e ela est\u00e2 onde o PAF prometeu.</b> A linha "
+            "escura \u00e99 a DPF em mercado \u2014 a mesma que o PAF mira, e que "
+            "<b>n\u00e3o inclui a carteira do Banco Central</b> (R$ 2.971,0 bi em "
+            "jun/2026). A faixa vermelha \u00e99 a meta do ano; onde houve revis\u00e3o, "
+            "a banda original aparece pontilhada. "
+            "<b>A externa vai num painel pr\u00f3prio</b>, e n\u00e3o no mesmo eixo: ela "
+            "era 31,0% da d\u00edvida em set/2002 e hoje \u00e99 3,8%, ent\u00e3o no eixo de "
+            "cima seria um fio colado no ch\u00e3o \u2014 e o movimento dela \u00e99 "
+            "informa\u00e7\u00e3o, de 222,5 para 349,2 bi em cinco anos. "
+            "A escala enquadra o dado e a banda em vez de partir do zero: a "
+            "refer@Encia contra a qual o n\u00edvel se l@E \u00e99 a banda, e n\u00e3o o zero.",
+            True, "completa", _fig_estoque_total),
     Grafico("funding_net", "Funding",
             "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
             "aba 1.1",

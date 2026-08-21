@@ -167,15 +167,34 @@ def rotulo_mes(d):
 
 
 def eixo_anual(ax, a_cada=1):
-    """Marca o eixo do tempo por ano, mantendo o dado mensal.
+    """Marca o eixo do tempo, com a densidade que a JANELA pede.
 
     A pagina do RMD usa ~170 rotulos mensais e ninguem le. Marca anual com dado
     mensal e legivel e nao perde resolucao.
+
+    MAS A JANELA NAO E SEMPRE LONGA. Em 21/08/2026 o dashboard ganhou janelas de 12
+    meses e de 3 anos, e com 'a_cada' fixo o eixo de doze meses saia com UM rotulo
+    -- o unico ano que a janela atravessa. O grafico ficava sem eixo do tempo.
+    Visto na figura, e nao no codigo.
     """
     import matplotlib.dates as mdates
-    ax.xaxis.set_major_locator(mdates.YearLocator(a_cada))
+
+    inicio, fim = ax.get_xlim()
+    anos = (fim - inicio) / 365.25
+
+    if anos <= 2.2:
+        # Um rotulo por trimestre, em mes/ano. Doze meses dao quatro ou cinco.
+        ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=(1, 4, 7, 10)))
+        from matplotlib.ticker import FuncFormatter
+        ax.xaxis.set_major_formatter(FuncFormatter(
+            lambda x, _: rotulo_mes(mdates.num2date(x))))
+        ax.xaxis.set_minor_locator(mdates.MonthLocator())
+        return
+
+    passo = 1 if anos <= 8 else a_cada
+    ax.xaxis.set_major_locator(mdates.YearLocator(passo))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-    if a_cada > 1:
+    if passo > 1:
         ax.xaxis.set_minor_locator(mdates.YearLocator())
 
 

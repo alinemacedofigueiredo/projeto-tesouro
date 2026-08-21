@@ -119,3 +119,34 @@ def test_o_corte_de_janela_preserva_o_ultimo_ponto():
     curto = estilo.recorta(df, 5)
     assert curto.index.max() == df.index.max()
     assert curto.index.min() >= df.index.max() - pd.DateOffset(years=5)
+
+
+def test_o_eixo_do_tempo_acompanha_o_TAMANHO_da_janela():
+    # Com 'a_cada' fixo, a janela de 12 meses -- que entrou no dashboard em
+    # 21/08/2026 -- saia com UM rotulo, o unico ano que ela atravessa. O grafico
+    # ficava sem eixo do tempo. Visto na figura, e nao no codigo.
+    import pandas as pd
+
+    def quantos(anos, a_cada=2):
+        fim = pd.Timestamp("2026-06-30")
+        idx = pd.date_range(fim - pd.DateOffset(years=anos), fim, freq="ME")
+        fig, ax = plt.subplots()
+        ax.plot(idx, range(len(idx)))
+        estilo.eixo_anual(ax, a_cada=a_cada)
+        fig.canvas.draw()
+        rotulos = [t.get_text() for t in ax.get_xticklabels() if t.get_text()]
+        plt.close(fig)
+        return rotulos
+
+    doze = quantos(1)
+    assert len(doze) >= 4, f"janela de 12 meses com {len(doze)} rotulos: {doze}"
+    # E em mes/ano, que e o que distingue um ponto do outro dentro de um ano.
+    assert any("/" in r for r in doze), doze
+
+    tres = quantos(3)
+    assert len(tres) >= 3, tres
+
+    # Na serie longa nada muda: continua ano a ano, com o passo pedido.
+    longa = quantos(25)
+    assert len(longa) >= 10
+    assert all(r.isdigit() and len(r) == 4 for r in longa), longa

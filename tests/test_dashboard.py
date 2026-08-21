@@ -28,14 +28,14 @@ def pagina_gravada(tmp_path_factory):
     return dashboard.grava(destino).read_text(encoding="utf-8")
 
 
-def test_o_registro_tem_os_vinte_e_cinco_graficos():
+def test_o_registro_tem_os_vinte_e_seis_graficos():
     # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
     # atras de uma setinha, e a composicao empilhada em 100%. Em 20/08 entrou o
     # estoque em titulos por vencimento, um grafico por papel -- quatro, porque
     # a NTN-C tem um vencimento so.
-    assert len(dashboard.REGISTRO) == 25
+    assert len(dashboard.REGISTRO) == 26
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 25, "id repetido no registro"
+    assert len(set(ids)) == 26, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -71,14 +71,19 @@ def test_a_contagem_de_svgs_sai_do_registro():
     # teste passar depois de alguem esquecer de gravar uma versao.
     com_janela = [g for g in dashboard.REGISTRO if g.janela]
     com_variante = [g for g in dashboard.REGISTRO if g.variantes]
-    assert len(com_janela) == 14
+    assert len(com_janela) == 15
     assert len(com_variante) == 1
 
-    total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
+    # O NUMERO DE JANELAS SAI DA CONSTANTE, e nao de um "2" cravado. Ele foi 2 ate
+    # 20/08/2026 e virou 4 no dia seguinte, e o teste continuou passando porque
+    # contava o registro e nao o arquivo -- afirmava uma coisa e media outra.
+    quantas = len(dashboard.JANELAS)
+    total = sum((quantas if g.janela else 1) * (2 if g.variantes else 1)
                 for g in dashboard.REGISTRO)
-    # 37 ate 19/08/2026; os quatro de estoque em titulos entraram SEM janela --
-    # e um retrato de uma data, e dizer "5 anos" nele seria atributo que mente.
-    assert total == 41
+    # Os quatro de estoque em titulos entraram SEM janela: e o retrato de uma data,
+    # e dizer "5 anos" neles seria atributo que mente.
+    sem_janela = len(dashboard.REGISTRO) - len(com_janela)
+    assert total == quantas * len(com_janela) + sem_janela + quantas
 
 
 def test_as_quatro_quebras_por_papel_ficam_recolhidas():
@@ -221,8 +226,11 @@ def test_os_dois_graficos_de_composicao_abrem_na_serie_completa():
     porid = {g.id: g for g in dashboard.REGISTRO}
     assert porid["estoque_composicao"].padrao == "completa"
     assert porid["estoque_composicao_100"].padrao == "completa"
+    # O do total tambem: a divida sai de 654 bi para 9.268, e isso nao existe
+    # dentro de uma janela de cinco anos.
+    assert porid["estoque_total"].padrao == "completa"
     # E os demais que aceitam janela abrem em 5 anos.
-    na_completa = {"estoque_composicao", "estoque_composicao_100"}
+    na_completa = {"estoque_composicao", "estoque_composicao_100", "estoque_total"}
     outros = [g for g in dashboard.REGISTRO if g.janela and g.id not in na_completa]
     assert all(g.padrao == "5 anos" for g in outros)
 
