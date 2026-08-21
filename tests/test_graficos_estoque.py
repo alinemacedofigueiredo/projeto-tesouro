@@ -286,3 +286,178 @@ def test_a_escala_curta_nao_gasta_o_painel_com_vazio():
     assert usado > 0.30, f"a serie ocupa so {usado:.0%} da altura do painel"
     assert teto >= 10300, "a banda de 2026 saiu do quadro"
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# O DV01 e a duration do estoque.
+# ---------------------------------------------------------------------------
+
+def _dv_bruto():
+    from tesouro import config
+
+    return pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                       parse_dates=["data", "vencimento"])
+
+
+def test_a_quantidade_do_DV_e_a_da_ABA_2_2_em_TODA_data():
+    # A PERGUNTA QUE A DONA DO PROJETO FEZ, e que a primeira checagem nao
+    # respondeu: o DV usa a posicao DAQUELA DATA? Conferido contra a aba 2.2,
+    # que e fonte independente, par a par, nas 198 datas.
+    from tesouro import config
+
+    d = _dv_bruto()
+    v = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    v = v[v["quantidade_mil"] > 0]
+    d["periodo"] = d["data"].dt.to_period("M")
+    v["periodo"] = v["data"].dt.to_period("M")
+    q22 = v.set_index(["periodo", "titulo", "vencimento"])["quantidade_mil"]
+
+    m = d[d["titulo"].isin(("LTN", "NTN-F", "NTN-B"))].copy()
+    m["q22"] = [q22.get((p, t, vc)) for p, t, vc
+                in zip(m["periodo"], m["titulo"], m["vencimento"])]
+    comum = m[m["q22"].notna() & (m["q22"] > 0)]
+    assert len(comum) > 6000, f"so {len(comum)} pares comparados"
+    razao = comum["quantidade_mil"] / comum["q22"]
+    assert (razao.sub(1).abs() > 0.001).sum() == 0
+
+
+def test_nenhum_vencimento_da_2_2_falta_no_arquivo_de_DV():
+    from tesouro import config
+
+    d = _dv_bruto()
+    v = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    v = v[(v["quantidade_mil"] > 0) & v["titulo"].isin(("LTN", "NTN-F", "NTN-B"))]
+    d["periodo"] = d["data"].dt.to_period("M")
+    v["periodo"] = v["data"].dt.to_period("M")
+
+    faltando = []
+    for periodo, g in v.groupby("periodo"):
+        h = d[d["periodo"] == periodo]
+        if h.empty:
+            continue
+        fora = set(zip(g["titulo"], g["vencimento"])) - set(
+            zip(h["titulo"], h["vencimento"]))
+        if fora:
+            faltando.append((periodo, sorted(fora)[:2]))
+    assert not faltando, faltando[:5]
+
+
+def test_a_taxa_e_o_VNA_sao_os_DAQUELA_DATA_e_nao_congelados():
+    # Se algum deles fosse carregado adiante, a serie de DV seria a de um papel
+    # que nunca existiu -- e o grafico pareceria perfeitamente normal.
+    d = _dv_bruto()
+    b = d[(d["titulo"] == "NTN-B")
+          & (d["vencimento"] == pd.Timestamp("2050-08-15"))]
+    assert len(b) > 190
+    assert b["taxa_pct"].nunique() > len(b) * 0.95
+    assert b["vna"].nunique() > len(b) * 0.95
+    assert b["dv_unitario"].nunique() > len(b) * 0.95
+
+
+def test_o_DV_encurta_com_o_papel_chegando_no_vencimento():
+    d = _dv_bruto()
+    c = d[(d["titulo"] == "LTN")
+          & (d["vencimento"] == pd.Timestamp("2026-07-01"))].sort_values("data")
+    ultimos = c.tail(6)["dv_unitario"].abs().tolist()
+    assert ultimos == sorted(ultimos, reverse=True), ultimos
+    assert ultimos[-1] < ultimos[0] / 50
+
+
+def test_o_PU_e_o_DV_do_arquivo_sao_reprodutiveis_do_zero():
+    # Refaz a conta chamando a precificacao, e compara com o que foi gravado.
+    from tesouro import calendario, precificacao
+
+    cal = calendario.padrao()
+    d = _dv_bruto()
+    amostra = d[d["dv_unitario"].notna()].sample(12, random_state=7)
+    for _, r in amostra.iterrows():
+        vna = None if pd.isna(r["vna"]) else r["vna"]
+        pu = precificacao.pu(cal, r["titulo"], r["data"].date(),
+                             r["vencimento"].date(), r["taxa_pct"] / 100, vna)
+        dv = precificacao.dv(cal, r["titulo"], r["data"].date(),
+                             r["vencimento"].date(), r["taxa_pct"] / 100, vna)
+        assert abs(pu - r["pu"]) < 1e-8, (r["titulo"], r["data"])
+        assert abs(dv - r["dv_unitario"]) < 1e-8, (r["titulo"], r["data"])
+
+
+def test_o_QUE_FICA_DE_FORA_esta_medido_e_escrito_na_pagina():
+    # Quatro papeis nao tem taxa coletada e por isso nao entram: NTN-C, NTN-B
+    # Principal, RendA+ e EducA+. Isso NAO e defeito, e perimetro -- mas
+    # perimetro que nao esta escrito na pagina e omissao.
+    from tesouro import config
+    from tesouro.graficos import dashboard
+
+    d = _dv_bruto()
+    v = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    u = v[(v["data"] == v["data"].max()) & (v["quantidade_mil"] > 0)]
+    fora = u[~u["titulo"].isin(d["titulo"].unique())]
+    assert set(fora["titulo"]) == {"NTN-C", "NTN-B Principal", "NTN-B1 RendA+",
+                                   "NTN-B1 EducA+", "LFT-TD1 Reserva"}
+    bilhoes = (fora[fora["titulo"] != "LFT-TD1 Reserva"]["financeiro_milhoes"]
+               .sum() / 1000)
+    assert 180 < bilhoes < 200, f"o que fica de fora mudou: R$ {bilhoes:.1f} bi"
+
+    nota = [g for g in dashboard.REGISTRO if g.id == "dv_do_estoque"][0].nota
+    for papel in ("NTN-C", "NTN-B Principal", "RendA+", "EducA+"):
+        assert papel in nota, f"a nota nao diz que {papel} fica de fora"
+    assert "7,6%" in nota
+
+
+def test_a_duration_sai_do_DV_dividido_pelo_valor_de_mercado():
+    # DV01 = -PU x duration modificada x 0,0001. A conta da carteira e a mesma,
+    # com o DV01 e o valor de mercado somados -- ponderacao pelo VALOR, e nao
+    # pela quantidade, que somaria uma LTN de R$ 481 com uma NTN-B de R$ 4.031
+    # como se pesassem o mesmo.
+    d = _dv_bruto()
+    ult = d[(d["data"] == d["data"].max()) & (d["titulo"] == "NTN-B")]
+    dv = ult["dv_posicao_milhoes"].sum()
+    mtm = (ult["pu"] * ult["quantidade_mil"] * 1000 / 1e6).sum()
+    esperado = -dv / mtm * 10000
+
+    dados = estoque.dados_dv_do_estoque()
+    obtido = dados["dur \u00cdndice Pre\u00e7os"].iloc[-1]
+    assert abs(obtido - esperado) < 0.01, (obtido, esperado)
+    assert 5 < obtido < 6.5, obtido
+
+
+def test_a_LFT_nao_tem_linha_de_duration():
+    # DV zero sobre valor positivo da duration zero, que e verdade e nao ajuda:
+    # a LFT nao tem duration de TAXA. Uma linha em zero ao lado de duas linhas
+    # reais convida a comparar coisas que nao se comparam.
+    assert "Taxa Flutuante" not in estoque.DURATION_DE
+    dados = estoque.dados_dv_do_estoque()
+    assert "dur Taxa Flutuante" not in dados.columns
+    # Mas ela CONTINUA no painel de cima, com DV zero, que la e a informacao.
+    assert "Taxa Flutuante" in estoque.ORDEM_DO_DV
+    assert (dados["Taxa Flutuante"] == 0).all()
+
+
+def test_o_DV_do_estoque_sao_DOIS_PAINEIS():
+    fig = plt.figure(figsize=(13, 7.0))
+    estoque.desenha_dv_do_estoque(estoque.dados_dv_do_estoque(), fig)
+    assert len(fig.axes) == 2
+    cima, baixo = fig.axes
+    assert cima.get_position().y0 > baixo.get_position().y0
+    assert cima.get_ylabel().startswith("R$")
+    assert baixo.get_ylabel() == "anos"
+    # Quatro linhas em cima (total + tres indexadores) e duas embaixo.
+    assert len(cima.lines) == 4 and len(baixo.lines) == 2
+    plt.close(fig)
+
+
+def test_papel_novo_sem_indexador_LEVANTA_em_vez_de_sumir():
+    # Se um papel entrar no dv_por_papel.csv sem estar em INDEXADOR_DO_PAPEL, ele
+    # sairia do grafico em silencio e o DV total ficaria menor do que e. Novos
+    # casos param a construcao em vez de encolher o numero sem avisar.
+    assert "NTN-C" in estoque.INDEXADOR_DO_PAPEL
+    guardados = dict(estoque.INDEXADOR_DO_PAPEL)
+    try:
+        del estoque.INDEXADOR_DO_PAPEL["NTN-B"]
+        with pytest.raises(LookupError, match="INDEXADOR_DO_PAPEL"):
+            estoque.dados_dv_do_estoque()
+    finally:
+        estoque.INDEXADOR_DO_PAPEL.clear()
+        estoque.INDEXADOR_DO_PAPEL.update(guardados)

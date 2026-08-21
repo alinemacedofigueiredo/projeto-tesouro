@@ -93,6 +93,12 @@ def _fig_estoque_total(janela):
     return fig
 
 
+def _fig_dv_do_estoque(janela):
+    fig = _figura(7.0)
+    estoque.desenha_dv_do_estoque(estoque.dados_dv_do_estoque(janela), fig)
+    return fig
+
+
 def _fig_composicao_100(janela):
     fig = _figura()
     estoque.desenha_composicao_100(estoque.dados_composicao(janela), fig.subplots())
@@ -282,6 +288,35 @@ REGISTRO = [
             "e \u00e9 nele que a queda do c\u00e2mbio se l\u00ea como o que foi: uma faixa que "
             "ocupava metade do gr\u00e1fico em 2002 e hoje \u00e9 um fio de 3,7%.",
             True, "completa", _fig_composicao_100),
+    Grafico("dv_do_estoque", "Estoque",
+            "DV01 e duration do estoque, por indexador",
+            "dv_por_papel.csv",
+            "<b>Quanto a carteira perde num choque de +1 ponto-base</b> em toda a "
+            "curva, e <b>quantos anos de duration</b> ela carrega. "
+            "O gr\u00e3fico acima diz quanto da d\u00edvida est\u00e3 em cada indexador; este "
+            "diz quanto do <b>risco de taxa</b> est\u00e3 em cada um, e os dois "
+            "n\u00fameros n\u00e3o se parecem: a <b>LFT \u00e99 54,3% do estoque e 0,0% do "
+            "DV01</b> \u2014 o cupom acompanha a Selic e o PU n\u00e3o anda com a curva "
+            "\u2014 enquanto a <b>NTN-B \u00e99 23,3% do estoque e 74,5% do DV01</b>, "
+            "porque \u00e99 onde est\u00e3o os prazos longos. "
+            "<b>Os dois pain\u00e9is contam o contr\u00e3rio um do outro:</b> o DV01 da "
+            "NTN-B triplicou desde 2010 e a duration dela <i>encolheu</i>, de "
+            "8,77 anos em out/2019 para 5,57 hoje. O risco cresceu por "
+            "<b>tamanho</b>, e n\u00e3o por prazo. "
+            "A duration \u00e99 a modificada, ponderada pelo valor de mercado; a LFT "
+            "n\u00e3o entra nela, porque n\u00e3o tem duration de taxa. "
+            "A s\u00e9rie \u00e99 mensal e come\u00e7a em <b>jan/2010</b>: n\u00e3o h\u00e3 DV "
+            "calculado antes disso, e por isso ela n\u00e3o vai a 2000 como as "
+            "vizinhas. "
+            "<b>Quatro pap\u00e9is ficam de fora</b>, porque n\u00e3o h\u00e3 taxa de mercado "
+            "coletada para eles: NTN-C, NTN-B Principal, RendA+ e EducA+ \u2014 "
+            "R$ 190,0 bi de estoque, ou cerca de <b>7,6% do DV01 verdadeiro</b>. "
+            "Tr\u00eas dos quatro s\u00e3o Tesouro Direto, que esta p\u00e3gina n\u00e3o leva; a "
+            "NTN-C fica de fora por falta de taxa, e sozinha vale perto de 2%. "
+            "O sinal vem invertido do arquivo, na conven\u00e7\u00e3o de P&amp;L; aqui se "
+            "desenha o m\u00f5dulo, do lado de quem pergunta de quanto \u00e99 o pr\u00f3prio "
+            "risco.",
+            True, "completa", _fig_dv_do_estoque),
     Grafico("estoque_lft", "Estoque",
             "LFT \u00b7 estoque por vencimento",
             "aba 2.2",

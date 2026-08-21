@@ -28,14 +28,14 @@ def pagina_gravada(tmp_path_factory):
     return dashboard.grava(destino).read_text(encoding="utf-8")
 
 
-def test_o_registro_tem_os_vinte_e_seis_graficos():
+def test_o_registro_tem_os_vinte_e_sete_graficos():
     # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
     # atras de uma setinha, e a composicao empilhada em 100%. Em 20/08 entrou o
     # estoque em titulos por vencimento, um grafico por papel -- quatro, porque
     # a NTN-C tem um vencimento so.
-    assert len(dashboard.REGISTRO) == 26
+    assert len(dashboard.REGISTRO) == 27
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 26, "id repetido no registro"
+    assert len(set(ids)) == 27, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -71,7 +71,7 @@ def test_a_contagem_de_svgs_sai_do_registro():
     # teste passar depois de alguem esquecer de gravar uma versao.
     com_janela = [g for g in dashboard.REGISTRO if g.janela]
     com_variante = [g for g in dashboard.REGISTRO if g.variantes]
-    assert len(com_janela) == 15
+    assert len(com_janela) == 16
     assert len(com_variante) == 1
 
     # O NUMERO DE JANELAS SAI DA CONSTANTE, e nao de um "2" cravado. Ele foi 2 ate
@@ -230,7 +230,11 @@ def test_os_dois_graficos_de_composicao_abrem_na_serie_completa():
     # dentro de uma janela de cinco anos.
     assert porid["estoque_total"].padrao == "completa"
     # E os demais que aceitam janela abrem em 5 anos.
-    na_completa = {"estoque_composicao", "estoque_composicao_100", "estoque_total"}
+    # O DV01 tambem: a serie so comeca em 2010 e o que se ve nela e a divida
+    # triplicando de risco -- numa janela de cinco anos isso nao existe.
+    assert porid["dv_do_estoque"].padrao == "completa"
+    na_completa = {"estoque_composicao", "estoque_composicao_100",
+                   "estoque_total", "dv_do_estoque"}
     outros = [g for g in dashboard.REGISTRO if g.janela and g.id not in na_completa]
     assert all(g.padrao == "5 anos" for g in outros)
 

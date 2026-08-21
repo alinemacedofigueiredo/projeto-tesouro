@@ -311,3 +311,159 @@ def _banda_do_paf(dados, banda, ax):
             for nivel in ("minimo_original", "maximo_original"):
                 ax.plot([inicio, fim], [banda.loc[ano, nivel]] * 2,
                         color=estilo.COR["banda"], lw=0.8, ls=":", zorder=2)
+
+
+# ---------------------------------------------------------------------------
+# O DV01 DO ESTOQUE, por indexador.
+#
+# Quanto a divida perde de valor num choque de +1 ponto-base em toda a curva. O
+# grafico de composicao ao lado diz quanto da divida esta em cada indexador; este
+# diz quanto do RISCO DE TAXA esta em cada um, e os dois numeros nao se parecem:
+#
+#   indexador        % do estoque   % do DV01
+#   Taxa Flutuante          54,3%        0,0%
+#   Indice de Precos        23,3%       74,5%
+#   Prefixado               22,4%       25,5%
+#
+# A LFT e mais da metade da divida e nao carrega risco de taxa nenhum -- o cupom
+# acompanha a Selic, e o PU nao anda com a curva. E a NTN-B, com um quarto do
+# estoque, carrega tres quartos do risco, porque e onde estao os prazos longos.
+#
+# DE ONDE VEM O NUMERO: dv_por_papel.csv, coluna 'dv_posicao_milhoes', que e o DV
+# unitario vezes a posicao, ISIN a ISIN. A serie e MENSAL e comeca em jan/2010 --
+# nao ha DV antes disso, e o dashboard do RMD vai a 2000. As janelas do dashboard
+# recortam esta serie como recortam as outras; a "completa" aqui e 2010 em diante.
+#
+# CONFERIDO: as quantidades do dv_por_papel batem com a aba 2.2 vencimento a
+# vencimento, em todos os papeis, com razao 1,000. E o financeiro sem DV -- linhas
+# que ficaram sem taxa e portanto sem preco -- e 0,00% do financeiro nao-LFT em
+# TODAS as 198 datas. Nao ha buraco escondido nesta soma.
+#
+# O SINAL. dv_posicao_milhoes vem na convencao de P&L, negativa: alta de taxa faz
+# quem carrega perder. Aqui se desenha o MODULO, e o eixo diz "perda num choque de
+# +1 bp" -- que e a mesma informacao dita do lado de quem pergunta "de quanto e o
+# meu risco". Ver docs/convencoes-dv.md antes de mexer nisto.
+# ---------------------------------------------------------------------------
+
+# Qual papel entra em qual indexador. A LFT entra de proposito, com DV zero: ela
+# ser mais da metade da divida e nao carregar risco de taxa E a informacao.
+INDEXADOR_DO_PAPEL = {"LTN": "Prefixado", "NTN-F": "Prefixado",
+                      "NTN-B": "\u00cdndice Pre\u00e7os", "NTN-C": "\u00cdndice Pre\u00e7os",
+                      "LFT": "Taxa Flutuante"}
+
+ORDEM_DO_DV = ["\u00cdndice Pre\u00e7os", "Prefixado", "Taxa Flutuante"]
+
+# Quais ganham linha de duration. A LFT fica fora -- ver dados_dv_do_estoque.
+DURATION_DE = ["\u00cdndice Pre\u00e7os", "Prefixado"]
+
+
+def dados_dv_do_estoque(janela=None):
+    """DV01 da carteira por indexador, em R$ milhoes por ponto-base.
+
+    Uma coluna por indexador mais 'total'. Em MODULO -- ver o cabecalho da secao.
+
+    ARMADILHA: a LFT nao tem dv_unitario, e somar com min_count=1 devolveria NaN
+    para ela e apagaria a linha. Ela vale ZERO, que e diferente de "nao sei", e o
+    grafico precisa mostrar o zero.
+    """
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data"])
+    d["indexador"] = d["titulo"].map(INDEXADOR_DO_PAPEL)
+    faltando = sorted(set(d.loc[d["indexador"].isna(), "titulo"]))
+    if faltando:
+        raise LookupError(
+            f"papel sem indexador em INDEXADOR_DO_PAPEL: {faltando}. Sem isso ele "
+            f"sai do grafico em silencio, e o DV total fica menor do que e.")
+
+    piv = d.pivot_table(index="data", columns="indexador",
+                        values="dv_posicao_milhoes", aggfunc="sum").fillna(0.0)
+    piv = piv.abs()
+    for coluna in ORDEM_DO_DV:
+        if coluna not in piv.columns:
+            piv[coluna] = 0.0
+    piv = piv[ORDEM_DO_DV]
+    piv["total"] = piv.sum(axis=1)
+
+    # A DURATION SAI DE GRACA do que ja esta calculado. Por definicao,
+    # DV01 = -PU x duration modificada x 0,0001, entao a duration da carteira e
+    # o DV01 dela dividido pelo valor de mercado, vezes 10.000.
+    #
+    # PONDERADA PELO VALOR DE MERCADO, que e a unica ponderacao correta. Ponderar
+    # por quantidade somaria uma LTN de R$ 481 com uma NTN-B de R$ 4.031 como se
+    # pesassem o mesmo, e a duration sairia puxada para o papel barato.
+    #
+    # A LFT NAO ENTRA no painel de duration. DV zero sobre valor positivo da
+    # duration zero, que e verdade e nao ajuda: ela nao tem duration de taxa, tem
+    # duration de credito, e desenhar uma linha em zero ao lado de duas linhas
+    # reais convida a comparar coisas que nao se comparam.
+    com_preco = d[d["pu"].notna() & d["dv_posicao_milhoes"].notna()
+                  & (d["quantidade_mil"] > 0)].copy()
+    com_preco["mtm_milhoes"] = (com_preco["pu"] * com_preco["quantidade_mil"]
+                                * 1000 / 1e6)
+    for coluna in DURATION_DE:
+        g = com_preco[com_preco["indexador"] == coluna]
+        dv = g.groupby("data")["dv_posicao_milhoes"].sum()
+        mtm = g.groupby("data")["mtm_milhoes"].sum()
+        piv["dur " + coluna] = (-dv / mtm * 10000).reindex(piv.index)
+
+    return estilo.recorta(piv, janela)
+
+
+def desenha_dv_do_estoque(dados, fig):
+    """DV01 em cima, duration da carteira embaixo, no mesmo eixo do tempo.
+
+    OS DOIS JUNTOS PORQUE CONTAM O CONTRARIO UM DO OUTRO. O DV01 da NTN-B triplicou
+    desde 2010 e a duration dela ENCOLHEU -- de 8,77 anos em out/2019 para 5,57
+    hoje. O risco cresceu por TAMANHO e nao por prazo: e mais divida, mais curta.
+    Separados em dois graficos, essa leitura nao acontece.
+
+    Recebe a FIGURA, como desenha_estoque_total.
+    """
+    cima, baixo = fig.subplots(2, 1, sharex=True,
+                               gridspec_kw={"height_ratios": [2, 1],
+                                            "hspace": 0.26})
+
+    cima.plot(dados.index, dados["total"], color="#1f3864", lw=2.8, zorder=4,
+              label="total")
+    for coluna in ORDEM_DO_DV:
+        cima.plot(dados.index, dados[coluna], lw=1.8, zorder=3, label=coluna,
+                  color=estilo.COR[_CHAVE_COR[coluna]])
+    for coluna in ["total"] + ORDEM_DO_DV:
+        _rotulo_do_fim(cima, dados, coluna,
+                       "#1f3864" if coluna == "total"
+                       else estilo.COR[_CHAVE_COR[coluna]], 0)
+
+    for coluna in DURATION_DE:
+        baixo.plot(dados.index, dados["dur " + coluna], lw=1.8,
+                   color=estilo.COR[_CHAVE_COR[coluna]], label=coluna)
+        _rotulo_do_fim(baixo, dados, "dur " + coluna,
+                       estilo.COR[_CHAVE_COR[coluna]], 2)
+
+    cima.set_ylabel("R$ milh\u00f5es por ponto-base")
+    cima.set_ylim(0, dados["total"].max() * 1.12)
+    baixo.set_ylabel("anos")
+    duracoes = dados[["dur " + c for c in DURATION_DE]]
+    baixo.set_ylim(0, duracoes.max().max() * 1.15)
+    baixo.set_title("duration modificada da carteira, ponderada pelo valor de "
+                    "mercado \u2014 a LFT n\u00e3o entra, n\u00e3o tem duration de taxa",
+                    fontsize=9, loc="left", color=estilo.COR["neutro"], pad=4)
+
+    folga = (dados.index[-1] - dados.index[0]) * 0.06
+    for eixo in (cima, baixo):
+        eixo.set_xlim(dados.index[0], dados.index[-1] + folga)
+        eixo.grid(axis="y", alpha=0.25)
+        eixo.set_axisbelow(True)
+    estilo.eixo_anual(baixo, a_cada=2)
+
+    cima.legend(ncol=4, frameon=False, loc="upper left",
+                title="quanto a carteira perde num choque de +1 bp em toda a curva")
+
+
+def _rotulo_do_fim(ax, dados, coluna, cor, casas):
+    """O ultimo valor da linha, escrito na ponta dela."""
+    valor = dados[coluna].iloc[-1]
+    if pd.isna(valor):
+        return
+    ax.annotate(estilo.num_br(valor, casas), xy=(dados.index[-1], valor),
+                xytext=(6, 0), textcoords="offset points", fontsize=9.5,
+                weight="bold", color=cor, va="center", annotation_clip=False)
