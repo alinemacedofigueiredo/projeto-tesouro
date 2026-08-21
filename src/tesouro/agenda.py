@@ -184,7 +184,7 @@ def _vna_do_mes(quando):
 # resultado era um grafico com vinte e quatro linhas cobrindo periodos diferentes em
 # cada bloco -- de 14/07 a 20/08 no prefixado e de 14/07 a 18/08 na NTN-B. Nao dava
 # para somar o dia, que e justamente a leitura que interessa: quanto risco entrou no
-# mercado NAQUELE pregao.
+# mercado NAQUELE leilao.
 LEILOES_NA_COMPARACAO = 6
 
 # A LFT tem grafico proprio, em QUANTIDADE e nao em DV -- ela nao tem DV por decisao
@@ -204,8 +204,11 @@ def _leiloes_realizados():
     """
     from . import config
 
+    # data_vencimento tambem como data: a tabela dos ultimos leiloes a formata como
+    # dd/mm/aaaa, e string nao aceita formato de data -- levanta ValueError na
+    # montagem da pagina, longe daqui.
     d = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv",
-                    parse_dates=["data_leilao"])
+                    parse_dates=["data_leilao", "data_vencimento"])
     d = d[d["operacao"] == "venda"]
     d = d[~d["volta"].fillna("").astype(str).str.startswith("2")]
     if "estagio" in d.columns:
@@ -234,10 +237,10 @@ def ultimos_dias(quantos=LEILOES_NA_COMPARACAO, base=None):
     """Os ultimos N DIAS de leilao, abertos por familia de papel.
 
     Uma linha por (data, familia), e a soma da data e o que interessa: quanto risco
-    entrou no mercado naquele pregao. As familias que nao foram a mercado no dia
+    entrou no mercado naquele leilao. As familias que nao foram a mercado no dia
     simplesmente nao aparecem -- LFT e NTN-B vao num dia e o prefixado no outro.
 
-    'quantos_atras' e 0 para o pregao mais recente, 1 para o anterior, e assim por
+    'quantos_atras' e 0 para o leilao mais recente, 1 para o anterior, e assim por
     diante. E o que permite rotular sem depender da data.
     """
     d = _leiloes_realizados() if base is None else base
@@ -255,7 +258,7 @@ def ultimos_dias(quantos=LEILOES_NA_COMPARACAO, base=None):
 
 
 def total_por_dia(dias=None, quantos=LEILOES_NA_COMPARACAO):
-    """A soma de cada dia: o DV que entrou no mercado naquele pregao.
+    """A soma de cada dia: o DV que entrou no mercado naquele leilao.
 
     E a leitura que a abertura por familia sozinha nao da -- num dia de prefixado a
     LTN e a NTN-F somam, e e a soma que se compara com o dia anterior.
@@ -273,6 +276,80 @@ def total_por_dia(dias=None, quantos=LEILOES_NA_COMPARACAO):
     total["papeis"] = d.groupby("data_leilao")["papeis"].sum().values
     ordem = d.drop_duplicates("data_leilao").set_index("data_leilao")["quantos_atras"]
     total["quantos_atras"] = total["data_leilao"].map(ordem)
+    return total.sort_values("quantos_atras").reset_index(drop=True)
+
+
+def ultimos_leiloes(quantos=LEILOES_NA_COMPARACAO, base=None):
+    """Os ultimos N leiloes, uma linha por PAPEL E VENCIMENTO.
+
+    E o mesmo nivel de detalhe da tabela da agenda -- titulo, vencimento,
+    quantidade, DV e taxa -- para que as duas possam ser lidas lado a lado. A
+    versao anterior parava na familia, e ai nao dava para ver que dentro de "NTN-B
+    longa" o corte foi num vencimento so.
+
+    A TAXA E A MEDIA PONDERADA PELO FINANCEIRO quando ha mais de uma linha do mesmo
+    vencimento no dia (primeira e segunda volta ja estao filtradas, mas leilao
+    extraordinario pode repetir). A media simples trataria um lote de 100 milhoes e
+    um de 10 bilhoes como iguais, o que nao descreve leilao nenhum.
+
+    A LFT ENTRA, sem DV: ela nao tem DV01 por decisao de modelagem, mas tem
+    quantidade e financeiro, e e mais da metade da emissao. Deixa-la de fora da
+    tabela esconderia o maior numero do dia.
+    """
+    d = _leiloes_realizados() if base is None else base
+    if d.empty:
+        return pd.DataFrame(columns=["data_leilao", "titulo", "familia",
+                                     "data_vencimento", "quantos_atras"])
+
+    dias = sorted(d["data_leilao"].unique())[-quantos:]
+    d = d[d["data_leilao"].isin(dias)].copy()
+    d["_peso"] = d["taxa_media_pct"] * d["financeiro_milhoes"]
+
+    saida = d.groupby(["data_leilao", "titulo", "familia", "data_vencimento"]).agg(
+        dv_aceito=("dv_milhoes", "sum"),
+        dv_ofertado=("dv_ofertado_milhoes", "sum"),
+        qtd_aceita=("quantidade", "sum"),
+        qtd_ofertada=("oferta_qtd", "sum"),
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        _peso=("_peso", "sum"),
+    ).reset_index()
+    saida["taxa_media_pct"] = saida["_peso"] / saida["financeiro_milhoes"].replace(
+        0, pd.NA)
+    saida = saida.drop(columns=["_peso"])
+    saida["colocado_pct"] = (
+        saida["dv_aceito"] / saida["dv_ofertado"].replace(0, pd.NA))
+    saida["colocado_qtd_pct"] = (
+        saida["qtd_aceita"] / saida["qtd_ofertada"].replace(0, pd.NA))
+
+    ordem = {dia: k for k, dia in enumerate(reversed(dias))}
+    saida["quantos_atras"] = saida["data_leilao"].map(ordem)
+    return saida.sort_values(
+        ["quantos_atras", "familia", "data_vencimento"]).reset_index(drop=True)
+
+
+def total_dos_leiloes(detalhe=None, quantos=LEILOES_NA_COMPARACAO):
+    """A soma de cada leilao: DV e financeiro do dia inteiro.
+
+    E a leitura que a abertura por papel sozinha nao da -- num dia de prefixado a
+    LTN e a NTN-F somam, e e a soma que se compara com o leilao anterior. O
+    financeiro soma inclusive a LFT, que nao tem DV.
+    """
+    d = ultimos_leiloes(quantos) if detalhe is None else detalhe
+    if d.empty:
+        return d
+    total = d.groupby("data_leilao").agg(
+        dv_aceito=("dv_aceito", "sum"),
+        dv_ofertado=("dv_ofertado", "sum"),
+        qtd_aceita=("qtd_aceita", "sum"),
+        qtd_ofertada=("qtd_ofertada", "sum"),
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        papeis=("titulo", "size"),
+        quantos_atras=("quantos_atras", "first"),
+    ).reset_index()
+    total["colocado_pct"] = (
+        total["dv_aceito"] / total["dv_ofertado"].replace(0, pd.NA))
+    total["colocado_qtd_pct"] = (
+        total["qtd_aceita"] / total["qtd_ofertada"].replace(0, pd.NA))
     return total.sort_values("quantos_atras").reset_index(drop=True)
 
 

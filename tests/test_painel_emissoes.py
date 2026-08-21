@@ -332,7 +332,7 @@ def test_as_janelas_sao_curtas_e_nenhuma_e_a_serie_inteira():
 
 def test_a_escada_de_janelas_e_crescente_e_sem_degrau_repetido():
     # O contador e 20 e nao 50 POR MEDICAO: o Tesouro leiloa quase toda semana,
-    # entao 50 pregoes colapsam sobre "12 meses" -- mediram-se 50 contra 51 pontos,
+    # entao 50 leiloes colapsam sobre "12 meses" -- mediram-se 50 contra 51 pontos,
     # com um dia de diferenca no inicio. Duas janelas iguais e uma janela a toa.
     d = emissao.por_dia("NTN-B")
     tamanhos = [len(estilo.recorta(d, j)) for _, j in painel_emissoes.JANELAS]

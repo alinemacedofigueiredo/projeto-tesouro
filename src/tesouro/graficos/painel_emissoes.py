@@ -43,7 +43,7 @@ GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Taxa e risco"]
 # existir -- some no meio delas.
 #
 # O CONTADOR E 20, E NAO 50, POR MEDICAO. O Tesouro leiloa quase toda semana, entao
-# 50 pregoes sao ~50 semanas e a janela colapsa sobre "12 meses": medido na serie
+# 50 leiloes sao ~50 semanas e a janela colapsa sobre "12 meses": medido na serie
 # diaria de NTN-B, "50 leiloes" comeca em 19/08/2025 e "12 meses" em 12/08/2025 --
 # um ponto de diferenca. Vinte da ~5 meses, que e uma janela de verdade.
 #
@@ -65,13 +65,13 @@ JANELAS = (
 # pixel, em que nada se le. A serie longa continua no dashboard do RMD, que e onde
 # ela tem sentido. Quem precisar dela aqui passa recortes=[("completa", None)].
 
-# A janela que abre. "12 meses" e nao "20 leiloes": vinte pregoes sao ~5 meses e nao
+# A janela que abre. "12 meses" e nao "20 leiloes": vinte leiloes sao ~5 meses e nao
 # fecham um ciclo do PAF -- o ano rolado e a referencia com que ela compara. Quem
 # quer so o que aconteceu agora troca num clique.
 JANELA_PADRAO = "12 meses"
 
 # NOS GRAFICOS SEMANAIS, um ponto e uma semana. Entao "20 leiloes" ali sao as
-# ultimas 20 SEMANAS, e nao os ultimos 20 pregoes. Dito na nota daqueles dois
+# ultimas 20 SEMANAS, e nao os ultimos 20 leiloes. Dito na nota daqueles dois
 # graficos, para que o rotulo da janela nao minta em silencio.
 _NOTA_SEMANAL = ("A janela <b>20 leil\u00f5es</b> conta pontos do gr\u00e1fico, e "
                  "aqui cada ponto \u00e9 uma <b>semana</b> \u2014 ent\u00e3o ela "

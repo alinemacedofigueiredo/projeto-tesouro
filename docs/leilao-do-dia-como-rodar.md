@@ -158,7 +158,7 @@ São **curtas**, porque leilão se move em semanas e não em anos. Em "5 anos" c
 | 5 anos | 249 | ago/2021 |
 
 **O contador é 20 e não 50, por medição.** O Tesouro leiloa quase toda semana, então
-50 pregões são ~50 semanas e a janela colapsa sobre "12 meses" — medi 50 contra 51
+50 leilões são ~50 semanas e a janela colapsa sobre "12 meses" — medi 50 contra 51
 pontos, com um dia de diferença no início. Duas janelas iguais é uma janela à toa.
 
 Nos dois gráficos **por semana**, "20 leilões" conta pontos do gráfico, e ali um

@@ -87,6 +87,13 @@ def _por_dia():
     return _EM_CACHE["por_dia"]
 
 
+def _detalhe():
+    """Os ultimos leiloes, papel a papel. Ver agenda.ultimos_leiloes()."""
+    if "detalhe" not in _EM_CACHE:
+        _EM_CACHE["detalhe"] = dados_agenda.ultimos_leiloes()
+    return _EM_CACHE["detalhe"]
+
+
 def _lft():
     """Os ultimos leiloes de LFT. Ela tem grafico proprio, em titulos."""
     if "lft" not in _EM_CACHE:
@@ -105,12 +112,12 @@ REGISTRO = [
             "Quanto risco ele tentou colocar, e quanto colocou",
             "dv_emitido_por_leilao.csv",
             "O DV01 <b>ofertado</b> (barra de cima, vazada) e o <b>aceito</b> "
-            "(de baixo, cheia) nos <b>seis \u00faltimos preg\u00f5es</b>. A "
+            "(de baixo, cheia) nos <b>seis \u00faltimos leil\u00f5es</b>. A "
             "pergunta que isto responde, e que o aceito sozinho n\u00e3o "
             "responde: ele n\u00e3o conseguiu colocar, ou n\u00e3o quis? Medido "
             "no agregado do hist\u00f3rico, ele coloca <b>68,5% do DV que "
             "oferta</b>. "
-            "O n\u00famero na ponta \u00e9 o <b>total do preg\u00e3o</b>, e a "
+            "O n\u00famero na ponta \u00e9 o <b>total do leil\u00e3o</b>, e a "
             "barra vem empilhada por papel para que a soma n\u00e3o apague a "
             "composi\u00e7\u00e3o \u2014 num dia de prefixado a LTN e a NTN-F "
             "somam, e saber qual das duas pesou \u00e9 metade da leitura. "
@@ -143,36 +150,41 @@ def _celula_taxa(r):
 
 
 def tabela_dos_ultimos(dados=None, quantos=None):
-    """Os ultimos PREGOES, no MESMO MOLDE da tabela da agenda: agrupados por dia.
+    """Os ultimos leiloes, NO MESMO FORMATO da tabela da agenda: papel a papel.
 
-    RECOLHIDA, e antes do calendario. Ela e referencia -- "o que aconteceu" -- e nao
-    o assunto da pagina, que e "o que vem". Deixa-la aberta empurraria a agenda para
-    baixo da dobra, e quem abre a pagina quer ver a agenda.
+    MESMO FORMATO de proposito. As duas tabelas respondem a mesma pergunta em
+    tempos diferentes -- o que vem e o que veio -- e ler as duas exige que as
+    colunas estejam no mesmo lugar. A versao anterior parava na familia, e ai nao
+    dava para ver que dentro de "NTN-B longa" o corte foi num vencimento so.
 
-    A LINHA DE CADA DIA SAI EM OUTRA COR, e traz o TOTAL do pregao. As duas tabelas
-    tem o mesmo formato, e sem a marca elas se parecem demais -- e o total do dia e
-    o numero que a abertura por papel sozinha nao da.
+    RECOLHIDA, e antes do calendario: e referencia, e nao o assunto da pagina.
+    Aberta, empurraria a agenda para baixo da dobra.
 
-    POR DIA e nao por papel: e o pregao que se compara com o pregao anterior.
+    A LINHA DE CADA LEILAO SAI EM OUTRA COR e traz a SOMA do dia -- DV e financeiro.
+    E o numero que a abertura por papel sozinha nao da.
+
+    A LFT ENTRA, sem DV: ela e mais da metade do financeiro, e deixa-la de fora
+    esconderia o maior numero do dia.
     """
-    d = _por_dia() if dados is None else dados
+    d = _detalhe() if dados is None else dados
     if d.empty:
         return ""
     quantos = quantos or dados_agenda.LEILOES_NA_COMPARACAO
     d = d[d["quantos_atras"] < quantos]
-    totais = dados_agenda.total_por_dia(d).set_index("data_leilao")
+    totais = dados_agenda.total_dos_leiloes(d).set_index("data_leilao")
 
     linhas = ['<details id="tabela-ultimos">',
-              "<summary>Os \u00faltimos "
-              f"{quantos} preg\u00f5es</summary>",
-              '<p class="legenda">O DV01 que ele <b>ofertou</b> e o que '
-              '<b>aceitou</b>, e a fra\u00e7\u00e3o entre os dois \u2014 no '
-              'agregado do hist\u00f3rico, 68,5%. A linha em destaque \u00e9 o '
-              '<b>total do preg\u00e3o</b>. A LFT aparece sem DV01, por '
-              'decis\u00e3o de modelagem; para ela a compara\u00e7\u00e3o '
-              'est\u00e1 no gr\u00e1fico acima, em t\u00edtulos.</p>',
+              f"<summary>Os \u00faltimos {quantos} leil\u00f5es</summary>",
+              '<p class="legenda">Mesmo formato da agenda abaixo, para poderem ser '
+              'lidas lado a lado. A linha em destaque \u00e9 a <b>soma do '
+              'leil\u00e3o</b> \u2014 DV01 e financeiro. A fra\u00e7\u00e3o '
+              '\u00e9 o que ele colocou do que ofertou; no agregado do '
+              'hist\u00f3rico, 68,5% do DV. A <b>LFT</b> aparece sem DV01, por '
+              'decis\u00e3o de modelagem, mas com quantidade e financeiro \u2014 '
+              'ela \u00e9 mais da metade da emiss\u00e3o.</p>',
               "<table><thead><tr>"
-              "<th>preg\u00e3o</th><th>papel</th>"
+              "<th>papel</th><th>vencimento</th>"
+              '<th class="n">taxa m\u00e9dia</th>'
               '<th class="n">ofertou</th>'
               '<th class="n">aceitou</th>'
               '<th class="n">DV01 ofertado</th>'
@@ -184,25 +196,31 @@ def tabela_dos_ultimos(dados=None, quantos=None):
     for dia, g in d.groupby("data_leilao", sort=False):
         total = totais.loc[dia]
         linhas.append(
-            f'<tr class="passado"><td><b>{dia:%d/%m/%Y}</b></td>'
-            f"<td>o preg\u00e3o todo</td>"
+            f'<tr class="passado"><td colspan="2"><b>{dia:%d/%m/%Y}</b> '
+            f'\u00b7 o leil\u00e3o todo</td>'
+            f'<td class="n">\u2014</td>'
             f'<td class="n">{_qtd(total["qtd_ofertada"])}</td>'
             f'<td class="n">{_qtd(total["qtd_aceita"])}</td>'
             f'<td class="n">{_mil(total["dv_ofertado"])}</td>'
             f'<td class="n">{_mil(total["dv_aceito"])}</td>'
             f'<td class="n">{_fracao(total)}</td>'
-            f'<td class="n">{estilo.num_br(total["financeiro_milhoes"]/1000, 2)}'
-            f" bi</td></tr>")
-        for _, r in g.sort_values("familia").iterrows():
+            f'<td class="n"><b>'
+            f'{estilo.num_br(total["financeiro_milhoes"] / 1000, 2)} bi</b>'
+            f"</td></tr>")
+        for _, r in g.iterrows():
+            taxa = ("\u2014" if pd.isna(r["taxa_media_pct"])
+                    else estilo.num_br(r["taxa_media_pct"], 4) + "%")
             linhas.append(
-                f"<tr><td></td><td>{r['familia']}</td>"
+                f"<tr><td>{r['titulo']}</td>"
+                f"<td>{r['data_vencimento']:%d/%m/%Y}</td>"
+                f'<td class="n">{taxa}</td>'
                 f'<td class="n">{_qtd(r["qtd_ofertada"])}</td>'
                 f'<td class="n">{_qtd(r["qtd_aceita"])}</td>'
                 f'<td class="n">{_mil(r["dv_ofertado"])}</td>'
                 f'<td class="n">{_mil(r["dv_aceito"])}</td>'
                 f'<td class="n">{_fracao(r)}</td>'
-                f'<td class="n">{estilo.num_br(r["financeiro_milhoes"]/1000, 2)}'
-                f" bi</td></tr>")
+                f'<td class="n">'
+                f'{estilo.num_br(r["financeiro_milhoes"] / 1000, 2)} bi</td></tr>')
 
     linhas += ["</tbody></table>", "</details>"]
     return "\n".join(linhas)

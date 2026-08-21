@@ -200,14 +200,14 @@ def test_os_ultimos_leiloes_sao_PREGOES_e_nao_seis_de_cada_papel(por_dia):
     # prefixado e de 14/07 a 18/08 na NTN-B -- e nao dava para somar o dia.
     assert not por_dia.empty
     assert por_dia["data_leilao"].nunique() == agenda.LEILOES_NA_COMPARACAO
-    # Varias familias por pregao, e nem toda familia em todo pregao: LFT e NTN-B vao
+    # Varias familias por leilao, e nem toda familia em todo leilao: LFT e NTN-B vao
     # a mercado num dia e o prefixado no outro.
-    por_pregao = por_dia.groupby("data_leilao")["familia"].nunique()
-    assert por_pregao.min() >= 2
-    assert por_dia.groupby("familia")["data_leilao"].nunique().min() < len(por_pregao)
+    por_leilao = por_dia.groupby("data_leilao")["familia"].nunique()
+    assert por_leilao.min() >= 2
+    assert por_dia.groupby("familia")["data_leilao"].nunique().min() < len(por_leilao)
 
 
-def test_quantos_atras_numera_os_pregoes_do_mais_recente(por_dia):
+def test_quantos_atras_numera_os_leiloes_do_mais_recente(por_dia):
     ordem = por_dia.drop_duplicates("data_leilao").sort_values("quantos_atras")
     assert list(ordem["quantos_atras"]) == list(range(len(ordem)))
     # 0 e o mais recente.
@@ -215,7 +215,7 @@ def test_quantos_atras_numera_os_pregoes_do_mais_recente(por_dia):
 
 
 def test_o_total_do_dia_e_a_soma_das_familias(por_dia):
-    # E o numero que ela pediu: quanto risco entrou no mercado naquele pregao. Com a
+    # E o numero que ela pediu: quanto risco entrou no mercado naquele leilao. Com a
     # barra empilhada, nenhuma fatia sozinha o mostra.
     total = agenda.total_por_dia(por_dia)
     assert len(total) == por_dia["data_leilao"].nunique()
@@ -232,7 +232,7 @@ def test_o_aceito_nunca_passa_do_ofertado(por_dia):
     assert (com_dv["dv_aceito"] <= com_dv["dv_ofertado"] * 1.001).all()
 
 
-def test_o_grafico_desenha_uma_linha_por_PREGAO(por_dia):
+def test_o_grafico_desenha_uma_linha_por_LEILAO(por_dia):
     import matplotlib.pyplot as plt
     from tesouro.graficos import cronograma
 
@@ -244,7 +244,7 @@ def test_o_grafico_desenha_uma_linha_por_PREGAO(por_dia):
     plt.close(fig)
 
 
-def test_a_barra_do_pregao_vem_EMPILHADA_por_papel(por_dia):
+def test_a_barra_do_leilao_vem_EMPILHADA_por_papel(por_dia):
     # Sem empilhar, a soma do dia apagaria a composicao: num dia de prefixado a LTN
     # e a NTN-F somam, e saber qual das duas pesou e metade da leitura.
     import matplotlib.pyplot as plt
@@ -321,12 +321,12 @@ def test_a_tabela_dos_ultimos_e_RECOLHIVEL_e_vem_antes_do_calendario(pagina):
     assert pagina.index('id="tabela-ultimos"') < pagina.index('id="tabela-agenda"')
 
 
-def test_a_linha_do_PREGAO_sai_marcada_e_traz_o_total(pagina, por_dia):
+def test_a_linha_do_LEILAO_sai_marcada_e_traz_o_total(pagina, por_dia):
     # As duas tabelas tem o mesmo formato; sem a marca elas se parecem demais, e
     # nao fica claro qual e leilao que ja aconteceu. E a linha marcada traz o TOTAL
     # do dia, que e o numero que a abertura por papel sozinha nao da.
     assert pagina.count('class="passado"') == por_dia["data_leilao"].nunique()
-    assert "o preg\u00e3o todo" in pagina
+    assert "o leil\u00e3o todo" in pagina
 
 
 def test_a_pagina_diz_que_a_quantidade_nao_esta_no_calendario(pagina):
@@ -347,14 +347,63 @@ def test_a_tabela_dos_ultimos_separa_ofertado_de_aceito(pagina):
     assert "DV01 por t\u00edtulo" not in pagina
 
 
-def test_a_tabela_dos_ultimos_mostra_seis_PREGOES(pagina, por_dia):
-    # Uma linha de total por pregao, mais uma por familia dentro dele, mais o
-    # cabecalho.
+def test_a_tabela_dos_ultimos_desce_ao_nivel_de_PAPEL_E_VENCIMENTO(pagina):
+    # MESMO FORMATO da tabela da agenda, de proposito: as duas respondem a mesma
+    # pergunta em tempos diferentes -- o que vem e o que veio -- e ler as duas exige
+    # que as colunas estejam no mesmo lugar. A versao anterior parava na familia, e
+    # ai nao dava para ver que dentro de "NTN-B longa" o corte foi num vencimento so.
+    detalhe = agenda.ultimos_leiloes()
     i = pagina.index('id="tabela-ultimos"')
     j = pagina.index('id="tabela-agenda"')
     so_ultimos = pagina[i:j]
-    dias = por_dia["data_leilao"].nunique()
-    assert so_ultimos.count("<tr") == dias + len(por_dia) + 1
+
+    leiloes = detalhe["data_leilao"].nunique()
+    # Uma linha de soma por leilao, mais uma por papel-vencimento, mais o cabecalho.
+    assert so_ultimos.count("<tr") == leiloes + len(detalhe) + 1
+    # E as colunas sao as mesmas da agenda, na mesma ordem.
+    for coluna in ("papel", "vencimento", "taxa m\u00e9dia", "ofertou", "aceitou",
+                   "DV01 ofertado", "DV01 aceito", "financeiro"):
+        assert f">{coluna}<" in so_ultimos, coluna
+
+
+def test_a_LFT_aparece_na_tabela_sem_DV_mas_com_financeiro(pagina):
+    # Ela e mais da metade da emissao: deixa-la de fora esconderia o maior numero
+    # do dia. Sem DV01 por decisao de modelagem, com quantidade e financeiro.
+    detalhe = agenda.ultimos_leiloes()
+    lft = detalhe[detalhe["titulo"] == "LFT"]
+    assert len(lft) > 0
+    assert lft["dv_aceito"].fillna(0).eq(0).all()
+    assert (lft["financeiro_milhoes"] > 0).all()
+    assert (lft["qtd_ofertada"] > 0).all()
+
+    i = pagina.index('id="tabela-ultimos"')
+    j = pagina.index('id="tabela-agenda"')
+    assert "LFT" in pagina[i:j]
+
+
+def test_a_soma_do_leilao_inclui_a_LFT_no_financeiro(pagina):
+    # O DV do dia soma so quem tem DV; o financeiro soma TODOS. Se a LFT ficasse de
+    # fora do financeiro, o total do dia sairia ate tres vezes menor -- em 18/08 ela
+    # e 29,3 dos 34,5 bilhoes.
+    detalhe = agenda.ultimos_leiloes()
+    total = agenda.total_dos_leiloes(detalhe)
+    for _, r in total.iterrows():
+        do_dia = detalhe[detalhe["data_leilao"] == r["data_leilao"]]
+        assert r["financeiro_milhoes"] == pytest.approx(
+            do_dia["financeiro_milhoes"].sum())
+        assert r["dv_aceito"] == pytest.approx(do_dia["dv_aceito"].sum())
+
+
+def test_a_taxa_da_tabela_e_ponderada_pelo_financeiro(pagina):
+    # A media simples trataria um lote de 100 milhoes e um de 10 bilhoes como
+    # iguais, o que nao descreve leilao nenhum.
+    detalhe = agenda.ultimos_leiloes()
+    com_taxa = detalhe[detalhe["taxa_media_pct"].notna()]
+    assert len(com_taxa) > 0
+    # Faixa de percentual, nunca de fracao: 0,0702 no lugar de 7,02 nao levanta
+    # nada, so precifica errado.
+    prefixados = com_taxa[com_taxa["titulo"] != "LFT"]
+    assert (prefixados["taxa_media_pct"] > 1).all()
 
 
 def test_a_tabela_da_agenda_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(

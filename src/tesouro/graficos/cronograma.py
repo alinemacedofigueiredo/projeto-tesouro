@@ -1,4 +1,4 @@
-"""O desenho da p\u00e1gina de agenda: ofertado contra aceito, nos \u00faltimos preg\u00f5es.
+"""O desenho da p\u00e1gina de agenda: ofertado contra aceito, nos \u00faltimos leil\u00f5es.
 
 O QUE HAVIA ANTES, e por que saiu. A primeira vers\u00e3o desta p\u00e1gina tinha tr\u00eas
 gr\u00e1ficos -- um cronograma de pontos por v\u00e9rtice, um de DV01 por t\u00edtulo e um de "DV
@@ -10,11 +10,11 @@ uma quantidade do passado para produzir um n\u00famero que ningu\u00e9m ia usar.
 O QUE ENTROU NO LUGAR responde uma pergunta que nenhuma outra p\u00e1gina responde: ele
 n\u00e3o conseguiu colocar, ou n\u00e3o quis?
 
-POR DIA DE PREG\u00c3O, e n\u00e3o "seis de cada papel". A segunda vers\u00e3o contava por fam\u00edlia
+POR DIA DE LEIL\u00c3O, e n\u00e3o "seis de cada papel". A segunda vers\u00e3o contava por fam\u00edlia
 e produzia vinte e quatro linhas cobrindo per\u00edodos diferentes em cada bloco -- de
 14/07 a 20/08 no prefixado e de 14/07 a 18/08 na NTN-B. N\u00e3o dava para somar o dia,
 que \u00e9 justamente a leitura que interessa: quanto risco entrou no mercado NAQUELE
-preg\u00e3o. Agora cada linha \u00e9 um preg\u00e3o, e a barra \u00e9 a soma dele.
+leil\u00e3o. Agora cada linha \u00e9 um leil\u00e3o, e a barra \u00e9 a soma dele.
 
 A BARRA \u00c9 EMPILHADA POR PAPEL, para que a soma do dia n\u00e3o apague a composi\u00e7\u00e3o: num
 dia de prefixado a LTN e a NTN-F somam, e saber qual das duas pesou \u00e9 metade da
@@ -62,7 +62,7 @@ def _pilha(d, dias, familias, coluna):
 
 
 def desenha_ofertado_e_aceito(dados, ax, quantos=6):
-    """Barras deitadas por PREG\u00c3O: DV ofertado e aceito, empilhados por papel.
+    """Barras deitadas por LEIL\u00c3O: DV ofertado e aceito, empilhados por papel.
 
     'dados' vem de agenda.ultimos_dias(): uma linha por (data, fam\u00edlia).
     """
@@ -76,7 +76,7 @@ def desenha_ofertado_e_aceito(dados, ax, quantos=6):
                 ha="center", va="center", transform=ax.transAxes)
         return
 
-    # Do preg\u00e3o mais recente (em cima) para o mais antigo.
+    # Do leil\u00e3o mais recente (em cima) para o mais antigo.
     dias = list(d.sort_values("quantos_atras")["data_leilao"].drop_duplicates())
     familias = [f for f in ORDEM_FAMILIAS if f in set(d["familia"])]
     ofertado = _pilha(d, dias, familias, "dv_ofertado")
@@ -104,12 +104,11 @@ def desenha_ofertado_e_aceito(dados, ax, quantos=6):
     ax.set_yticklabels([f"{dia:%d/%m}" for dia in dias], fontsize=9.5)
     ax.invert_yaxis()
 
-    ax.set_xlabel("DV01 do preg\u00e3o, R$ mil por ponto-base")
+    ax.set_xlabel("DV01 do leil\u00e3o, R$ mil por ponto-base")
     ax.axvline(0, color="gray", lw=0.8)
     _grade(ax)
-    ax.set_title("Quanto risco ele tentou colocar, e quanto colocou, "
-                 "em cada preg\u00e3o",
-                 fontsize=11, weight="bold", loc="left", pad=10)
+    ax.set_title("Ofertado x colocado", fontsize=11, weight="bold",
+                 loc="left", pad=10)
 
     _rotula_totais(ax, posicoes, base_of, base_ac)
     _legenda(ax, familias)
@@ -118,7 +117,7 @@ def desenha_ofertado_e_aceito(dados, ax, quantos=6):
 def _rotula_totais(ax, posicoes, base_of, base_ac):
     """O total do dia na ponta de cada barra, e a fra\u00e7\u00e3o colocada numa coluna fixa.
 
-    O TOTAL \u00c9 O QUE ELA PEDIU: quanto risco entrou no mercado naquele preg\u00e3o. Com a
+    O TOTAL \u00c9 O QUE ELA PEDIU: quanto risco entrou no mercado naquele leil\u00e3o. Com a
     barra empilhada, nenhuma fatia sozinha o mostra.
 
     A fra\u00e7\u00e3o sai numa coluna fixa, e n\u00e3o colada \u00e0 barra: presa a ela, pularia de
