@@ -266,9 +266,13 @@ def desenha_estoque_total(dados, banda, fig):
     # jul/25 a jul/26 -- metade da largura em branco. A folga a direita fica so a
     # que o rotulo do ultimo valor precisa.
     folga = (dados.index[-1] - dados.index[0]) * 0.06
+    # A GRADE SAI DA ESCALA de cada painel, e nao de um passo cravado: sao quatro
+    # janelas, e o eixo de cima vai de 1,7 mil bi na de doze meses a 11,3 mil na
+    # completa. Ver _passo_bonito.
+    _grade_do_tempo(cima)
+    _grade_do_tempo(baixo)
     for eixo in (cima, baixo):
         eixo.set_xlim(dados.index[0], dados.index[-1] + folga)
-        eixo.grid(axis="y", alpha=0.25)
         eixo.set_axisbelow(True)
     estilo.eixo_anual(baixo, a_cada=2)
 
@@ -458,9 +462,13 @@ SEM MEDIA MOVEL. Uma de tres meses foi tentada em 21/08/2026 e recusada por quem
                     fontsize=9, loc="left", color=estilo.COR["neutro"], pad=4)
 
     folga = (dados.index[-1] - dados.index[0]) * 0.06
+    # A MESMA GRADE do grafico de fatores, por pedido: com o eixo indo a 1.600 e a
+    # marca a cada 400, dizer se um ponto e 1.050 ou 1.150 era chute. O passo sai da
+    # escala de cada painel -- ver _passo_bonito.
+    _grade_do_tempo(cima)
+    _grade_do_tempo(baixo)
     for eixo in (cima, baixo):
         eixo.set_xlim(dados.index[0], dados.index[-1] + folga)
-        eixo.grid(axis="y", alpha=0.25)
         eixo.set_axisbelow(True)
     estilo.eixo_anual(baixo, a_cada=2)
 
@@ -601,11 +609,29 @@ def _calcula_decomposicao():
         linha["data"] = pd.Timestamp(atual)
         linhas.append(linha)
 
-    return pd.DataFrame(linhas).set_index("data")
+    saida = pd.DataFrame(linhas).set_index("data")
+    # OS ACUMULADOS SAEM AQUI, na serie inteira, e nao depois do recorte: uma soma
+    # movel de doze meses calculada dentro da janela nasceria com onze meses vazios,
+    # e o primeiro ponto visivel seria um acumulado de um mes so chamado de doze.
+    saida["acum 3m"] = saida["variacao"].rolling(3).sum()
+    saida["acum 12m"] = saida["variacao"].rolling(12).sum()
+    return saida
 
 
-def desenha_variacao_do_dv(dados, ax):
-    """Barras empilhadas por mes, com a variacao liquida marcada por cima.
+# As cores das duas linhas de acumulado. Escuras e sem cor de indexador: elas nao
+# sao mais um fator, sao a soma dos fatores ao longo do tempo.
+_COR_ACUM3 = "#8c6d31"
+_COR_ACUM12 = "#111111"
+
+
+def desenha_variacao_do_dv(dados, fig):
+    """Barras empilhadas em cima, acumulados de 3 e 12 meses embaixo.
+
+    DOIS PAINEIS, e nao tudo num eixo so. A unidade e a mesma nos dois -- R$ por
+    ponto-base -- entao empilhar junto seria honesto. Mas o acumulado de doze meses
+    vai a 391 e a barra mais alta tem 107: no mesmo eixo, a decomposicao, que e o
+    ASSUNTO do grafico, encolhe a um terco e vira rodape das linhas. As duas
+    versoes foram desenhadas e comparadas antes de escolher.
 
     EMPILHADA foi a sugestao dela, e e a certa: as partes SOMAM a variacao, e barra
     empilhada e o desenho que diz "isto soma aquilo". Lado a lado diria "compare
@@ -615,38 +641,107 @@ def desenha_variacao_do_dv(dados, ax):
     tudo a partir do zero misturaria os sinais e a altura da pilha deixaria de
     querer dizer alguma coisa.
     """
+    cima, baixo = fig.subplots(2, 1, sharex=True,
+                               gridspec_kw={"height_ratios": [2, 1],
+                                            "hspace": 0.22})
+
     largura = 20 if len(dados) > 40 else 24
-    cima = pd.Series(0.0, index=dados.index)
-    baixo = pd.Series(0.0, index=dados.index)
+    pilha_cima = pd.Series(0.0, index=dados.index)
+    pilha_baixo = pd.Series(0.0, index=dados.index)
     for fator in FATORES:
         valores = dados[fator].fillna(0.0)
         positivo = valores.clip(lower=0)
         negativo = valores.clip(upper=0)
-        ax.bar(dados.index, positivo, bottom=cima, width=largura,
-               color=_COR_DO_FATOR[fator], label=fator, zorder=2)
-        ax.bar(dados.index, negativo, bottom=baixo, width=largura,
-               color=_COR_DO_FATOR[fator], zorder=2)
-        cima = cima + positivo
-        baixo = baixo + negativo
+        # A FAIXA "SEM TAXA" NAO ENTRA NA LEGENDA. Ela e residuo -- dez meses em
+        # dezesseis anos -- e uma entrada de legenda ao lado das outras quatro a
+        # faz parecer um fator como os demais. O que ela e esta escrito no texto do
+        # grafico, que e onde cabe explicacao.
+        rotulo = None if fator == "sem taxa" else fator
+        cima.bar(dados.index, positivo, bottom=pilha_cima, width=largura,
+                 color=_COR_DO_FATOR[fator], label=rotulo, zorder=2)
+        cima.bar(dados.index, negativo, bottom=pilha_baixo, width=largura,
+                 color=_COR_DO_FATOR[fator], zorder=2)
+        pilha_cima = pilha_cima + positivo
+        pilha_baixo = pilha_baixo + negativo
 
-    ax.plot(dados.index, dados["variacao"], color="#111111", lw=0, marker="_",
-            markersize=6, markeredgewidth=1.6, label="varia\u00e7\u00e3o do m\u00eas",
-            zorder=4)
-    ax.axhline(0, color="#333333", lw=0.9, zorder=3)
+    # O PONTO DO NET em cada barra: sem ele, a variacao do mes tem de ser lida
+    # medindo a pilha de cima contra a de baixo, que ninguem faz a olho.
+    cima.plot(dados.index, dados["variacao"], color="#111111", lw=0, marker="o",
+              markersize=3.4, markerfacecolor="white", markeredgewidth=1.2,
+              label="varia\u00e7\u00e3o do m\u00eas", zorder=5)
+    cima.axhline(0, color="#333333", lw=0.9, zorder=3)
 
-    ax.set_ylabel("R$ milh\u00f5es por ponto-base")
-    # FOLGA NO TOPO PARA A LEGENDA. Ela tem seis entradas e mora dentro do quadro;
-    # sem folga, ela deita sobre as barras mais altas -- que sao justamente os
-    # meses que se quer olhar. A folga sai da pilha positiva mais alta, e nao de um
-    # numero cravado, senao ela some quando a escala muda de janela.
-    pilha = cima.max()
-    fundo = baixo.min()
-    ax.set_ylim(fundo * 1.08, max(pilha, 1.0) * 1.42)
-    estilo.eixo_anual(ax, a_cada=2)
-    ax.grid(axis="y", alpha=0.25)
-    ax.set_axisbelow(True)
+    cima.set_ylabel("R$ milh\u00f5es por ponto-base")
+    cima.set_ylim(pilha_baixo.min() * 1.08, max(pilha_cima.max(), 1.0) * 1.42)
+    _grade_do_tempo(cima)
+    cima.legend(ncol=5, frameon=False, loc="upper left", fontsize=9,
+                title="de onde veio a mudan\u00e7a do DV01 no m\u00eas \u2014 as faixas somam "
+                      "a varia\u00e7\u00e3o, exatamente")
+
+    baixo.plot(dados.index, dados["acum 3m"], color=_COR_ACUM3, lw=1.7,
+               label="acumulado de 3 meses", zorder=4)
+    baixo.plot(dados.index, dados["acum 12m"], color=_COR_ACUM12, lw=2.4,
+               label="acumulado de 12 meses", zorder=5)
+    baixo.axhline(0, color="#333333", lw=0.9, zorder=3)
+    baixo.set_ylabel("R$ milh\u00f5es/bp")
+    _grade_do_tempo(baixo)
+    baixo.legend(ncol=2, frameon=False, loc="upper left", fontsize=9)
+
     folga = (dados.index[-1] - dados.index[0]) * 0.02
-    ax.set_xlim(dados.index[0] - folga, dados.index[-1] + folga)
-    ax.legend(ncol=6, frameon=False, loc="upper left", fontsize=9,
-              title="de onde veio a mudan\u00e7a do DV01 no m\u00eas \u2014 as cinco "
-                    "colunas somam a varia\u00e7\u00e3o, exatamente")
+    for eixo in (cima, baixo):
+        eixo.set_xlim(dados.index[0] - folga, dados.index[-1] + folga)
+        # POR CIMA das barras: uma regua que para na barra so serve para metade do
+        # grafico, e e justamente na barra alta que se quer medir.
+        eixo.set_axisbelow(False)
+    estilo.eixo_anual(baixo, a_cada=1)
+
+
+def _passo_bonito(intervalo, alvo=7):
+    """Um passo de grade 1, 2 ou 5 vezes potencia de dez, com ~'alvo' marcas.
+
+    PASSO FIXO NAO SERVE AQUI porque a mesma funcao desenha quatro janelas. Uma
+    grade de 200 em 200 e boa para um eixo que vai a 1.600 e desastrosa para um que
+    vai a 11.279: sao 59 linhas, e a figura vira papel quadriculado. Aconteceu -- o
+    grafico do total da divida ficou com 59 linhas em cima e 167 embaixo, e so se
+    viu ao medir.
+    """
+    import math
+
+    if intervalo <= 0:
+        return 1.0, 0.5
+    bruto = intervalo / alvo
+    potencia = 10 ** math.floor(math.log10(bruto))
+    for passo in (1, 2, 5, 10):
+        if bruto <= passo * potencia:
+            return passo * potencia, passo * potencia / 2
+    return 10 * potencia, 5 * potencia
+
+
+def _grade_do_tempo(ax, maior=None, menor=None):
+    """Grade nos DOIS eixos, cheia na marca grande e fraca na pequena.
+
+    Com sessenta barras e so a marca do ano, dizer de que mes e uma barra do meio
+    da janela exige medir com o dedo. O trimestre da o ponto de apoio.
+
+    A GRADE E MAIS FORTE QUE A DO estilo.grade_fina, e por pedido: com barras
+    empilhadas por cima, a grade de 0,30 de alpha some atras delas. Aqui ela precisa
+    atravessar a barra para servir de regua -- e por isso ela e desenhada POR CIMA,
+    com set_axisbelow(False) e um alpha baixo o bastante para nao sujar.
+    """
+    import matplotlib.dates as mdates
+    from matplotlib.ticker import MultipleLocator
+
+    if maior is None:
+        piso, teto = ax.get_ylim()
+        maior, menor = _passo_bonito(teto - piso)
+    ax.yaxis.set_major_locator(MultipleLocator(maior))
+    ax.yaxis.set_minor_locator(MultipleLocator(menor))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=(1, 4, 7, 10)))
+    ax.grid(axis="y", which="major", color="#8a8a8a", lw=0.7, alpha=0.55)
+    ax.grid(axis="y", which="minor", color="#b0b0b0", lw=0.5, alpha=0.35)
+    ax.grid(axis="x", which="major", color="#8a8a8a", lw=0.7, alpha=0.40)
+    ax.grid(axis="x", which="minor", color="#b0b0b0", lw=0.5, alpha=0.22)
+    ax.tick_params(axis="x", which="minor", length=3)
+    ax.tick_params(axis="y", which="minor", length=2.5)
+
+

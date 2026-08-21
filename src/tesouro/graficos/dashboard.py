@@ -100,9 +100,8 @@ def _fig_dv_do_estoque(janela):
 
 
 def _fig_variacao_do_dv(janela):
-    fig = _figura(5.6)
-    estoque.desenha_variacao_do_dv(estoque.dados_variacao_do_dv(janela),
-                                   fig.subplots())
+    fig = _figura(7.2)
+    estoque.desenha_variacao_do_dv(estoque.dados_variacao_do_dv(janela), fig)
     return fig
 
 
@@ -331,11 +330,16 @@ REGISTRO = [
             "dv_por_papel.csv",
             "O gr\u00e1fico acima diz <b>de quanto \u00e9 o risco</b>; este diz "
             "<b>de onde veio a mudan\u00e7a dele</b>. Cada m\u00eas abre em quatro "
-            "partes que <b>somam a varia\u00e7\u00e3o exatamente</b> \u2014 n\u00e3o \u00e9 "
-            "aproxima\u00e7\u00e3o, e o tra\u00e7o preto marca o total. "
+            "faixas que <b>somam a varia\u00e7\u00e3o exatamente</b> \u2014 n\u00e3o \u00e9 "
+            "aproxima\u00e7\u00e3o \u2014 e o ponto branco marca o total do m\u00eas. "
+            "O painel de baixo acumula essa varia\u00e7\u00e3o em <b>3 e em 12 meses</b>. "
             "<b>Decay</b> \u00e9 s\u00f3 a passagem do tempo: cada papel reprecificado no "
             "m\u00eas novo com a <i>taxa e o VNA velhos</i>. "
-            "<b>Pre\u00e7o</b> \u00e9 o que sobrou \u2014 a curva e a corre\u00e7\u00e3o do VNA. "
+            "<b>Pre\u00e7o</b> \u00e9 o que sobrou. <b>Aten\u00e7\u00e3o: a corre\u00e7\u00e3o do VNA "
+            "est\u00e1 em <i>pre\u00e7o</i>, e n\u00e3o em <i>decay</i></b> \u2014 o IPCA "
+            "corrigindo o VNA aumenta o DV01 sem que o risco tenha mudado, e "
+            "chamar isso de passagem do tempo misturaria indexa\u00e7\u00e3o com "
+            "encurtamento. Por isso o VNA \u00e9 congelado no c\u00e1lculo do decay. "
             "<b>Emiss\u00e3o</b> e <b>resgate</b> s\u00e3o a carteira mudando de tamanho. "
             "<b>O que o gr\u00e1fico mostra \u00e9 uma m\u00e1quina de duas pe\u00e7as.</b> O "
             "decay tirou risco em <b>197 dos 197 meses</b> (m\u00e9dia de "
@@ -348,10 +352,15 @@ REGISTRO = [
             "desvio-padr\u00e3o mensal. Em <b>mar\u00e7o de 2020</b> ele tirou 160,6 "
             "milh\u00f5es por bp num m\u00eas, a curva abrindo; em dezembro do mesmo ano "
             "devolveu 97,4. "
-            "A quinta faixa, <b>sem taxa</b>, \u00e9 papel que ficou sem cota\u00e7\u00e3o num "
-            "dos dois meses e por isso n\u00e3o d\u00e1 para atribuir: aparece em 10 dos "
-            "197 meses, no m\u00e1ximo 7,3. Ela existe para a soma fechar \u2014 esconder "
-            "um res\u00edduo dentro de outra barra seria pior. "
+            "<b>A faixa cinza n\u00e3o est\u00e1 na legenda de prop\u00f3sito</b>, para n\u00e3o "
+            "parecer um fator como os outros: ela \u00e9 res\u00edduo. S\u00e3o pap\u00e9is que "
+            "<i>ganharam cota\u00e7\u00e3o</i> de um m\u00eas para o outro \u2014 LTN que nasceu "
+            "fora do leil\u00e3o e depois entrou no calend\u00e1rio \u2014 e no m\u00eas da "
+            "virada o DV01 delas aparece inteiro de uma vez, sem dar para dizer "
+            "se veio de pre\u00e7o ou de quantidade. S\u00e3o <b>10 transi\u00e7\u00f5es em "
+            "dezesseis anos</b>, a maior de 7,3 milh\u00f5es por bp em jan/2025. A "
+            "faixa existe para a soma fechar; esconder res\u00edduo dentro de outra "
+            "barra seria pior. "
             "Como no gr\u00e1fico acima, a <b>LFT n\u00e3o entra</b>.",
             True, "5 anos", _fig_variacao_do_dv),
     Grafico("estoque_lft", "Estoque",

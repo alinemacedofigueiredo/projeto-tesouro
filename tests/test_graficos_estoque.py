@@ -630,10 +630,10 @@ def test_a_faixa_SEM_TAXA_existe_e_e_pequena():
 def test_as_barras_empilham_positivo_para_CIMA_e_negativo_para_BAIXO():
     # Empilhar tudo a partir do zero misturaria os sinais, e a altura da pilha
     # deixaria de querer dizer alguma coisa.
-    fig, ax = plt.subplots(figsize=(13, 5.6))
+    fig = plt.figure(figsize=(13, 7.2))
     d = estoque.dados_variacao_do_dv(3)
-    estoque.desenha_variacao_do_dv(d, ax)
-    for barra in ax.patches:
+    estoque.desenha_variacao_do_dv(d, fig)
+    for barra in fig.axes[0].patches:
         base, altura = barra.get_y(), barra.get_height()
         if altura > 0:
             assert base >= -1e-9, (base, altura)
@@ -661,3 +661,153 @@ def test_a_legenda_do_grafico_nao_afirma_numero_que_o_dado_desmente():
     assert estilo.num_br(abs(d.loc[pior, PRECO]), 1) in nota
     fracao = d[PRECO].std() / d[estoque.FATORES].std().sum()
     assert str(round(fracao * 100)) + "%" in nota
+
+
+def test_o_grafico_de_fatores_tem_o_PAINEL_DOS_ACUMULADOS():
+    # Duas versoes foram desenhadas antes de escolher: tudo num eixo so, e os
+    # acumulados num painel proprio. No mesmo eixo a decomposicao encolhe a um
+    # terco -- o acumulado de doze meses vai a 391 e a barra mais alta tem 107 --
+    # e o ASSUNTO do grafico vira rodape das linhas.
+    fig = plt.figure(figsize=(13, 7.2))
+    d = estoque.dados_variacao_do_dv(5)
+    estoque.desenha_variacao_do_dv(d, fig)
+    assert len(fig.axes) == 2
+    cima, baixo = fig.axes
+    assert cima.get_position().y0 > baixo.get_position().y0
+    assert baixo.get_ylabel().startswith("R$")
+    # Embaixo, so as duas linhas de acumulado; nenhuma barra.
+    assert len(baixo.lines) >= 2
+    assert not baixo.patches
+    rotulos = [l.get_label() for l in baixo.lines]
+    assert any("3 meses" in r for r in rotulos), rotulos
+    assert any("12 meses" in r for r in rotulos), rotulos
+    plt.close(fig)
+
+
+def test_os_acumulados_saem_da_SERIE_INTEIRA_e_nao_da_janela():
+    # Uma soma movel de doze meses calculada dentro da janela nasceria com onze
+    # meses vazios, e o primeiro ponto visivel seria um acumulado de um mes so
+    # chamado de doze. O recorte vem DEPOIS da conta.
+    tudo = estoque.dados_variacao_do_dv()
+    janela = estoque.dados_variacao_do_dv(3)
+    assert janela["acum 12m"].notna().all(), (
+        "o acumulado de 12m nasceu vazio dentro da janela")
+    assert janela["acum 3m"].notna().all()
+    for coluna in ("acum 3m", "acum 12m"):
+        assert (tudo.loc[janela.index, coluna] - janela[coluna]).abs().max() < 1e-9
+    esperado = tudo["variacao"].rolling(12).sum()
+    assert (tudo["acum 12m"] - esperado).abs().max() < 1e-9
+
+
+def test_o_PONTO_DO_NET_esta_em_cada_barra():
+    # Sem ele, a variacao do mes tem de ser lida medindo a pilha de cima contra a
+    # de baixo, que ninguem faz a olho. Saiu na primeira versao e voltou a pedido.
+    fig = plt.figure(figsize=(13, 7.2))
+    d = estoque.dados_variacao_do_dv(3)
+    estoque.desenha_variacao_do_dv(d, fig)
+    cima = fig.axes[0]
+    pontos = [l for l in cima.lines if l.get_marker() not in (None, "None", "")]
+    assert len(pontos) == 1, [l.get_marker() for l in cima.lines]
+    ys = pontos[0].get_ydata()
+    assert len(ys) == len(d)
+    assert abs(ys[-1] - d["variacao"].iloc[-1]) < 1e-9
+    plt.close(fig)
+
+
+def test_a_faixa_cinza_NAO_ENTRA_NA_LEGENDA_mas_esta_no_texto():
+    # Ela e residuo -- dez transicoes em dezesseis anos -- e uma entrada de legenda
+    # ao lado das outras quatro a faz parecer um fator como os demais. O que ela e
+    # fica no texto do grafico, que e onde cabe explicacao.
+    from tesouro.graficos import dashboard
+
+    fig = plt.figure(figsize=(13, 7.2))
+    estoque.desenha_variacao_do_dv(estoque.dados_variacao_do_dv(3), fig)
+    rotulos = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+    assert "sem taxa" not in rotulos, rotulos
+    for fator in ("decay", "pre\u00e7o", "emiss\u00e3o", "resgate"):
+        assert fator in rotulos, (fator, rotulos)
+    plt.close(fig)
+
+    nota = [g for g in dashboard.REGISTRO if g.id == "variacao_do_dv"][0].nota
+    assert "cinza" in nota, "a faixa saiu da legenda e nao foi explicada no texto"
+    assert "ganharam cota" in nota
+
+
+def test_a_nota_diz_que_o_VNA_esta_em_PRECO_e_nao_em_decay():
+    # Pedido dela, e a distincao importa: o IPCA corrigindo o VNA aumenta o DV01
+    # sem que o risco tenha mudado. Chamar isso de passagem do tempo misturaria
+    # indexacao com encurtamento -- e por isso o VNA e congelado no decay.
+    from tesouro.graficos import dashboard
+
+    nota = [g for g in dashboard.REGISTRO if g.id == "variacao_do_dv"][0].nota
+    assert "VNA" in nota
+    i = nota.index("corre\u00e7\u00e3o do VNA")
+    trecho = nota[i:i + 140]
+    assert "pre\u00e7o" in trecho and "decay" in trecho, trecho
+
+
+def test_a_grade_dos_dois_graficos_tem_marca_MENOR():
+    # Pedido dela nos dois. Sem a menor, dizer se um ponto e 1.050 ou 1.150 com a
+    # marca a cada 400 era chute.
+    from tesouro.graficos import paf
+
+    def total(dados, fig):
+        estoque.desenha_estoque_total(dados, paf.bandas("estoque_bilhoes"), fig)
+
+    for desenha, dados in ((estoque.desenha_variacao_do_dv,
+                            estoque.dados_variacao_do_dv(3)),
+                           (estoque.desenha_dv_do_estoque,
+                            estoque.dados_dv_do_estoque(3)),
+                           (total, estoque.dados_estoque_total(3))):
+        fig = plt.figure(figsize=(13, 7.2))
+        desenha(dados, fig)
+        for eixo in fig.axes:
+            # A PROPRIEDADE E "HA MAIS MARCAS DO QUE SO AS MAIORES", e ela nao
+            # se mede contando, nem comparando os dois passos isolados. O
+            # matplotlib TIRA a marca menor que cai em cima de uma maior: com maior
+            # a cada 25 e menor a cada 12,5, as menores sobram em -12,5 e +12,5, e
+            # o passo delas tambem da 25. As duas primeiras versoes deste teste
+            # reprovaram um grafico certo por isso -- uma contou 11 contra 12, a
+            # outra comparou 25 com 25.
+            #
+            # O que vale e o passo do CONJUNTO das duas.
+            menores = list(eixo.yaxis.get_minorticklocs())
+            maiores = list(eixo.yaxis.get_majorticklocs())
+            assert len(menores) >= 3 and len(maiores) >= 3
+            passo_maior = min(b - a for a, b in zip(maiores, maiores[1:]))
+            # ARREDONDAR ANTES DA UNIAO, e exigir folga na comparacao. A terceira
+            # versao deste teste ainda passava contra um grafico sem marca menor:
+            # com menor = maior, as duas listas caem quase nas mesmas alturas, mas
+            # diferem no decimo quinto decimal -- a uniao ficava com o dobro dos
+            # pontos, separados por 1e-13, e "ha marcas mais juntas" dava verdade.
+            juntas = sorted({round(x / passo_maior, 6)
+                             for x in list(menores) + list(maiores)})
+            passo_junto = min(b - a for a, b in zip(juntas, juntas[1:]))
+            assert passo_junto < 0.9, (desenha.__name__, eixo.get_ylabel(),
+                                       passo_junto, passo_maior)
+            # E NAO PODE VIRAR PAPEL QUADRICULADO. Um passo cravado de 200 num eixo
+            # que vai a 11.279 dava 59 linhas em cima e 167 embaixo, no grafico do
+            # total da divida -- e so se viu ao medir, porque o passo foi copiado de
+            # outro grafico junto com o resto do bloco.
+            assert 4 <= len(maiores) <= 14, (desenha.__name__, eixo.get_ylabel(),
+                                             len(maiores))
+            # E a grade esta LIGADA nas duas, senao a marca menor nao vira regua.
+            # A checagem e pelos tick kwargs porque as Line2D da grade so ganham
+            # visibilidade quando o canvas desenha, e desenhar aqui custaria caro.
+            assert eixo.yaxis._major_tick_kw.get("gridOn"), eixo.get_ylabel()
+            assert eixo.yaxis._minor_tick_kw.get("gridOn"), eixo.get_ylabel()
+        plt.close(fig)
+
+
+def test_o_passo_da_grade_sai_da_escala_e_e_um_numero_redondo():
+    # 1, 2 ou 5 vezes potencia de dez -- sao os passos que se leem sem pensar.
+    # Passo cravado nao serve: a mesma funcao desenha quatro janelas, e o eixo do
+    # total da divida vai de 1,7 mil bi na de doze meses a 11,3 mil na completa.
+    for intervalo in (7, 63, 249, 1767, 11279, 0.8):
+        maior, menor = estoque._passo_bonito(intervalo)
+        assert maior > 0 and menor > 0
+        assert abs(menor * 2 - maior) < 1e-9
+        quantas = intervalo / maior
+        assert 3 <= quantas <= 12, (intervalo, maior, quantas)
+        mantissa = maior / 10 ** int(round(__import__("math").log10(maior)))
+        assert round(mantissa, 6) in (0.1, 0.2, 0.5, 1.0, 2.0), (intervalo, maior)
