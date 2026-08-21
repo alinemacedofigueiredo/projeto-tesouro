@@ -154,9 +154,11 @@ def _fig_prazo(janela):
 
 
 def _fig_estoque_por_vencimento(janela=None):
-    fig = _figura(6.6)
+    # Alta o bastante para cinco paineis empilhados: com a altura padrao cada um
+    # ficaria com um centimetro e as barras baixas sumiriam.
+    fig = _figura(11.0)
     vencimentos.desenha_estoque_por_vencimento(
-        vencimentos.dados_estoque_por_vencimento(), fig.subplots())
+        vencimentos.dados_estoque_por_vencimento(), fig)
     return fig
 
 
@@ -321,16 +323,22 @@ REGISTRO = [
     Grafico("estoque_por_vencimento", "Vencimentos",
             "Estoque em t\u00edtulos, por vencimento",
             "aba 2.2",
-            "Uma barra por papel-vencimento, em ordem de vencimento, contando "
-            "<b>t\u00edtulos</b> e n\u00e3o reais \u2014 o gr\u00e1fico acima "
-            "soma por ano e conta financeiro. "
-            "<b>Um t\u00edtulo n\u00e3o vale o mesmo que outro</b>: em "
-            "30/06/2026 um de LFT valia R$ 19.220 e um de LFT-TD1 Reserva, R$ "
-            "10,68 \u2014 mil e oitocentas vezes menos. Os papeis do Tesouro "
-            "Direto (LFT-TD1 e as duas NTN-B1) s\u00e3o <b>10,8% dos "
-            "t\u00edtulos e 0,2% do financeiro</b>, e por isso saem hachurados: "
-            "a barra alta deles \u00e9 um fato sobre o estoque, e n\u00e3o "
-            "sobre a d\u00edvida. "
+            "<b>Um painel por papel</b>, cada um com as suas barras em ordem "
+            "de vencimento, contando <b>t\u00edtulos</b> e n\u00e3o reais "
+            "\u2014 o gr\u00e1fico acima soma por ano e conta financeiro. "
+            "O eixo de vencimentos \u00e9 <b>o mesmo nos cinco</b>, e \u00e9 o "
+            "que faz os pain\u00e9is valerem mais que cinco gr\u00e1ficos "
+            "soltos: d\u00e1 para ver de relance que a LTN se concentra at\u00e9 "
+            "2032 e a NTN-B se espalha at\u00e9 2060. A escala vertical tamb\u00e9m "
+            "\u00e9 a mesma \u2014 com escala livre, a NTN-C sozinha desenharia "
+            "uma barra do tamanho da maior LTN. "
+            "<b>Sem os papeis do Tesouro Direto.</b> Um t\u00edtulo n\u00e3o "
+            "vale o mesmo que outro: em 30/06/2026 um de LFT valia R$ 19.220 e "
+            "um de LFT-TD1 Reserva, R$ 10,68 \u2014 mil e oitocentas vezes "
+            "menos. Com eles dentro, a barra mais alta do gr\u00e1fico era a "
+            "LFT-TD1 de 2036, com 328 milh\u00f5es de t\u00edtulos e R$ 3,5 bi, "
+            "ao lado de uma LTN de R$ 180 bi. Eram 10,8% dos t\u00edtulos e "
+            "0,2% do financeiro. "
             "O eixo \u00e9 categ\u00f3rico, e n\u00e3o cont\u00ednuo: entre "
             "2060 e 2084 h\u00e1 quatro vencimentos e vinte e quatro anos.",
             False, None, _fig_estoque_por_vencimento),

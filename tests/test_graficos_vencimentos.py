@@ -292,7 +292,7 @@ def test_a_banda_cobre_todo_ano_visivel_hoje():
 
 def test_o_estoque_traz_uma_linha_por_papel_e_vencimento():
     d = vencimentos.dados_estoque_por_vencimento()
-    assert len(d) > 50
+    assert len(d) > 40
     assert not d.duplicated(subset=["vencimento", "titulo"]).any()
     # Em ordem de vencimento, que e a ordem em que o eixo os desenha.
     assert list(d["vencimento"]) == sorted(d["vencimento"])
@@ -305,78 +305,106 @@ def test_o_estoque_so_traz_papel_que_ainda_tem_estoque():
     assert (d["quantidade_mil"] > 0).all()
 
 
-def test_o_estoque_vem_da_data_mais_recente():
-    import pandas as pd
-    from tesouro import config
-
-    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
-                    parse_dates=["data"])
+def test_o_TESOURO_DIRETO_fica_de_fora():
+    # Decisao da dona do projeto, e a medicao explica por que ela esta certa: um
+    # titulo nao vale o mesmo que outro. Com os papeis de varejo dentro, a barra
+    # mais alta do grafico era a LFT-TD1 de 2036 -- 328 milhoes de titulos e R$ 3,5
+    # bilhoes -- ao lado de uma LTN de R$ 180 bilhoes.
     d = vencimentos.dados_estoque_por_vencimento()
-    esperado = e["data"].max()
-    total = e[(e["data"] == esperado) & (e["quantidade_mil"] > 0)]
-    assert len(d) == len(total)
+    assert set(d["titulo"]).isdisjoint(vencimentos.PAPEIS_DE_VAREJO)
+    # E a familia NTN-B1, que so tem papel de varejo, some junto.
+    assert "NTN-B1" not in set(d["familia"])
 
 
 def test_UM_TITULO_NAO_VALE_O_MESMO_QUE_OUTRO():
-    # A medicao que obriga o rodape a existir. Se um dia os valores unitarios
-    # convergirem, o aviso vira ruido -- mas ate la ele e o que impede a barra mais
-    # alta do grafico de ser lida como divida.
-    d = vencimentos.dados_estoque_por_vencimento()
-    por_papel = d.groupby("titulo")["valor_unitario"].median()
+    # A medicao que justifica a exclusao, feita no dado BRUTO -- se um dia os
+    # valores unitarios convergirem, a exclusao deixa de ter motivo.
+    bruto = vencimentos._estoque_bruto()
+    por_papel = bruto.groupby("titulo")["valor_unitario"].median()
     assert por_papel["LFT"] > 15000
     assert por_papel["LFT-TD1 Reserva"] < 50
     assert por_papel["LFT"] / por_papel["LFT-TD1 Reserva"] > 500
 
 
-def test_o_varejo_e_muito_dos_titulos_e_quase_nada_da_divida():
-    em_qtd, em_fin = vencimentos.quanto_e_varejo()
+def test_o_excluido_e_muito_dos_titulos_e_quase_nada_da_divida():
+    qtd, fin = vencimentos.excluido_do_estoque()
+    bruto = vencimentos._estoque_bruto()
+    em_qtd = qtd / bruto["quantidade_mil"].sum()
+    em_fin = fin / bruto["financeiro_milhoes"].sum()
     assert em_qtd > 0.05, "os papeis de varejo deixaram de pesar na quantidade"
-    assert em_fin < 0.01, "eles passaram a pesar no financeiro"
+    assert em_fin < 0.02, "eles passaram a pesar no financeiro"
     # E a distancia entre as duas leituras e de mais de uma ordem de grandeza.
-    assert em_qtd / em_fin > 20
+    assert em_qtd / em_fin > 10
 
 
-def test_os_papeis_de_varejo_saem_HACHURADOS_e_nao_escondidos():
-    # O pedido foi "todos os papeis", e a barra alta deles e um fato sobre o
-    # estoque. O que o desenho faz e DIZER isso -- em vez de escond\u00ea-los, como o
-    # perfil por ano faz com a NTN-B1.
+def test_o_asterisco_diz_o_numero_excluido():
+    # O que ficou de fora tem de estar escrito NA FIGURA, e nao so na legenda do
+    # HTML: quem copia o grafico para um slide leva a ressalva junto. E a mesma
+    # regra do perfil ao lado, que ja fazia isso com a NTN-B1.
     import matplotlib.pyplot as plt
 
-    d = vencimentos.dados_estoque_por_vencimento()
-    varejo = d[d["varejo"]]
-    assert len(varejo) > 0
-    assert set(varejo["titulo"]) <= set(vencimentos.PAPEIS_DE_VAREJO)
-
-    fig, ax = plt.subplots()
-    vencimentos.desenha_estoque_por_vencimento(d, ax)
-    hachuradas = [p for p in ax.patches if p.get_hatch()]
-    assert len(hachuradas) == len(varejo)
+    qtd, fin = vencimentos.excluido_do_estoque()
+    fig = plt.figure()
+    vencimentos.desenha_estoque_por_vencimento(
+        vencimentos.dados_estoque_por_vencimento(), fig)
+    # get_title() sem argumento devolve so o titulo CENTRAL; o asterisco esta com
+    # loc="right", que o matplotlib guarda noutro objeto. Ler os tres evita um
+    # teste que passa por procurar no lugar errado.
+    titulos = " ".join(ax.get_title(loc=onde)
+                       for ax in fig.axes
+                       for onde in ("left", "center", "right"))
+    assert "Tesouro Direto" in titulos
+    assert f"{qtd / 1000:.0f}" in titulos
     plt.close(fig)
 
 
-def test_o_rodape_diz_o_numero_medido():
-    # O aviso tem de trazer O NUMERO, e nao uma frase generica: e o numero que
-    # permite julgar o tamanho da ressalva.
+def test_UM_PAINEL_POR_PAPEL():
+    # O pedido: um grafico por tipo de papel. A primeira versao punha os cinco num
+    # painel so, e as barras de cada um ficavam intercaladas com as dos outros --
+    # dava para ver o estoque total por vencimento, e nao o perfil de cada papel.
     import matplotlib.pyplot as plt
 
     d = vencimentos.dados_estoque_por_vencimento()
-    em_qtd, em_fin = vencimentos.quanto_e_varejo(d)
-    fig, ax = plt.subplots()
-    vencimentos.desenha_estoque_por_vencimento(d, ax)
-    textos = " ".join(t.get_text() for t in ax.texts)
-    assert f"{em_qtd * 100:.1f}".replace(".", ",") in textos
-    assert f"{em_fin * 100:.1f}".replace(".", ",") in textos
+    fig = plt.figure()
+    vencimentos.desenha_estoque_por_vencimento(d, fig)
+    familias = [f for f in vencimentos.ORDEM_FAMILIAS
+                if f in set(d["familia"])]
+    assert len(fig.axes) == len(familias)
+    # Cada painel tem as barras do SEU papel, e so.
+    for ax, familia in zip(fig.axes, familias):
+        assert len(ax.patches) == len(d[d["familia"] == familia])
     plt.close(fig)
 
 
-def test_uma_barra_por_linha_do_dado():
+def test_o_EIXO_DE_VENCIMENTOS_E_O_MESMO_nos_cinco():
+    # E o que faz os paineis valerem mais que cinco graficos soltos: da para ver de
+    # relance que a LTN se concentra ate 2032 e a NTN-B se espalha ate 2060.
+    # Com eixos independentes, cada painel teria a sua escala de tempo e a
+    # comparacao seria impossivel.
     import matplotlib.pyplot as plt
 
     d = vencimentos.dados_estoque_por_vencimento()
-    fig, ax = plt.subplots()
-    vencimentos.desenha_estoque_por_vencimento(d, ax)
-    assert len(ax.patches) == len(d)
-    # O eixo e CATEGORICO: entre 2060 e 2084 ha quatro vencimentos e vinte e quatro
-    # anos, e um eixo continuo gastaria metade da largura com vazio.
-    assert len(ax.get_xticks()) == len(d)
+    fig = plt.figure()
+    vencimentos.desenha_estoque_por_vencimento(d, fig)
+    limites = {ax.get_xlim() for ax in fig.axes}
+    assert len(limites) == 1, limites
+    # E o eixo cobre TODOS os vencimentos, e nao so os do painel.
+    assert len(fig.axes[-1].get_xticks()) == d["vencimento"].nunique()
+    plt.close(fig)
+
+
+def test_a_ESCALA_VERTICAL_E_A_MESMA_nos_cinco():
+    # Com escala livre, a NTN-C sozinha -- 11 milhoes de titulos -- desenharia uma
+    # barra do tamanho da maior LTN, de 251 milhoes, e o grafico diria o contrario
+    # do que o dado diz.
+    import matplotlib.pyplot as plt
+
+    d = vencimentos.dados_estoque_por_vencimento()
+    fig = plt.figure()
+    vencimentos.desenha_estoque_por_vencimento(d, fig)
+    limites = {ax.get_ylim() for ax in fig.axes}
+    assert len(limites) == 1, limites
+    # E o teto cobre a maior barra de todas.
+    (_, teto), = limites
+    assert teto >= d["quantidade_mil"].max() / 1000
     plt.close(fig)

@@ -4476,106 +4476,131 @@ def desenha_perfil_completo(dados, ax, excluido):
 # soma por ANO e conta em FINANCEIRO; este poe uma barra por VENCIMENTO e
 # conta TITULOS.
 #
-# A ARMADILHA DA QUANTIDADE, medida em 30/06/2026: um titulo nao vale o mesmo
-# que outro. Um de LFT vale R$ 19.220; um de LFT-TD1 Reserva vale R$ 10,68 --
-# mil e oitocentas vezes menos. Os papeis do Tesouro Direto (LFT-TD1 e as duas
-# NTN-B1) sao 10,8% da QUANTIDADE e 0,2% do FINANCEIRO.
+# FORA O TESOURO DIRETO, por decisao da dona do projeto -- e a medicao explica
+# por que ela esta certa. Um titulo nao vale o mesmo que outro: em 30/06/2026
+# um de LFT valia R$ 19.220 e um de LFT-TD1 Reserva, R$ 10,68. Mil e
+# oitocentas vezes menos.
 #
-# Eles NAO sao escondidos: o pedido foi "todos os papeis", e a barra alta deles
-# e um fato sobre o estoque -- ha muitos papeizinhos. O que o desenho faz e
-# DIZER isso, num rodape com o numero medido, para que ninguem leia a barra
-# como divida.
+# Com eles dentro, a barra mais alta do grafico era a LFT-TD1 de 2036 -- 328
+# milhoes de titulos e R$ 3,5 bilhoes, contra os R$ 180 bilhoes da LTN 2029
+# que ficava do lado. Os tres papeis de varejo somavam 10,8% dos titulos e
+# 0,2% do financeiro.
+#
+# E o mesmo tratamento que o perfil ao lado ja dava a NTN-B1, e pelo mesmo
+# motivo. O que ficou de fora vai num asterisco, com o numero.
 # ---------------------------------------------------------------------------
 
 # Os papeis vendidos no Tesouro Direto, cujo valor unitario e de outra ordem.
 PAPEIS_DE_VAREJO = ("LFT-TD1 Reserva", "NTN-B1 EducA+", "NTN-B1 RendA+")
 
 
-def dados_estoque_por_vencimento():
-    """Uma linha por (vencimento, titulo), com a quantidade em estoque.
-
-    Ordenada por VENCIMENTO, que e a ordem em que o eixo os desenha. O mesmo
-    vencimento pode ter ate tres papeis diferentes -- 15/05/2035 tem NTN-B,
-    NTN-B Principal e NTN-B1 -- e cada um vira a sua barra.
-
-    So o que TEM estoque: papel ja vencido fica no CSV com quantidade zero, e
-    incluir zeros poria dezenas de barras de altura nenhuma no eixo.
-    """
+def _estoque_bruto():
+    """A aba 2.2 na data mais recente, ANTES de tirar o Tesouro Direto."""
     e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                     parse_dates=["data", "vencimento"])
     u = e[(e["data"] == e["data"].max()) & (e["quantidade_mil"] > 0)].copy()
     u["familia"] = [_FAMILIA[t] for t in u["titulo"]]
-    u["varejo"] = u["titulo"].isin(PAPEIS_DE_VAREJO)
-    # O valor unitario nao entra no desenho, mas entra no CSV: e o numero que
-    # explica por que a barra de um papel de varejo e alta.
     u["valor_unitario"] = (u["financeiro_milhoes"] * 1e6
                            / (u["quantidade_mil"] * 1000))
-    colunas = ["vencimento", "titulo", "familia", "varejo", "quantidade_mil",
+    return u
+
+
+def excluido_do_estoque():
+    """O Tesouro Direto que ficou de fora: (titulos em milhares, R$ milhoes).
+
+    Existe para o asterisco do desenho poder dizer o numero, e para o teste poder
+    conferir que o numero dito e o numero excluido -- o mesmo par que
+    excluido_do_perfil() forma com o grafico ao lado.
+    """
+    u = _estoque_bruto()
+    fora = u[u["titulo"].isin(PAPEIS_DE_VAREJO)]
+    return fora["quantidade_mil"].sum(), fora["financeiro_milhoes"].sum()
+
+
+def dados_estoque_por_vencimento():
+    """Uma linha por (vencimento, titulo), com a quantidade em estoque.
+
+    Ordenada por VENCIMENTO, que e a ordem em que o eixo os desenha. O mesmo
+    vencimento pode ter mais de um papel -- 15/08/2026 tem NTN-B e NTN-B
+    Principal -- e cada um vira a sua barra.
+
+    So o que TEM estoque: papel ja vencido fica no CSV com quantidade zero, e
+    incluir zeros poria dezenas de barras de altura nenhuma no eixo.
+
+    SEM os papeis do Tesouro Direto -- ver o cabecalho desta secao.
+    """
+    u = _estoque_bruto()
+    u = u[~u["titulo"].isin(PAPEIS_DE_VAREJO)]
+    colunas = ["vencimento", "titulo", "familia", "quantidade_mil",
                "financeiro_milhoes", "valor_unitario"]
     return u[colunas].sort_values(["vencimento", "titulo"]).reset_index(drop=True)
 
 
-def quanto_e_varejo(dados=None):
-    """A fatia dos papeis de varejo, em quantidade e em financeiro.
+def desenha_estoque_por_vencimento(dados, fig, excluido=None):
+    """UM GRAFICO POR TIPO DE PAPEL, empilhados, com o eixo de vencimentos comum.
 
-    Existe para o rodape do desenho poder dizer o numero, e para o teste poder
-    conferir que o numero dito e o numero medido.
-    """
-    d = dados_estoque_por_vencimento() if dados is None else dados
-    varejo = d[d["varejo"]]
-    return (varejo["quantidade_mil"].sum() / d["quantidade_mil"].sum(),
-            varejo["financeiro_milhoes"].sum() / d["financeiro_milhoes"].sum())
+    A primeira versao punha os cinco papeis num painel so, e as barras de cada um
+    ficavam intercaladas com as dos outros -- dava para ver o estoque total por
+    vencimento, e nao dava para ver o PERFIL DE CADA PAPEL, que e o assunto.
 
-
-def desenha_estoque_por_vencimento(dados, ax):
-    """Uma barra por papel-vencimento, em ordem de vencimento.
+    O EIXO E COMPARTILHADO, e e o que faz os paineis valerem mais que cinco
+    graficos soltos: as posicoes sao os 60 vencimentos de todos os papeis juntos, e
+    cada painel deixa vazio o que nao e dele. Assim se ve de relance que a LTN se
+    concentra ate 2032 e a NTN-B se espalha ate 2060 -- comparacao que cinco eixos
+    diferentes nao permitiriam.
 
     O EIXO E CATEGORICO e nao continuo, pelo mesmo motivo do perfil acima: entre
     2060 e 2084 ha quatro vencimentos e vinte e quatro anos, e um eixo continuo
     gastaria metade da largura com vazio.
-
-    A cor e a familia do papel. Os de varejo saem HACHURADOS -- a cor ja diz a
-    familia, e roubar uma cor para dizer "varejo" criaria duas leituras para o
-    mesmo sinal. E a hachura e o mesmo idioma que a pagina de emissoes usa para
-    "este numero merece uma ressalva".
     """
-    posicoes = list(range(len(dados)))
-    cores = [estilo.COR[_COR_FAMILIA[f]] for f in dados["familia"]]
-    hachuras = ["///" if v else "" for v in dados["varejo"]]
+    familias = [f for f in ORDEM_FAMILIAS if f in set(dados["familia"])]
+    vencs = list(dict.fromkeys(dados["vencimento"]))
+    posicao = {v: k for k, v in enumerate(vencs)}
 
-    ax.bar(posicoes, dados["quantidade_mil"] / 1000, width=0.78, color=cores,
-           hatch=hachuras, edgecolor="#333333",
-           linewidth=[0.5 if v else 0.0 for v in dados["varejo"]])
+    eixos = fig.subplots(len(familias), 1, sharex=True)
+    if len(familias) == 1:
+        eixos = [eixos]
 
-    ax.set_xticks(posicoes)
-    ax.set_xticklabels([f"{v:%m/%y}" for v in dados["vencimento"]],
-                       rotation=90, fontsize=6.5)
-    ax.set_ylabel("milh\u00f5es de t\u00edtulos em estoque")
-    ax.margins(x=0.005)
-    ax.grid(axis="y", which="major", alpha=0.28, lw=0.8)
-    ax.set_axisbelow(True)
-    # Folga no topo para o rodape nao cair em cima da barra mais alta -- que e
-    # justamente a que ele explica.
-    ax.set_ylim(0, float(dados["quantidade_mil"].max()) / 1000 * 1.16)
+    # A MESMA ESCALA EM TODOS OS PAINEIS. Com escala livre, a NTN-C sozinha -- 11
+    # milhoes de titulos -- desenharia uma barra do tamanho da LTN de 251 milhoes,
+    # e o grafico diria o contrario do que o dado diz.
+    teto = float(dados["quantidade_mil"].max()) / 1000 * 1.12
 
-    from matplotlib.patches import Patch
-    marcas = [Patch(facecolor=estilo.COR[_COR_FAMILIA[f]], label=f)
-              for f in ORDEM_FAMILIAS if f in set(dados["familia"])]
-    marcas.append(Patch(facecolor="white", edgecolor="#333333", hatch="///",
-                        label="Tesouro Direto"))
-    ax.legend(handles=marcas, ncol=len(marcas), frameon=False,
-              loc="upper center", bbox_to_anchor=(0.5, -0.16), fontsize=9)
+    for ax, familia in zip(eixos, familias):
+        g = dados[dados["familia"] == familia]
+        ax.bar([posicao[v] for v in g["vencimento"]],
+               g["quantidade_mil"] / 1000, width=0.78,
+               color=estilo.COR[_COR_FAMILIA[familia]])
+        ax.set_ylim(0, teto)
+        ax.grid(axis="y", which="major", alpha=0.28, lw=0.8)
+        ax.set_axisbelow(True)
+        ax.margins(x=0.005)
+        # O nome do papel DENTRO do painel, e nao num titulo por cima: cinco
+        # titulos empilhados gastariam metade da altura da figura.
+        ax.text(0.004, 0.88, familia, transform=ax.transAxes, fontsize=10,
+                weight="bold", color=estilo.COR[_COR_FAMILIA[familia]])
+        soma = g["quantidade_mil"].sum() / 1000
+        ax.text(0.996, 0.88,
+                f"{estilo.num_br(soma, 0)} milh\u00f5es de t\u00edtulos",
+                transform=ax.transAxes, ha="right", fontsize=8.5,
+                color="#666666")
 
-    # O RODAPE QUE IMPEDE A LEITURA ERRADA. Sem ele, a barra mais alta do grafico
-    # e um papel que vale R$ 10,68 e que responde por 0,2% da divida.
-    em_qtd, em_fin = quanto_e_varejo(dados)
-    ax.text(0.995, 0.97,
-            f"Tesouro Direto ({', '.join(PAPEIS_DE_VAREJO)}): "
-            f"{estilo.num_br(em_qtd * 100, 1)}% dos t\u00edtulos e "
-            f"{estilo.num_br(em_fin * 100, 1)}% do financeiro \u2014 "
-            f"um t\u00edtulo n\u00e3o vale o mesmo que outro.",
-            transform=ax.transAxes, ha="right", va="top", fontsize=8.5,
-            color="#666666")
+    ultimo = eixos[-1]
+    ultimo.set_xticks(list(posicao.values()))
+    ultimo.set_xticklabels([f"{v:%m/%y}" for v in vencs], rotation=90,
+                           fontsize=6.5)
+
+    fig.supylabel("milh\u00f5es de t\u00edtulos em estoque", fontsize=10)
+
+    # O ASTERISCO: o que ficou de fora tem de estar escrito na figura, e nao so na
+    # legenda do HTML. Quem copia o grafico para um slide leva a ressalva junto --
+    # a mesma regra do perfil ao lado.
+    qtd, fin = excluido if excluido is not None else excluido_do_estoque()
+    eixos[0].set_title(
+        f"* fora o Tesouro Direto: {estilo.num_br(qtd / 1000, 0)} milh\u00f5es "
+        f"de t\u00edtulos e R$ {estilo.num_br(fin / 1000, 1)} bi. "
+        f"Um t\u00edtulo de LFT-TD1 vale R$ 10,68; um de LFT, R$ 19.220.",
+        fontsize=8.5, color="#666666", loc="right", pad=8)
 ```
 
 - [x] **Passo 4: o custo de emissão, em `custo.py`**
@@ -5367,9 +5392,11 @@ def _fig_prazo(janela):
 
 
 def _fig_estoque_por_vencimento(janela=None):
-    fig = _figura(6.6)
+    # Alta o bastante para cinco paineis empilhados: com a altura padrao cada um
+    # ficaria com um centimetro e as barras baixas sumiriam.
+    fig = _figura(11.0)
     vencimentos.desenha_estoque_por_vencimento(
-        vencimentos.dados_estoque_por_vencimento(), fig.subplots())
+        vencimentos.dados_estoque_por_vencimento(), fig)
     return fig
 
 
@@ -5534,16 +5561,22 @@ REGISTRO = [
     Grafico("estoque_por_vencimento", "Vencimentos",
             "Estoque em t\u00edtulos, por vencimento",
             "aba 2.2",
-            "Uma barra por papel-vencimento, em ordem de vencimento, contando "
-            "<b>t\u00edtulos</b> e n\u00e3o reais \u2014 o gr\u00e1fico acima "
-            "soma por ano e conta financeiro. "
-            "<b>Um t\u00edtulo n\u00e3o vale o mesmo que outro</b>: em "
-            "30/06/2026 um de LFT valia R$ 19.220 e um de LFT-TD1 Reserva, R$ "
-            "10,68 \u2014 mil e oitocentas vezes menos. Os papeis do Tesouro "
-            "Direto (LFT-TD1 e as duas NTN-B1) s\u00e3o <b>10,8% dos "
-            "t\u00edtulos e 0,2% do financeiro</b>, e por isso saem hachurados: "
-            "a barra alta deles \u00e9 um fato sobre o estoque, e n\u00e3o "
-            "sobre a d\u00edvida. "
+            "<b>Um painel por papel</b>, cada um com as suas barras em ordem "
+            "de vencimento, contando <b>t\u00edtulos</b> e n\u00e3o reais "
+            "\u2014 o gr\u00e1fico acima soma por ano e conta financeiro. "
+            "O eixo de vencimentos \u00e9 <b>o mesmo nos cinco</b>, e \u00e9 o "
+            "que faz os pain\u00e9is valerem mais que cinco gr\u00e1ficos "
+            "soltos: d\u00e1 para ver de relance que a LTN se concentra at\u00e9 "
+            "2032 e a NTN-B se espalha at\u00e9 2060. A escala vertical tamb\u00e9m "
+            "\u00e9 a mesma \u2014 com escala livre, a NTN-C sozinha desenharia "
+            "uma barra do tamanho da maior LTN. "
+            "<b>Sem os papeis do Tesouro Direto.</b> Um t\u00edtulo n\u00e3o "
+            "vale o mesmo que outro: em 30/06/2026 um de LFT valia R$ 19.220 e "
+            "um de LFT-TD1 Reserva, R$ 10,68 \u2014 mil e oitocentas vezes "
+            "menos. Com eles dentro, a barra mais alta do gr\u00e1fico era a "
+            "LFT-TD1 de 2036, com 328 milh\u00f5es de t\u00edtulos e R$ 3,5 bi, "
+            "ao lado de uma LTN de R$ 180 bi. Eram 10,8% dos t\u00edtulos e "
+            "0,2% do financeiro. "
             "O eixo \u00e9 categ\u00f3rico, e n\u00e3o cont\u00ednuo: entre "
             "2060 e 2084 h\u00e1 quatro vencimentos e vinte e quatro anos.",
             False, None, _fig_estoque_por_vencimento),
