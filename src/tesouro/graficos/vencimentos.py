@@ -419,68 +419,65 @@ def dados_estoque_por_vencimento():
     return u[colunas].sort_values(["vencimento", "titulo"]).reset_index(drop=True)
 
 
-def desenha_estoque_por_vencimento(dados, fig, excluido=None):
-    """UM GRAFICO POR TIPO DE PAPEL, empilhados, com o eixo de vencimentos comum.
+# Os papeis que ganham grafico proprio de estoque. A NTN-C fica de fora: tem UM
+# vencimento e 11 milhoes de titulos, e um grafico de uma barra so nao e grafico.
+PAPEIS_COM_GRAFICO = ("LFT", "LTN", "NTN-F", "NTN-B")
 
-    A primeira versao punha os cinco papeis num painel so, e as barras de cada um
-    ficavam intercaladas com as dos outros -- dava para ver o estoque total por
-    vencimento, e nao dava para ver o PERFIL DE CADA PAPEL, que e o assunto.
 
-    O EIXO E COMPARTILHADO, e e o que faz os paineis valerem mais que cinco
-    graficos soltos: as posicoes sao os 60 vencimentos de todos os papeis juntos, e
-    cada painel deixa vazio o que nao e dele. Assim se ve de relance que a LTN se
-    concentra ate 2032 e a NTN-B se espalha ate 2060 -- comparacao que cinco eixos
-    diferentes nao permitiriam.
+def desenha_estoque_de(dados, ax, familia):
+    """Barras DEITADAS, um vencimento por linha, em ordem cronologica.
 
-    O EIXO E CATEGORICO e nao continuo, pelo mesmo motivo do perfil acima: entre
-    2060 e 2084 ha quatro vencimentos e vinte e quatro anos, e um eixo continuo
-    gastaria metade da largura com vazio.
+    DEITADAS porque o rotulo e uma data completa -- 01/07/2026 -- e data em pe vira
+    etiqueta girada. E a quantidade vai escrita na frente da barra, que e o numero
+    que se foi ver: com quinze barras, ler a altura contra o eixo e mirar.
+
+    CADA PAPEL COM A SUA ESCALA, e nao uma comum aos quatro. Sao quatro graficos
+    separados, e o que se compara dentro de cada um e um vencimento com o outro do
+    MESMO papel -- para comparar volumes entre papeis existe o total no titulo. Com
+    escala comum a NTN-B ficaria espremida num quinto da largura, porque a maior
+    LTN tem 251 milhoes de titulos e a maior NTN-B tem 54.
     """
-    familias = [f for f in ORDEM_FAMILIAS if f in set(dados["familia"])]
-    vencs = list(dict.fromkeys(dados["vencimento"]))
-    posicao = {v: k for k, v in enumerate(vencs)}
+    g = dados[dados["familia"] == familia].sort_values("vencimento")
+    if g.empty:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, f"sem estoque de {familia}", ha="center", va="center",
+                transform=ax.transAxes)
+        return
 
-    eixos = fig.subplots(len(familias), 1, sharex=True)
-    if len(familias) == 1:
-        eixos = [eixos]
+    posicoes = list(range(len(g)))
+    quantidades = list(g["quantidade_mil"] / 1000)
+    ax.barh(posicoes, quantidades, height=0.72,
+            color=estilo.COR[_COR_FAMILIA[familia]])
 
-    # A MESMA ESCALA EM TODOS OS PAINEIS. Com escala livre, a NTN-C sozinha -- 11
-    # milhoes de titulos -- desenharia uma barra do tamanho da LTN de 251 milhoes,
-    # e o grafico diria o contrario do que o dado diz.
-    teto = float(dados["quantidade_mil"].max()) / 1000 * 1.12
+    ax.set_yticks(posicoes)
+    ax.set_yticklabels([f"{v:%d/%m/%Y}" for v in g["vencimento"]], fontsize=9)
+    # O vencimento mais PROXIMO em cima: e a ordem em que a divida vence, e a
+    # ordem em que se le uma lista.
+    ax.invert_yaxis()
 
-    for ax, familia in zip(eixos, familias):
-        g = dados[dados["familia"] == familia]
-        ax.bar([posicao[v] for v in g["vencimento"]],
-               g["quantidade_mil"] / 1000, width=0.78,
-               color=estilo.COR[_COR_FAMILIA[familia]])
-        ax.set_ylim(0, teto)
-        ax.grid(axis="y", which="major", alpha=0.28, lw=0.8)
-        ax.set_axisbelow(True)
-        ax.margins(x=0.005)
-        # O nome do papel DENTRO do painel, e nao num titulo por cima: cinco
-        # titulos empilhados gastariam metade da altura da figura.
-        ax.text(0.004, 0.88, familia, transform=ax.transAxes, fontsize=10,
-                weight="bold", color=estilo.COR[_COR_FAMILIA[familia]])
-        soma = g["quantidade_mil"].sum() / 1000
-        ax.text(0.996, 0.88,
-                f"{estilo.num_br(soma, 0)} milh\u00f5es de t\u00edtulos",
-                transform=ax.transAxes, ha="right", fontsize=8.5,
-                color="#666666")
+    ax.set_xlabel("milh\u00f5es de t\u00edtulos em estoque")
+    ax.grid(axis="x", alpha=0.25, lw=0.8)
+    ax.set_axisbelow(True)
 
-    ultimo = eixos[-1]
-    ultimo.set_xticks(list(posicao.values()))
-    ultimo.set_xticklabels([f"{v:%m/%y}" for v in vencs], rotation=90,
-                           fontsize=6.5)
+    for posicao, quantidade in zip(posicoes, quantidades):
+        ax.annotate(estilo.num_br(quantidade, 1), (quantidade, posicao),
+                    textcoords="offset points", xytext=(5, 0), va="center",
+                    ha="left", fontsize=9, color="#333333")
+    # Folga a direita para o numero caber dentro da figura.
+    ax.set_xlim(0, max(quantidades) * 1.16)
 
-    fig.supylabel("milh\u00f5es de t\u00edtulos em estoque", fontsize=10)
+    total = g["quantidade_mil"].sum() / 1000
+    ax.set_title(f"{familia} \u00b7 estoque por vencimento \u00b7 "
+                 f"{estilo.num_br(total, 0)} milh\u00f5es de t\u00edtulos",
+                 fontsize=11, weight="bold", loc="left", pad=10)
 
-    # O ASTERISCO: o que ficou de fora tem de estar escrito na figura, e nao so na
-    # legenda do HTML. Quem copia o grafico para um slide leva a ressalva junto --
-    # a mesma regra do perfil ao lado.
-    qtd, fin = excluido if excluido is not None else excluido_do_estoque()
-    eixos[0].set_title(
-        f"* fora o Tesouro Direto: {estilo.num_br(qtd / 1000, 0)} milh\u00f5es "
-        f"de t\u00edtulos e R$ {estilo.num_br(fin / 1000, 1)} bi. "
-        f"Um t\u00edtulo de LFT-TD1 vale R$ 10,68; um de LFT, R$ 19.220.",
-        fontsize=8.5, color="#666666", loc="right", pad=8)
+
+def altura_do_estoque(familia, dados=None):
+    """A altura da figura, proporcional ao numero de vencimentos do papel.
+
+    A LFT tem dezessete vencimentos e a NTN-F tem seis: com altura fixa, um sai
+    apertado e o outro com metade da figura vazia.
+    """
+    d = dados_estoque_por_vencimento() if dados is None else dados
+    quantos = len(d[d["familia"] == familia])
+    return max(2.6, 1.5 + quantos * 0.32)

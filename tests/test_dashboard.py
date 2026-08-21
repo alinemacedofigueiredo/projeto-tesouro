@@ -16,13 +16,13 @@ def html():
     return dashboard.monta()
 
 
-def test_o_registro_tem_os_vinte_e_dois_graficos():
+def test_o_registro_tem_os_vinte_e_cinco_graficos():
     # Eram dezesseis; entraram em 19/08/2026 as quatro quebras por papel, recolhidas
     # atras de uma setinha, e a composicao empilhada em 100%. Em 20/08 entrou o
-    # estoque em titulos por vencimento, que conta a mesma divida noutra unidade.
-    assert len(dashboard.REGISTRO) == 22
+    # estoque em titulos por vencimento, um grafico por papel -- quatro, porque a\n    # NTN-C tem um vencimento so.
+    assert len(dashboard.REGISTRO) == 25
     ids = [g.id for g in dashboard.REGISTRO]
-    assert len(set(ids)) == 22, "id repetido no registro"
+    assert len(set(ids)) == 25, "id repetido no registro"
     for g in dashboard.REGISTRO:
         assert g.grupo in dashboard.GRUPOS, f"grupo desconhecido em {g.id}"
         assert g.titulo and g.fonte, f"{g.id} sem titulo ou sem fonte"
@@ -63,9 +63,9 @@ def test_a_contagem_de_svgs_sai_do_registro():
 
     total = sum((2 if g.janela else 1) * (2 if g.variantes else 1)
                 for g in dashboard.REGISTRO)
-    # 37 ate 19/08/2026; o estoque em titulos por vencimento entrou SEM janela --
+    # 37 ate 19/08/2026; os quatro de estoque em titulos entraram SEM janela --
     # e um retrato de uma data, e dizer "5 anos" nele seria atributo que mente.
-    assert total == 38
+    assert total == 41
 
 
 def test_as_quatro_quebras_por_papel_ficam_recolhidas():
@@ -84,16 +84,61 @@ def test_as_quatro_quebras_por_papel_ficam_recolhidas():
 def test_a_setinha_e_html_puro_e_o_conteudo_fica_no_arquivo(html):
     # <details>/<summary> sem uma linha de JavaScript. O SVG continua no arquivo
     # mesmo fechado: quem procura com Ctrl+F acha, e quem imprime leva tudo.
-    # Conta as SECOES recolhidas, e nao a palavra "<details>" solta no documento:
-    # ela aparece tambem num comentario do JavaScript, e um teste que quebra quando
-    # alguem escreve um comentario esta medindo a coisa errada.
+    #
+    # SAO DOIS NIVEIS DE SETINHA desde 20/08/2026: as secoes recolhidas uma a uma
+    # (as quebras por papel) e os GRUPOS inteiros. Contar "<summary>" solto somaria
+    # os dois e nao diria nada -- a contagem e por classe.
     assert html.count('class="recolhida"') == 5
-    assert html.count("<summary>") == 5
-    assert html.count("</details>") == 5
     for gid in ("emissao_papel", "detentores_lft", "detentores_ntnb",
                 "detentores_ltn", "detentores_ntnf"):
         assert f'<section id="{gid}" class="recolhida">' in html
         assert f'data-grafico="{gid}"' in html
+
+    # Um <details> por grupo, mais os cinco de dentro.
+    assert html.count('class="grupo-secao"') == len(dashboard.GRUPOS)
+    assert html.count("</details>") == len(dashboard.GRUPOS) + 5
+
+
+def test_cada_grupo_vira_uma_secao_recolhivel(html):
+    # O pedido: setinha para abrir cada grupo. Com os sete abertos, o dashboard tem
+    # oito metros de rolagem e quem chega nao ve onde as coisas estao.
+    import re
+
+    achados = re.findall(r'data-grupo="([^"]+)"( open)?>\s*<summary>([^<]*)</summary>',
+                         html)
+    assert [a[0] for a in achados] == dashboard.GRUPOS
+    # O rotulo da setinha e o nome do grupo.
+    assert [a[2] for a in achados] == dashboard.GRUPOS
+    # SO O PRIMEIRO ABRE.
+    abertos = [a[0] for a in achados if a[1]]
+    assert abertos == [dashboard.GRUPOS[0]]
+
+
+def test_cada_grafico_fica_dentro_do_grupo_dele(html):
+    # Se um grafico caisse fora da secao do grupo, o indice levaria a ele e a
+    # setinha do grupo nao o mostraria -- ficaria invisivel de um jeito que nada
+    # acusa.
+    import re
+
+    for grupo in dashboard.GRUPOS:
+        i = html.index(f'data-grupo="{grupo}"')
+        fim = html.index("</details>\n<details", i) if f'data-grupo="{grupo}"' \
+            != f'data-grupo="{dashboard.GRUPOS[-1]}"' else html.index("</main>")
+        trecho = html[i:fim]
+        for g in dashboard.REGISTRO:
+            if g.grupo == grupo:
+                assert f'id="{g.id}"' in trecho, (grupo, g.id)
+
+
+def test_o_indice_abre_o_grupo_fechado(html):
+    # COM O GRUPO FECHADO, clicar num link do indice levava a uma secao invisivel.
+    # abreSeApontada() passou a abrir tambem os <details> ANCESTRAIS do alvo.
+    assert "acima.tagName === 'DETAILS'" in html
+    assert "secao.scrollIntoView()" in html
+    # E o indice continua apontando para todos os graficos, inclusive os de grupo
+    # fechado.
+    for g in dashboard.REGISTRO:
+        assert f'href="#{g.id}"' in html
 
 
 def test_o_html_traz_todos_os_titulos_e_todos_os_grupos(html):

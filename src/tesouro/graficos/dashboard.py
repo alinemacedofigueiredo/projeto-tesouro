@@ -153,13 +153,13 @@ def _fig_prazo(janela):
     return fig
 
 
-def _fig_estoque_por_vencimento(janela=None):
-    # Alta o bastante para cinco paineis empilhados: com a altura padrao cada um
-    # ficaria com um centimetro e as barras baixas sumiriam.
-    fig = _figura(11.0)
-    vencimentos.desenha_estoque_por_vencimento(
-        vencimentos.dados_estoque_por_vencimento(), fig)
-    return fig
+def _fig_estoque_de(familia):
+    def figura(janela=None):
+        dados = vencimentos.dados_estoque_por_vencimento()
+        fig = _figura(vencimentos.altura_do_estoque(familia, dados))
+        vencimentos.desenha_estoque_de(dados, fig.subplots(), familia)
+        return fig
+    return figura
 
 
 def _fig_custo(janela, com_dpfe=False):
@@ -250,6 +250,50 @@ REGISTRO = [
             "e \u00e9 nele que a queda do c\u00e2mbio se l\u00ea como o que foi: uma faixa que "
             "ocupava metade do gr\u00e1fico em 2002 e hoje \u00e9 um fio de 3,7%.",
             True, "completa", _fig_composicao_100),
+    Grafico("estoque_lft", "Estoque",
+            "LFT \u00b7 estoque por vencimento",
+            "aba 2.2",
+            "Um vencimento por linha, em ordem cronol\u00f3gica, com a "
+            "<b>quantidade em t\u00edtulos</b> escrita na frente da "
+            "barra \u2014 os gr\u00e1ficos de vencimento contam reais, "
+            "e este conta pap\u00e9is. Dezessete vencimentos, quase todos de tamanho parecido \u2014 e o papel que ele rola com mais regularidade. "
+            "<b>Sem os t\u00edtulos do Tesouro Direto</b>: um de "
+            "LFT-TD1 vale R$ 10,68 e um de LFT, R$ 19.220 \u2014 "
+            "somar os dois em quantidade n\u00e3o descreve nada.",
+            False, None, _fig_estoque_de("LFT")),
+    Grafico("estoque_ltn", "Estoque",
+            "LTN \u00b7 estoque por vencimento",
+            "aba 2.2",
+            "Um vencimento por linha, em ordem cronol\u00f3gica, com a "
+            "<b>quantidade em t\u00edtulos</b> escrita na frente da "
+            "barra \u2014 os gr\u00e1ficos de vencimento contam reais, "
+            "e este conta pap\u00e9is. Concentrada at\u00e9 2032: fora dela n\u00e3o h\u00e1 LTN nenhuma. Os picos de 01/2029 e 07/2029 s\u00e3o os dois maiores estoques em t\u00edtulos de toda a d\u00edvida. "
+            "<b>Sem os t\u00edtulos do Tesouro Direto</b>: um de "
+            "LFT-TD1 vale R$ 10,68 e um de LFT, R$ 19.220 \u2014 "
+            "somar os dois em quantidade n\u00e3o descreve nada.",
+            False, None, _fig_estoque_de("LTN")),
+    Grafico("estoque_ntnf", "Estoque",
+            "NTN-F \u00b7 estoque por vencimento",
+            "aba 2.2",
+            "Um vencimento por linha, em ordem cronol\u00f3gica, com a "
+            "<b>quantidade em t\u00edtulos</b> escrita na frente da "
+            "barra \u2014 os gr\u00e1ficos de vencimento contam reais, "
+            "e este conta pap\u00e9is. Seis vencimentos s\u00f3, todos em 1\u00ba de janeiro \u2014 e o papel mais concentrado dos quatro. "
+            "<b>Sem os t\u00edtulos do Tesouro Direto</b>: um de "
+            "LFT-TD1 vale R$ 10,68 e um de LFT, R$ 19.220 \u2014 "
+            "somar os dois em quantidade n\u00e3o descreve nada.",
+            False, None, _fig_estoque_de("NTN-F")),
+    Grafico("estoque_ntnb", "Estoque",
+            "NTN-B \u00b7 estoque por vencimento",
+            "aba 2.2",
+            "Um vencimento por linha, em ordem cronol\u00f3gica, com a "
+            "<b>quantidade em t\u00edtulos</b> escrita na frente da "
+            "barra \u2014 os gr\u00e1ficos de vencimento contam reais, "
+            "e este conta pap\u00e9is. Espalhada at\u00e9 2060, com quinze vencimentos. \u00c9 onde est\u00e1 o prazo da d\u00edvida. "
+            "<b>Sem os t\u00edtulos do Tesouro Direto</b>: um de "
+            "LFT-TD1 vale R$ 10,68 e um de LFT, R$ 19.220 \u2014 "
+            "somar os dois em quantidade n\u00e3o descreve nada.",
+            False, None, _fig_estoque_de("NTN-B")),
     Grafico("detentores_participacao", "Detentores",
             "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
             "aba 2.7",
@@ -320,28 +364,6 @@ REGISTRO = [
             "estoque \u00e0 data de vencimento do papel, e o cupom pago antes disso n\u00e3o "
             "aparece. Para pagamento m\u00eas a m\u00eas, o cronograma \u00e9 a figura certa.",
             False, None, _fig_perfil_completo),
-    Grafico("estoque_por_vencimento", "Vencimentos",
-            "Estoque em t\u00edtulos, por vencimento",
-            "aba 2.2",
-            "<b>Um painel por papel</b>, cada um com as suas barras em ordem "
-            "de vencimento, contando <b>t\u00edtulos</b> e n\u00e3o reais "
-            "\u2014 o gr\u00e1fico acima soma por ano e conta financeiro. "
-            "O eixo de vencimentos \u00e9 <b>o mesmo nos cinco</b>, e \u00e9 o "
-            "que faz os pain\u00e9is valerem mais que cinco gr\u00e1ficos "
-            "soltos: d\u00e1 para ver de relance que a LTN se concentra at\u00e9 "
-            "2032 e a NTN-B se espalha at\u00e9 2060. A escala vertical tamb\u00e9m "
-            "\u00e9 a mesma \u2014 com escala livre, a NTN-C sozinha desenharia "
-            "uma barra do tamanho da maior LTN. "
-            "<b>Sem os papeis do Tesouro Direto.</b> Um t\u00edtulo n\u00e3o "
-            "vale o mesmo que outro: em 30/06/2026 um de LFT valia R$ 19.220 e "
-            "um de LFT-TD1 Reserva, R$ 10,68 \u2014 mil e oitocentas vezes "
-            "menos. Com eles dentro, a barra mais alta do gr\u00e1fico era a "
-            "LFT-TD1 de 2036, com 328 milh\u00f5es de t\u00edtulos e R$ 3,5 bi, "
-            "ao lado de uma LTN de R$ 180 bi. Eram 10,8% dos t\u00edtulos e "
-            "0,2% do financeiro. "
-            "O eixo \u00e9 categ\u00f3rico, e n\u00e3o cont\u00ednuo: entre "
-            "2060 e 2084 h\u00e1 quatro vencimentos e vinte e quatro anos.",
-            False, None, _fig_estoque_por_vencimento),
     Grafico("prazo_medio", "Prazo",
             "Prazo m\u00e9dio por n\u00edvel, com a banda do PAF",
             "aba 3.7 e referencia/paf_bandas.csv",
@@ -480,8 +502,17 @@ function abreSeApontada() {
   if (!location.hash) { return; }
   var secao = document.querySelector(location.hash);
   if (!secao) { return; }
+  // O <details> DE DENTRO -- as quebras por papel, que sao recolhidas uma a uma.
   var caixa = secao.querySelector('details');
   if (caixa) { caixa.open = true; }
+  // E os de FORA: desde que os grupos viraram recolhiveis, o alvo pode estar
+  // dentro de um grupo fechado, e ai o link levava a uma secao invisivel.
+  var acima = secao.parentElement;
+  while (acima) {
+    if (acima.tagName === 'DETAILS') { acima.open = true; }
+    acima = acima.parentElement;
+  }
+  secao.scrollIntoView();
 }
 
 window.addEventListener('hashchange', abreSeApontada);
@@ -583,6 +614,16 @@ def barra_das_paginas(atual, extras=None, familia=None):
     return "\n".join(partes)
 
 
+CSS_DOS_GRUPOS = """
+details.grupo-secao { margin: 0 0 10px; }
+details.grupo-secao > summary { cursor: pointer; font-size: 17px;
+  font-weight: 600; color: var(--tinta); padding: 10px 0 10px 10px;
+  border-left: 4px solid #ccc; letter-spacing: .01em; }
+details.grupo-secao > summary:hover { background: #fafafa; }
+details.grupo-secao[open] > summary { border-left-color: var(--tinta);
+  margin-bottom: 6px; }
+"""
+
 CSS_DAS_PAGINAS = """
 #paginas { margin: 0 0 14px; font-size: 13px; display: flex;
            align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -650,6 +691,36 @@ def _bloco(grafico, recortes):
     return "\n".join(partes)
 
 
+# Qual grupo abre com a pagina. So o primeiro: com os sete abertos, o dashboard
+# tem oito metros de rolagem e quem chega nao ve onde as coisas estao.
+def _abre_por_padrao(grupo, grupos):
+    return grupo == grupos[0]
+
+
+def _corpo_por_grupo(registro, grupos, recortes):
+    """Os graficos, agrupados dentro de um <details> por grupo.
+
+    <details>/<summary> e HTML puro: a setinha nao custa uma linha de JavaScript, e
+    o conteudo continua no arquivo -- quem procurar com Ctrl+F acha, e quem imprimir
+    leva tudo.
+
+    ATENCAO AO INDICE: com o grupo fechado, clicar num link do indice levava a uma
+    secao invisivel. abreSeApontada() passou a abrir tambem os <details> ANCESTRAIS
+    do alvo, e nao so o de dentro dele.
+    """
+    partes = []
+    for grupo in grupos:
+        do_grupo = [g for g in registro if g.grupo == grupo]
+        if not do_grupo:
+            continue
+        marca = " open" if _abre_por_padrao(grupo, grupos) else ""
+        partes.append(f'<details class="grupo-secao" data-grupo="{grupo}"{marca}>')
+        partes.append(f"<summary>{grupo}</summary>")
+        partes.extend(_bloco(g, recortes) for g in do_grupo)
+        partes.append("</details>")
+    return "\n".join(partes)
+
+
 def _indice(registro, grupos, titulo):
     linhas = ['<nav id="indice">', f"  <h1>{titulo}</h1>"]
     for grupo in grupos:
@@ -687,7 +758,7 @@ def monta(recortes=None, registro=None, grupos=None, titulo=None):
             f"{nome}</button>" for nome, _ in recortes)
         botoes = f'<div id="troca-periodo">{marcas}</div>'
 
-    corpo = "\n".join(_bloco(g, recortes) for g in registro)
+    corpo = _corpo_por_grupo(registro, grupos, recortes)
 
     return (
         "<!doctype html>\n<html lang=\"pt-br\">\n<head>\n"
@@ -717,6 +788,7 @@ def grava(caminho=None, recortes=None, registro=None, grupos=None, titulo=None,
     html = monta(recortes, registro, grupos, titulo)
     html = html.replace(
         "<main>", barra_das_paginas(caminho.name, extras, familia) + "\n<main>", 1)
-    html = html.replace("</style>", CSS_DAS_PAGINAS + "</style>", 1)
+    html = html.replace("</style>",
+                        CSS_DAS_PAGINAS + CSS_DOS_GRUPOS + "</style>", 1)
     caminho.write_text(html, encoding="utf-8")
     return caminho
