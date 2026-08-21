@@ -279,6 +279,98 @@ def acumulado(recorte, meses=3, janela=None, com_compra=False,
     return estilo.recorta(soma, janela)
 
 
+def demanda(recorte, janela=None, com_segunda_volta=True):
+    """Por dia de leilao: o DV que ele OFERTOU, o que COLOCOU, e a fracao.
+
+    A PERGUNTA QUE ISTO RESPONDE, e que a emissao sozinha nao responde: ele nao
+    conseguiu colocar, ou nao quis? Uma barra baixa de emissao pode ser um dia em
+    que ele ofertou pouco, ou um dia em que ofertou muito e o mercado nao levou --
+    e sao coisas opostas.
+
+    SO VENDA. Recompra nao tem "ofertado e colocado" no mesmo sentido: o Tesouro
+    esta do outro lado, e a razao mediria outra coisa.
+
+    A FRACAO E MEDIDA EM DV, e nao em quantidade. Medido no historico inteiro, a
+    diferenca entre as duas leituras e material na NTN-B longa: 37,5% da quantidade
+    contra 46,6% do DV. Em quantidade, um lote de LTN de seis meses pesa igual a um
+    de NTN-B de trinta anos; em DV, cada um pesa o risco que carrega -- e e risco
+    que esta pagina conta.
+    """
+    if recorte not in RECORTES:
+        raise LookupError(f"recorte '{recorte}' nao existe: {sorted(RECORTES)}.")
+    d = _base(com_compra=False, com_segunda_volta=com_segunda_volta)
+    d = d[d["familia"].isin(RECORTES[recorte])]
+    d = d[d["oferta_qtd"].fillna(0) > 0]
+    if d.empty:
+        return pd.DataFrame(columns=["dv_ofertado", "dv_aceito", "colocado_pct"])
+
+    saida = d.groupby("data_leilao").agg(
+        dv_ofertado=("dv_ofertado_milhoes", "sum"),
+        dv_aceito=("dv_milhoes", "sum"),
+        qtd_ofertada=("oferta_qtd", "sum"),
+        qtd_aceita=("quantidade", "sum"),
+        financeiro_milhoes=("financeiro_milhoes", "sum"),
+        estagio=("estagio", _menos_firme),
+    )
+    # A LFT nao tem DV: a fracao dela so existe em quantidade, e o grafico dela
+    # troca de eixo por isso.
+    tem_dv = d["dv_milhoes"].notna().sum() > 0
+    if not tem_dv:
+        saida["dv_ofertado"] = float("nan")
+        saida["dv_aceito"] = float("nan")
+        saida["colocado_pct"] = (
+            saida["qtd_aceita"] / saida["qtd_ofertada"].replace(0, float("nan")))
+    else:
+        saida["colocado_pct"] = (
+            saida["dv_aceito"] / saida["dv_ofertado"].replace(0, float("nan")))
+    return estilo.recorta(saida, janela)
+
+
+def colocado_por_familia(janela=None, com_segunda_volta=True, meses=6):
+    """A fracao colocada de cada familia, em media movel de N meses.
+
+    MEDIA MOVEL porque a serie diaria e ruidosa demais para comparar familias: num
+    dia qualquer uma delas colocou 100% e a outra 40%, e as cinco linhas viram um
+    emaranhado. Em seis meses o nivel de cada uma aparece.
+
+    A LFT entra pela QUANTIDADE, as demais pelo DV -- e a legenda diz isso, porque
+    somar as duas leituras num grafico so seria misturar duas reguas.
+    """
+    d = _base(com_compra=False, com_segunda_volta=com_segunda_volta)
+    d = d[d["oferta_qtd"].fillna(0) > 0]
+    if d.empty:
+        return pd.DataFrame(columns=ORDEM_FAMILIAS)
+
+    dias = int(meses * 30.44)
+    colunas = {}
+    for familia in ORDEM_FAMILIAS:
+        g = d[d["familia"] == familia]
+        if g.empty:
+            continue
+        em_dv = g["dv_milhoes"].notna().sum() > 0
+        cima = "dv_milhoes" if em_dv else "quantidade"
+        baixo = "dv_ofertado_milhoes" if em_dv else "oferta_qtd"
+        por_dia = g.groupby("data_leilao").agg(
+            cima=(cima, "sum"), baixo=(baixo, "sum"))
+        diario = por_dia.reindex(pd.date_range(
+            por_dia.index.min(), por_dia.index.max(), freq="D")).fillna(0.0)
+        movel = diario.rolling(f"{dias}D").sum()
+        # A razao vale TODO DIA, e nao so nos dias de leilao daquele papel: e uma
+        # soma movel de seis meses, e ela nao deixa de existir na terca porque o
+        # papel foi a mercado na segunda. Guardar so os dias de leilao produziria
+        # cinco linhas com buracos alternados -- LFT e NTN-B num dia, prefixado no
+        # outro -- e cinco linhas tracejadas nao se comparam.
+        colunas[familia] = movel["cima"] / movel["baixo"].replace(0, float("nan"))
+
+    saida = pd.DataFrame(colunas).sort_index()
+    # So a partir do dia em que a janela movel de fato completou: antes disso a
+    # razao e de meio periodo e nao quer dizer o que o rotulo promete.
+    primeiro = min(s.first_valid_index() for s in colunas.values())
+    saida = saida.loc[saida.index >= primeiro + pd.Timedelta(days=dias)]
+    saida.index.name = "data"
+    return estilo.recorta(saida, janela)
+
+
 def dv_e_taxa(recorte, janela=None, com_segunda_volta=True):
     """DV01 emitido no dia e taxa media do dia, para a dispersao.
 
@@ -775,6 +867,103 @@ def desenha_empilhado(dados, ax):
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
               ncol=len(ORDEM_FAMILIAS) + len(extras), frameon=False,
               loc="upper center", bbox_to_anchor=(0.5, -0.10))
+
+
+def desenha_demanda(dados, ax, rotulo, em_dv=True):
+    """Barra do ofertado, barra do colocado dentro dela, e a fracao na linha.
+
+    A BARRA DO COLOCADO FICA DENTRO DA DO OFERTADO, e nao ao lado: o colocado e
+    parte do ofertado, e duas barras lado a lado sugeririam duas grandezas que se
+    somam. O vazio que sobra em cima e o que ele deixou de colocar, e e o assunto.
+
+    A linha da fracao vai no eixo da direita, com 100% marcado: e a leitura rapida,
+    e o nivel de 100% e a referencia contra a qual tudo se compara.
+    """
+    largura = _largura(dados.index)
+    estagios = _estagios(dados)
+    escala = 1000 if em_dv else 1e-3
+    coluna_of = "dv_ofertado" if em_dv else "qtd_ofertada"
+    coluna_ac = "dv_aceito" if em_dv else "qtd_aceita"
+
+    ofertado = dados[coluna_of] * escala
+    aceito = dados[coluna_ac] * escala
+
+    ax.bar(dados.index, ofertado, width=largura, label="ofertado",
+           color="#cfd9e4", edgecolor="#7f95ad", linewidth=0.5, zorder=2)
+    # zorder ACIMA do ofertado: a barra do colocado fica DENTRO da outra, e sem
+    # isto a de tras cobre a de dentro e o grafico sai so com barras claras --
+    # exatamente como saiu na primeira versao.
+    ax.bar(dados.index, aceito, width=largura, label="colocado", zorder=3,
+           **_aparencia(estagios, _COR_FINANCEIRO, 0.95))
+    ax.set_ylabel("DV01, R$ mil por ponto-base" if em_dv
+                  else "milhares de t\u00edtulos")
+    ax.axhline(0, color="gray", lw=0.8)
+    _marca_pontos(ax, dados.index, ofertado, lambda v: estilo.num_br(v, 0),
+                  "#5a6b7d", deslocamento=(-6, 8), so_ultimo=True)
+
+    direita = ax.twinx()
+    direita.plot(dados.index, dados["colocado_pct"] * 100, color=_COR_DV, lw=1.4,
+                 label="fra\u00e7\u00e3o colocada")
+    direita.axhline(100, color=_COR_DV, lw=0.9, ls=":", alpha=0.6)
+    direita.set_ylabel("colocado / ofertado, %")
+    # Teto em 118 e nao em 108: o rotulo do ultimo ponto e escrito ACIMA dele, e
+    # com a fracao em 99% ele saia cortado pela borda da figura.
+    direita.set_ylim(0, 118)
+    direita.spines["top"].set_visible(False)
+    direita.grid(False)
+    _marca_pontos(direita, dados.index, dados["colocado_pct"] * 100,
+                  lambda v: estilo.num_br(v, 0) + "%", _COR_DV,
+                  deslocamento=(8, 8), so_ultimo=True)
+
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
+    ax.set_title(rotulo, fontsize=11, weight="bold", loc="left", pad=10)
+
+    marcas, rotulos = ax.get_legend_handles_labels()
+    m2, r2 = direita.get_legend_handles_labels()
+    extras = _legenda_dos_estagios(estagios)
+    ax.legend(marcas + m2 + extras,
+              rotulos + r2 + [e.get_label() for e in extras],
+              ncol=3 + len(extras), frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.10))
+
+
+def desenha_colocado_por_familia(dados, ax, meses=6):
+    """Uma linha por familia: a fracao colocada, em media movel.
+
+    E o resumo da pagina de demanda. O que ele mostra, medido no historico inteiro:
+    prefixado sai quase todo (LTN 96%, NTN-F 94%), e a NTN-B longa sai pela metade
+    (46,6% do DV ofertado). Quando o Tesouro corta, corta na ponta longa.
+    """
+    for familia in ORDEM_FAMILIAS:
+        if familia not in dados.columns:
+            continue
+        serie = dados[familia].dropna()
+        if serie.empty:
+            continue
+        ax.plot(serie.index, serie * 100, lw=1.8,
+                color=estilo.COR[_COR_FAMILIA[familia]], label=familia)
+        _marca_pontos(ax, serie.index, serie * 100,
+                      lambda v: estilo.num_br(v, 0) + "%",
+                      estilo.COR[_COR_FAMILIA[familia]],
+                      deslocamento=(8, 0), so_ultimo=True)
+
+    ax.axhline(100, color="gray", lw=0.9, ls=":", alpha=0.7)
+    # Margem a direita para o rotulo do ultimo ponto de cada linha caber: ele e
+    # escrito ao LADO do ponto, e sem folga encosta na borda da figura.
+    if len(dados.index) > 1:
+        margem = (dados.index.max() - dados.index.min()) * 0.06
+        ax.set_xlim(dados.index.min(), dados.index.max() + margem)
+    ax.set_ylabel("colocado / ofertado, %")
+    # Idem: espaco para o rotulo do ultimo ponto de cada linha.
+    ax.set_ylim(0, 118)
+    _grade(ax)
+    _eixo_do_tempo(ax, dados.index)
+    ax.set_title(f"Fra\u00e7\u00e3o colocada, m\u00e9dia m\u00f3vel de "
+                 f"{meses} meses",
+                 fontsize=11, weight="bold", loc="left", pad=10)
+    ax.legend(ncol=len(ORDEM_FAMILIAS), frameon=False, loc="upper center",
+              bbox_to_anchor=(0.5, -0.12))
 
 
 def desenha_taxa_contra_dv(dados, ax, rotulo):

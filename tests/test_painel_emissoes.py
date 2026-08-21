@@ -44,7 +44,7 @@ def test_o_registro_muda_com_a_combinacao():
     # mudasse, as tres paginas seriam indistinguiveis para quem le.
     so_venda = painel_emissoes.registro(com_compra=False, com_2a=True)
     com_compra = painel_emissoes.registro(com_compra=True, com_2a=True)
-    assert len(so_venda) == len(com_compra) == 13
+    assert len(so_venda) == len(com_compra) == 15
     assert "S\u00f3 venda" in so_venda[0].nota
     assert "compra" in com_compra[0].nota
     assert so_venda[0].nota != com_compra[0].nota
@@ -57,12 +57,12 @@ def pagina(tmp_path_factory):
     return caminho.read_text(encoding="utf-8")
 
 
-def test_a_pagina_traz_os_treze_graficos_e_os_tres_grupos(pagina):
+def test_a_pagina_traz_todos_os_graficos_e_todos_os_grupos(pagina):
     for g in painel_emissoes.registro():
         assert f'id="{g.id}"' in pagina, g.id
     for grupo in painel_emissoes.GRUPOS:
         assert grupo in pagina
-    assert pagina.count("<section") == 13
+    assert pagina.count("<section") == len(painel_emissoes.registro())
 
 
 def test_a_barra_liga_as_paginas_irmas_e_os_recortes(pagina):
@@ -552,3 +552,91 @@ def test_os_rotulos_nao_se_amontoam_no_fim_da_serie():
     assert "30" in escritos      # o maximo, no comeco da serie
     assert "1" not in escritos   # o minimo, vizinho do ultimo
     plt.close(fig)
+
+
+# --------------------------------------------------------------------------
+# Demanda: ofertado contra colocado.
+#
+# A pergunta que a emissao sozinha nao responde -- uma barra baixa pode ser um
+# dia em que ele ofertou pouco, ou um em que ofertou muito e o mercado nao
+# levou, e sao coisas opostas.
+# --------------------------------------------------------------------------
+
+def test_a_demanda_traz_os_dois_lados_e_a_fracao():
+    d = emissao.demanda("NTN-B", janela=1)
+    assert not d.empty
+    for coluna in ("dv_ofertado", "dv_aceito", "colocado_pct"):
+        assert coluna in d.columns
+    # O colocado nunca passa do ofertado -- uma folga minuscula cobre o
+    # arredondamento do proprio dado do Tesouro.
+    assert (d["dv_aceito"] <= d["dv_ofertado"] * 1.001).all()
+    esperado = d["dv_aceito"] / d["dv_ofertado"]
+    assert d["colocado_pct"].round(9).equals(esperado.round(9))
+
+
+def test_a_demanda_e_medida_em_DV_e_nao_em_quantidade():
+    # A DIFERENCA E MATERIAL: no historico inteiro a NTN-B longa colocou 37,5% da
+    # quantidade ofertada e 46,6% do DV. Em quantidade, um lote de LTN de seis
+    # meses pesa igual a um de NTN-B de trinta anos -- e o que esta pagina conta e
+    # risco.
+    d = emissao.demanda("NTN-B longa")
+    em_dv = d["dv_aceito"].sum() / d["dv_ofertado"].sum()
+    em_qtd = d["qtd_aceita"].sum() / d["qtd_ofertada"].sum()
+    assert em_dv == pytest.approx(0.466, abs=0.02)
+    assert em_qtd == pytest.approx(0.375, abs=0.02)
+    assert em_dv > em_qtd, "as duas leituras deixaram de divergir"
+
+
+def test_a_LFT_cai_na_quantidade_porque_nao_tem_DV():
+    # Ela nao tem DV01 por decisao de modelagem. A fracao dela existe, mas so em
+    # titulos -- e o grafico dela troca de eixo por isso.
+    d = emissao.demanda("LFT")
+    assert d["dv_ofertado"].isna().all()
+    assert d["colocado_pct"].notna().any()
+    esperado = d["qtd_aceita"] / d["qtd_ofertada"]
+    assert d["colocado_pct"].dropna().round(9).equals(
+        esperado.loc[d["colocado_pct"].dropna().index].round(9))
+
+
+def test_a_serie_por_familia_nao_tem_buracos_alternados():
+    # LFT e NTN-B vao a mercado num dia e o prefixado no outro. Guardar so os dias
+    # de leilao de cada papel produziria cinco linhas tracejadas em alternancia, e
+    # cinco linhas tracejadas nao se comparam -- a soma movel vale todo dia.
+    d = emissao.colocado_por_familia(janela=5)
+    assert len(d) > 1000
+    for familia in ("LTN", "NTN-F"):
+        assert d[familia].isna().sum() == 0, familia
+
+
+def test_a_quebra_de_2021_na_ntnb_longa_esta_no_dado():
+    # O achado que a pagina mostra, travado aqui para que uma mudanca de dado que o
+    # apague seja notada: a NTN-B longa saiu de ~20% em 2020 para ~81% em 2021.
+    d = emissao.colocado_por_familia()
+    por_ano = d.groupby(d.index.year)["NTN-B longa"].mean()
+    assert por_ano[2020] < 0.30
+    assert por_ano[2021] > 0.70
+    assert por_ano.iloc[-1] > 0.85, "o nivel recente deixou de ser alto"
+
+
+def test_a_barra_do_colocado_fica_DENTRO_da_do_ofertado():
+    # E nao ao lado: o colocado e PARTE do ofertado, e duas barras lado a lado
+    # sugeririam duas grandezas que se somam. A de dentro precisa de zorder maior,
+    # senao a de tras a cobre -- foi assim que a primeira versao saiu, so com
+    # barras claras.
+    import matplotlib.pyplot as plt
+
+    d = emissao.demanda("NTN-B", janela=1)
+    fig, ax = plt.subplots()
+    emissao.desenha_demanda(d, ax, "teste")
+    ofertado = [p for p in ax.patches if p.get_zorder() == 2]
+    colocado = [p for p in ax.patches if p.get_zorder() == 3]
+    assert len(ofertado) == len(colocado) == len(d)
+    # Mesma posicao x, alturas diferentes: uma dentro da outra.
+    assert ofertado[0].get_x() == colocado[0].get_x()
+    plt.close(fig)
+
+
+def test_o_grupo_demanda_esta_na_pagina(pagina):
+    assert "Demanda" in painel_emissoes.GRUPOS
+    for identificador in ("demanda_resumo", "demanda_ntnb"):
+        assert f'id="{identificador}"' in pagina, identificador

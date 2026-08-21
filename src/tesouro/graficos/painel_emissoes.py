@@ -34,7 +34,8 @@ import pandas as pd
 
 from . import dashboard, emissao, estilo
 
-GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Taxa e risco"]
+GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Demanda",
+          "Taxa e risco"]
 
 # AS JANELAS DO LEILAO SAO CURTAS, e as do dashboard do RMD nao servem aqui.
 #
@@ -149,6 +150,27 @@ def _fig_empilhado(com_compra, com_2a):
         fig = dashboard._figura(5.6)
         dados = emissao.financeiro_semanal_por_papel(janela, com_compra, com_2a)
         emissao.desenha_empilhado(dados, fig.subplots())
+        return fig
+    return figura
+
+
+def _fig_demanda(recorte, com_2a, em_dv=True):
+    def figura(janela):
+        fig = dashboard._figura(5.6)
+        dados = emissao.demanda(recorte, janela, com_2a)
+        emissao.desenha_demanda(
+            dados, fig.subplots(),
+            f"{recorte} \u00b7 ofertado e colocado, por dia de leil\u00e3o",
+            em_dv=em_dv)
+        return fig
+    return figura
+
+
+def _fig_colocado(com_2a, meses=6):
+    def figura(janela):
+        fig = dashboard._figura(5.2)
+        dados = emissao.colocado_por_familia(janela, com_2a, meses)
+        emissao.desenha_colocado_por_familia(dados, fig.subplots(), meses)
         return fig
     return figura
 
@@ -275,6 +297,36 @@ def registro(com_compra=False, com_2a=True):
             "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, e ela "
             f"\u00e9 mais da metade dele. {nota_aceito} {_NOTA_SEMANAL}",
             True, JANELA_PADRAO, _fig_empilhado(com_compra, com_2a)),
+    Grafico("demanda_resumo", "Demanda",
+            "Fra\u00e7\u00e3o colocada, por papel",
+            "dv_emitido_por_leilao.csv",
+            "A pergunta que a emiss\u00e3o sozinha n\u00e3o responde: ele "
+            "<b>n\u00e3o conseguiu colocar, ou n\u00e3o quis</b>? Uma barra "
+            "baixa de emiss\u00e3o pode ser um dia em que ofertou pouco, ou um "
+            "em que ofertou muito e o mercado n\u00e3o levou \u2014 e s\u00e3o "
+            "coisas opostas. "
+            "A fra\u00e7\u00e3o \u00e9 medida em <b>DV01</b>, n\u00e3o em "
+            "quantidade: em quantidade, um lote de LTN de seis meses pesa igual a "
+            "um de NTN-B de trinta anos. A LFT entra pela quantidade, porque "
+            "n\u00e3o tem DV01. "
+            "<b>Houve uma quebra em 2021</b>: a NTN-B longa saiu de 20,7% em 2020 "
+            "para 80,9% em 2021, e est\u00e1 em 95,6% em 2026. Os dois lados "
+            "mudaram \u2014 ele passou a leiloar o dobro de vezes (25 para 50 "
+            "dias por ano), em lotes 44% menores, e a colocar quase tudo. "
+            "N\u00e3o \u00e9 artefato do dado: \u00e9 mudan\u00e7a de "
+            "estrat\u00e9gia.",
+            True, JANELA_PADRAO, _fig_colocado(com_2a)),
+    Grafico("demanda_ntnb", "Demanda",
+            "NTN-B \u00b7 ofertado e colocado",
+            "dv_emitido_por_leilao.csv",
+            "A barra clara \u00e9 o que ele <b>ofertou</b>; a escura, dentro "
+            "dela, o que <b>colocou</b>. O vazio que sobra em cima \u00e9 o que "
+            "deixou de colocar, e \u00e9 o assunto. A linha vermelha \u00e9 a "
+            "fra\u00e7\u00e3o, com 100% pontilhado. "
+            "\u00c9 na NTN-B que o corte aparece \u2014 no prefixado a linha "
+            "fica colada nos 95% e n\u00e3o h\u00e1 o que ver. "
+            f"{nota_aceito}",
+            True, JANELA_PADRAO, _fig_demanda("NTN-B", com_2a)),
     Grafico("dv_taxa_pre", "Taxa e risco",
             "LTN + NTN-F \u00b7 taxa contra DV01 emitido",
             "dv_emitido_por_leilao.csv",
