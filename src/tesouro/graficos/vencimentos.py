@@ -373,8 +373,32 @@ def desenha_perfil_completo(dados, ax, excluido):
 # motivo. O que ficou de fora vai num asterisco, com o numero.
 # ---------------------------------------------------------------------------
 
-# Os papeis vendidos no Tesouro Direto, cujo valor unitario e de outra ordem.
+# Os papeis que so existem no Tesouro Direto, e que por isso nao entram no estoque
+# em quantidade. Sao DOIS motivos diferentes, e vale nao confundi-los:
+#
+# Os tres primeiros distorcem a UNIDADE: um LFT-TD1 Reserva vale R$ 10,68 e um LFT,
+# R$ 19.220 -- mil e oitocentas vezes mais. Somar os dois em "titulos" nao descreve
+# nada.
+#
+# A NTN-B PRINCIPAL nao distorce a unidade: ela vale de R$ 926 a R$ 4.708 por
+# titulo, da mesma ordem da NTN-B. Ela sai por ser papel de varejo -- CONFERIDO, e
+# nao suposto: em 19.739 linhas de leilao, das quais 6.275 de NTN-B, ela nao aparece
+# NENHUMA vez. Nunca foi ofertada a dealer. Dentro do grafico ela punha uma segunda
+# barra na mesma data em sete dos quinze vencimentos, o que se lia como dado
+# repetido. Sao 35,1 milhoes de titulos e R$ 91,5 bilhoes -- 7,1% dos titulos e 4,0%
+# do financeiro da familia.
+#
+# ONDE ELA CONTINUA: no perfil por ano (dados_perfil_completo), que conta REAIS a
+# vencer e nao titulos. La ela e divida que o Tesouro deve e que vence naquele ano,
+# 1,03% do estoque -- tirar seria contar a divida errado.
 PAPEIS_DE_VAREJO = ("LFT-TD1 Reserva", "NTN-B1 EducA+", "NTN-B1 RendA+")
+
+# As duas listas ficam SEPARADAS de proposito. A de cima sustenta uma medicao -- "e
+# muito dos titulos e quase nada da divida", que um teste confere -- e essa medicao
+# so vale para papeis de valor unitario minusculo. A NTN-B Principal nao e um deles:
+# ela pesa 4,0% do financeiro da familia. Juntar as duas numa constante so faria o
+# teste medir uma coisa e afirmar outra.
+FORA_DO_ESTOQUE = PAPEIS_DE_VAREJO + ("NTN-B Principal",)
 
 
 def _estoque_bruto():
@@ -396,7 +420,7 @@ def excluido_do_estoque():
     excluido_do_perfil() forma com o grafico ao lado.
     """
     u = _estoque_bruto()
-    fora = u[u["titulo"].isin(PAPEIS_DE_VAREJO)]
+    fora = u[u["titulo"].isin(FORA_DO_ESTOQUE)]
     return fora["quantidade_mil"].sum(), fora["financeiro_milhoes"].sum()
 
 
@@ -413,7 +437,7 @@ def dados_estoque_por_vencimento():
     SEM os papeis do Tesouro Direto -- ver o cabecalho desta secao.
     """
     u = _estoque_bruto()
-    u = u[~u["titulo"].isin(PAPEIS_DE_VAREJO)]
+    u = u[~u["titulo"].isin(FORA_DO_ESTOQUE)]
     colunas = ["vencimento", "titulo", "familia", "quantidade_mil",
                "financeiro_milhoes", "valor_unitario"]
     return u[colunas].sort_values(["vencimento", "titulo"]).reset_index(drop=True)
@@ -468,6 +492,7 @@ def desenha_estoque_de(dados, ax, familia):
 
     total = g["quantidade_mil"].sum() / 1000
     ax.set_title(f"{familia} \u00b7 estoque por vencimento \u00b7 "
+                 f"{len(g)} vencimentos \u00b7 "
                  f"{estilo.num_br(total, 0)} milh\u00f5es de t\u00edtulos",
                  fontsize=11, weight="bold", loc="left", pad=10)
 

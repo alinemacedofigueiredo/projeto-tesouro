@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
+from tesouro import config
 from tesouro.graficos import estilo, vencimentos
 
 
@@ -327,8 +328,14 @@ def test_UM_TITULO_NAO_VALE_O_MESMO_QUE_OUTRO():
 
 
 def test_o_excluido_e_muito_dos_titulos_e_quase_nada_da_divida():
-    qtd, fin = vencimentos.excluido_do_estoque()
+    # Mede os TRES papeis de valor unitario minusculo, e nao a exclusao inteira: a
+    # NTN-B Principal tambem sai do grafico, mas por outro motivo -- ela nao e papel
+    # de leilao -- e pesa 4,0% do financeiro da familia. Somada aqui, faria este
+    # teste afirmar sobre ela uma coisa que nao e verdade.
     bruto = vencimentos._estoque_bruto()
+    fora = bruto[bruto["titulo"].isin(vencimentos.PAPEIS_DE_VAREJO)]
+    qtd = fora["quantidade_mil"].sum()
+    fin = fora["financeiro_milhoes"].sum()
     em_qtd = qtd / bruto["quantidade_mil"].sum()
     em_fin = fin / bruto["financeiro_milhoes"].sum()
     assert em_qtd > 0.05, "os papeis de varejo deixaram de pesar na quantidade"
@@ -421,10 +428,53 @@ def test_a_altura_da_figura_acompanha_o_numero_de_vencimentos():
     assert baixa >= 2.6
 
 
+def test_a_NTN_B_Principal_fica_de_fora_do_estoque_em_quantidade():
+    # Ela dividia sete das quinze datas da NTN-B, e as duas saiam como barras com a
+    # MESMA data e a MESMA cor -- que se le como dado repetido, e foi assim que a
+    # dona do projeto perguntou.
+    #
+    # Nao e papel de leilao: CONFERIDO em 19.739 linhas, onde ela nao aparece
+    # nenhuma vez. E Tesouro Direto, e o grafico nao leva Tesouro Direto.
+    assert "NTN-B Principal" in vencimentos.FORA_DO_ESTOQUE
+    # E NAO em PAPEIS_DE_VAREJO: o motivo dela e outro -- ver a constante.
+    assert "NTN-B Principal" not in vencimentos.PAPEIS_DE_VAREJO
+    d = vencimentos.dados_estoque_por_vencimento()
+    assert "NTN-B Principal" not in set(d["titulo"])
+    assert set(d[d["familia"] == "NTN-B"]["titulo"]) == {"NTN-B"}
+    assert len(d[d["familia"] == "NTN-B"]) == 15
+
+
+def test_nenhuma_familia_repete_um_vencimento():
+    # A GUARDA GERAL, e nao so a da NTN-B: duas barras com a mesma data e a mesma
+    # cor nao dizem que sao papeis diferentes, e quem le conta a divida duas vezes
+    # ou acha que ha um defeito. Se um dia entrar outro papel dividindo data com o
+    # da familia dele, e aqui que alguem descobre.
+    d = vencimentos.dados_estoque_por_vencimento()
+    repetidos = d[d.duplicated(["familia", "vencimento"], keep=False)]
+    assert repetidos.empty, (
+        "ha vencimento repetido dentro de uma familia:"
+        + repetidos[["familia", "vencimento", "titulo"]].to_string())
+
+
+def test_a_Principal_CONTINUA_no_perfil_por_ano():
+    # Ela sai do grafico de QUANTIDADE, e nao da divida. O perfil conta REAIS a
+    # vencer, e R$ 91,5 bi de NTN-B Principal sao divida que o Tesouro deve e que
+    # vence naquele ano -- 1,03% do estoque. Tirar la seria contar errado.
+    bruto = vencimentos._perfil_bruto()
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    u = e[(e["data"] == e["data"].max()) & (e["titulo"] == "NTN-B Principal")]
+    assert not u.empty
+    for ano, grupo in u.groupby(u["vencimento"].dt.year):
+        assert bruto.loc[ano, "NTN-B"] >= grupo["financeiro_milhoes"].sum() - 0.01
+
+
 def test_o_asterisco_diz_o_numero_excluido():
     # Agora vive na legenda da pagina, e nao na figura: sao quatro figuras, e
     # repetir a mesma ressalva em todas seria ruido. O teste confere que o numero
     # existe e e o medido.
     qtd, fin = vencimentos.excluido_do_estoque()
-    assert qtd > 300000, "o Tesouro Direto encolheu no dado"
-    assert fin < 30000
+    assert qtd > 400000, "o Tesouro Direto encolheu no dado"
+    # Era < 30.000 quando so saiam os tres papeis de valor unitario minusculo. A
+    # NTN-B Principal sozinha traz R$ 91,5 bi, e por isso o teto subiu.
+    assert fin < 130000

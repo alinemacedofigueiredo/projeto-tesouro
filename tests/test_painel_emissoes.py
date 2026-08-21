@@ -44,7 +44,7 @@ def test_o_registro_muda_com_a_combinacao():
     # mudasse, as tres paginas seriam indistinguiveis para quem le.
     so_venda = painel_emissoes.registro(com_compra=False, com_2a=True)
     com_compra = painel_emissoes.registro(com_compra=True, com_2a=True)
-    assert len(so_venda) == len(com_compra) == 14
+    assert len(so_venda) == len(com_compra) == 12
     assert "S\u00f3 venda" in so_venda[0].nota
     assert "compra" in com_compra[0].nota
     assert so_venda[0].nota != com_compra[0].nota
@@ -118,9 +118,15 @@ def test_a_pagina_nao_tem_referencia_externa(pagina):
                 if "://" in m.group(1)]
     assert externos == [], externos[:3]
 
-    # E a pagina de fato embute imagem, em vez de apontar para ela: a barra de cor
-    # das duas dispersoes. Se isto deixar de valer, o teste acima ficou vazio.
-    assert 'data:image/png;base64,' in pagina
+    # E O TESTE ACIMA NAO PODE ESTAR VAZIO. Ele so vale se houver de fato src= e
+    # href= na pagina para examinar. Ate 21/08/2026 isto era conferido pela barra de
+    # cor das dispersoes, que entrava como data:image/png;base64 -- e as dispersoes
+    # sairam. A propriedade em si nao mudou: o grafico continua embutido, agora
+    # inteiro em SVG, e nenhuma imagem e apontada de fora.
+    achados = re.findall(r'(?:src|href|xlink:href)\s*=\s*"([^"]*)"', pagina)
+    assert len(achados) > 50, f"so {len(achados)} atributos: o teste ficou vazio"
+    assert pagina.count("<svg") >= 30, "a pagina deixou de embutir os graficos"
+    assert "<img" not in pagina
     assert "<link" not in pagina
     assert not re.search(r"<script[^>]+src=", pagina)
     # E os links entre as quatro paginas sao RELATIVOS, que e o que os faz
@@ -394,17 +400,22 @@ def test_a_nota_do_grafico_semanal_avisa_que_ali_o_ponto_e_a_semana():
         assert "20 leil\u00f5es" in g.nota
 
 
-def test_a_dispersao_e_contra_DV01_e_nao_contra_quantidade():
-    # ITEM 10 DA REVISAO: "eles ainda nao passam nenhuma info". E nao passavam: a
-    # quantidade de titulos mistura uma LTN de seis meses com uma NTN-B de 35 anos
-    # como se fossem a mesma coisa, entao lotes de tamanho parecido e risco dez
-    # vezes diferente caiam na mesma coluna, e a nuvem saia sem forma.
-    grupo = [g for g in painel_emissoes.registro() if g.grupo == "Taxa e risco"]
-    assert len(grupo) == 2
-    assert all("DV01" in g.titulo for g in grupo)
+def test_a_dispersao_saiu_da_pagina():
+    # DUAS TENTATIVAS, e as duas recusadas por quem le. O item 10 da revisao disse
+    # "eles ainda nao passam nenhuma info", e o eixo migrou de quantidade para DV01
+    # -- a quantidade mistura uma LTN de seis meses com uma NTN-B de 35 anos como se
+    # fossem a mesma coisa. Com o risco no eixo a nuvem ainda nao ganhou forma, e em
+    # 21/08/2026 ela saiu: "nao ficaram bons os graficos de dispersao".
+    assert "Taxa e risco" not in painel_emissoes.GRUPOS
+    ids = [g.id for g in painel_emissoes.registro()]
+    assert "dv_taxa_pre" not in ids and "dv_taxa_ntnb" not in ids
+    # O dado e o desenho FICAM no modulo, sem ninguem chamando: sao o ponto de
+    # partida de quem tentar responder a pergunta de outro jeito.
+    assert hasattr(emissao, "dv_e_taxa")
+    assert hasattr(emissao, "desenha_taxa_contra_dv")
+    # As versoes contra QUANTIDADE, essas nao voltam.
     assert not hasattr(emissao, "desenha_quantidade_e_taxa")
     assert not hasattr(emissao, "desenha_taxa_contra_quantidade")
-    assert hasattr(emissao, "desenha_taxa_contra_dv")
 
 
 # --------------------------------------------------------------------------

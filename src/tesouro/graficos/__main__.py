@@ -3,8 +3,8 @@
     PowerShell:  $env:PYTHONPATH="src"; python -m tesouro.graficos
     bash:        PYTHONPATH=src python -m tesouro.graficos
 
-Sem argumento, grava data/processed/dashboard.html com as duas janelas -- 5 anos e
-serie completa -- e o botao que alterna entre elas.
+Sem argumento, grava data/processed/dashboard.html com as quatro janelas -- 12
+meses, 3 anos, 5 anos e serie completa -- e os botoes que alternam entre elas.
 
 Com --de e --ate, grava o recorte pedido, e o botao some porque so existe uma
 janela. Os dois andam juntos: um sem o outro e erro, nao recorte pela metade.

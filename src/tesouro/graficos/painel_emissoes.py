@@ -14,15 +14,21 @@ decidir, e o custo era medido.
     longa fica no dashboard do RMD, que e onde ela tem sentido;
   - as janelas passaram a ser CURTAS, porque leilao se move em semanas e nao em
     anos: 20 leiloes, no ano, 12 meses, desde o ano anterior, 5 anos;
-  - de QUANTIDADE E TAXA sobrou so a dispersao. A versao de duas series repetia o
-    idioma de dois eixos que ja aparece sete vezes na pagina; a dispersao responde
-    uma pergunta que nenhum outro grafico responde -- o Tesouro coloca mais quando
-    a taxa esta alta?
+  - de QUANTIDADE E TAXA nao sobrou nada. Primeiro caiu a versao de duas series,
+    que repetia o idioma de dois eixos ja usado sete vezes na pagina. Depois caiu a
+    DISPERSAO, em 21/08/2026: o eixo tinha migrado de quantidade para DV01
+    justamente para dar forma a nuvem, e ainda assim ela nao ganhou forma -- "nao
+    ficaram bons os graficos de dispersao". A pergunta que ela tentava responder --
+    com a taxa alta, ele coloca mais risco? -- continua boa, e um dia merece um
+    desenho que a responda. A dispersao nao era esse desenho.
+    emissao.dv_e_taxa() e emissao.desenha_taxa_contra_dv() FICAM no modulo, sem
+    ninguem chamando: o dado e o desenho custam pouco e sao o ponto de partida de
+    quem tentar de novo;
   - das quatro combinacoes de compra e segunda volta sobraram TRES. A que saiu e
     "venda e compra, so 1a volta": recompra sem segunda volta e o recorte de que
     ninguem sentiu falta.
 
-Sao 11 graficos x 5 janelas x 3 paginas = 165 SVGs, e cada pagina fica em ~4,8 MB.
+Sao 11 graficos x 5 janelas x 3 paginas, e cada pagina fica sob o limiar de 10 MB.
 
 O QUE ESTA PAGINA CONTINUA NAO FAZENDO: as combinacoes de compra e segunda volta sao
 tres ARQUIVOS, e nao caixas de marcar no HTML. Poe-las na mesma pagina exige
@@ -34,8 +40,7 @@ import pandas as pd
 
 from . import dashboard, emissao, estilo
 
-GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Demanda",
-          "Taxa e risco"]
+GRUPOS = ["Por dia de leil\u00e3o", "Por semana", "Demanda"]
 
 # AS JANELAS DO LEILAO SAO CURTAS, e as do dashboard do RMD nao servem aqui.
 #
@@ -175,17 +180,6 @@ def _fig_colocado(com_2a, meses=6):
     return figura
 
 
-def _fig_dv_taxa(recorte, com_2a):
-    def figura(janela):
-        fig = dashboard._figura(6.0)
-        dados = emissao.dv_e_taxa(recorte, janela, com_2a)
-        emissao.desenha_taxa_contra_dv(
-            dados, fig.subplots(),
-            f"{recorte} \u00b7 taxa contra DV01 emitido, cada ponto \u00e9 um dia")
-        return fig
-    return figura
-
-
 # As tres combinacoes, com o arquivo de cada uma. Cada pagina diz qual e, e aponta
 # para as outras tres: sem isso, quem abre uma nao sabe que as outras existem.
 COMBINACOES = [
@@ -308,23 +302,6 @@ def registro(com_compra=False, com_2a=True):
             "fica colada nos 95% e n\u00e3o h\u00e1 o que ver. "
             f"{nota_aceito}",
             True, JANELA_PADRAO, _fig_demanda("NTN-B", com_2a)),
-    Grafico("dv_taxa_pre", "Taxa e risco",
-            "LTN + NTN-F \u00b7 taxa contra DV01 emitido",
-            "dv_emitido_por_leilao.csv",
-            "Cada ponto \u00e9 um dia de leil\u00e3o; a cor \u00e9 o ano, e o c\u00edrculo "
-            "vermelho \u00e9 o \u00faltimo. <b>O eixo era quantidade e passou a ser "
-            "DV01</b>: a quantidade de t\u00edtulos mistura uma LTN de seis meses com "
-            "uma NTN-F de 2037 como se fossem a mesma coisa, e a nuvem sa\u00eda sem "
-            "forma. Com o risco no eixo, a pergunta vira a que interessa \u2014 com "
-            "a taxa alta, ele coloca mais risco no mercado, ou menos?",
-            True, JANELA_PADRAO, _fig_dv_taxa("LTN + NTN-F", com_2a)),
-    Grafico("dv_taxa_ntnb", "Taxa e risco",
-            "NTN-B \u00b7 taxa contra DV01 emitido",
-            "dv_emitido_por_leilao.csv",
-            "A taxa da NTN-B \u00e9 <b>real</b>. A dispers\u00e3o mostra o regime "
-            "mudando de lugar na nuvem: a taxa real sai de 5% em 2023 para 8% em "
-            "2026.",
-            True, JANELA_PADRAO, _fig_dv_taxa("NTN-B", com_2a)),
     ]
 
 

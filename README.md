@@ -49,9 +49,11 @@ bash:
 
     PYTHONPATH=src python -m tesouro.graficos
 
-Grava `data/processed/dashboard.html` (4,9 MB) com duas janelas — 5 anos e
-série completa — e um botão no topo que alterna entre elas. Para um
-recorte específico, com o botão suprimido porque só existe uma janela:
+Grava `data/processed/dashboard.html` (7,65 MB) com quatro janelas — 12 meses,
+3 anos, 5 anos e série completa — e os botões no cabeçalho que alternam entre
+elas. O limiar da spec é 10 MB por página, e um teste o guarda: uma quinta
+janela não cabe. Para um recorte específico, com os botões suprimidos porque só
+existe uma janela:
 
     $env:PYTHONPATH="src"; python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
     PYTHONPATH=src python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
