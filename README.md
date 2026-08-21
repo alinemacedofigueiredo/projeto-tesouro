@@ -37,8 +37,8 @@ as fórmulas de cálculo estão em `docs/convencoes-dv.md`.
 
 ### O dashboard
 
-Os vinte e um gráficos da dívida num arquivo HTML autocontido, que abre com
-duplo clique e continua funcionando copiado para outra máquina ou mandado
+Os vinte e oito gráficos da dívida em arquivos HTML autocontidos, que abrem com
+duplo clique e continuam funcionando copiados para outra máquina ou mandados
 por e-mail.
 
 PowerShell:
@@ -49,14 +49,33 @@ bash:
 
     PYTHONPATH=src python -m tesouro.graficos
 
-Grava `data/processed/dashboard.html` (7,65 MB) com quatro janelas — 12 meses,
-3 anos, 5 anos e série completa — e os botões no cabeçalho que alternam entre
-elas. O limiar da spec é 10 MB por página, e um teste o guarda: uma quinta
-janela não cabe. Para um recorte específico, com os botões suprimidos porque só
-existe uma janela:
+Grava **duas** páginas, ligadas pela barra do topo:
+
+| arquivo | tamanho | o que leva |
+|---|---|---|
+| `data/processed/dashboard.html` | 4,03 MB | o total, estoque, vencimentos, prazo e custo |
+| `data/processed/dashboard-funding.html` | 5,60 MB | funding, detentores e reserva de liquidez |
+
+Cada uma com quatro janelas — 12 meses, 3 anos, 5 anos e série completa — e os
+botões no cabeçalho que alternam entre elas.
+
+**Por que duas.** O limiar da spec é 10 MB por página, e um teste o guarda. Com
+os 28 gráficos numa página só o arquivo chegou a 9,62 MB: sobravam 0,38, e o
+próximo gráfico com quatro janelas não caberia. As alternativas eram cortar
+janela ou cortar gráfico, e as duas custam informação; dividir custa um clique.
+O corte é **por assunto** — a primeira responde de quanto é a dívida, quando ela
+vence e quanto custa; a segunda, o que o Tesouro emitiu, que colchão tem e quem
+carrega o papel. Os tamanhos são consequência, não critério.
+
+Para um recorte específico, com os botões suprimidos porque só existe uma
+janela:
 
     $env:PYTHONPATH="src"; python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
     PYTHONPATH=src python -m tesouro.graficos --de 2021-01-01 --ate 2026-06-30
+
+Com `--de`/`--ate` sai **uma** página só, com todos os gráficos, no caminho de
+`--saida` se ele for dado. Serve para inspecionar; não é o formato publicado, e
+pode estourar o limiar.
 
 O `pipeline` já gera o dashboard no fim, depois de reescrever os CSVs; o
 comando acima serve para regerar sem rodar o pipeline inteiro.

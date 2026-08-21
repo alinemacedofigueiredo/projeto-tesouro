@@ -3,8 +3,13 @@
     PowerShell:  $env:PYTHONPATH="src"; python -m tesouro.graficos
     bash:        PYTHONPATH=src python -m tesouro.graficos
 
-Sem argumento, grava data/processed/dashboard.html com as quatro janelas -- 12
-meses, 3 anos, 5 anos e serie completa -- e os botoes que alternam entre elas.
+Sem argumento, grava as DUAS paginas do dashboard -- dashboard.html, com estoque,
+prazo e custo, e dashboard-funding.html, com funding e detentores -- cada uma com
+as quatro janelas (12 meses, 3 anos, 5 anos e serie completa) e os botoes que
+alternam entre elas. Uma barra no alto liga as duas.
+
+Com --saida, grava UMA pagina so, com todos os graficos, no caminho pedido. Serve
+para inspecionar; nao e o formato publicado, e pode estourar o limiar de 10 MB.
 
 Com --de e --ate, grava o recorte pedido, e o botao some porque so existe uma
 janela. Os dois andam juntos: um sem o outro e erro, nao recorte pela metade.
@@ -63,9 +68,16 @@ def main(argumentos=None):
         return 2
 
     from pathlib import Path
-    caminho = Path(opcoes.saida) if opcoes.saida else None
-    gravado = dashboard.grava(caminho, recortes)
-    print(f"dashboard gravado em {gravado}")
+    if opcoes.saida:
+        # Caminho explicito quer dizer UM arquivo: nao ha como espalhar duas
+        # paginas num nome so, e inventar "-funding" no meio do nome que a pessoa
+        # deu seria escrever onde nao foi pedido.
+        gravado = dashboard.grava(Path(opcoes.saida), recortes)
+        print(f"dashboard gravado em {gravado}")
+        return 0
+
+    for gravado in dashboard.grava_o_rmd(recortes):
+        print(f"dashboard gravado em {gravado}")
     return 0
 
 

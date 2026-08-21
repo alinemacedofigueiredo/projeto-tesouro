@@ -109,8 +109,9 @@ def main(argumentos=None):
     print("\n--- dashboard ---")
     try:
         from .graficos import dashboard
-        caminho = dashboard.grava()
-        print(f"dashboard gravado em {caminho}")
+        # DUAS paginas desde 21/08/2026, por tamanho -- ver PAGINAS_DO_RMD.
+        for caminho in dashboard.grava_o_rmd():
+            print(f"dashboard gravado em {caminho}")
         from .graficos import painel_emissoes
         painel_emissoes.grava_todas()
         # Os nomes saem da tabela de combinacoes, e nao do retorno da funcao: o

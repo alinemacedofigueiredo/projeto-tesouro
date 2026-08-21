@@ -43,8 +43,11 @@ Grafico.__new__.__defaults__ = (None, False)
 # "O total" entrou em 21/08/2026 e vem PRIMEIRO de proposito: e a pergunta que
 # antecede todas as outras da pagina -- de quanto e a divida, e ela esta onde o PAF
 # prometeu? Sendo o primeiro grupo, e o unico que abre com a pagina.
-GRUPOS = ["O total", "Funding", "Estoque", "Detentores", "Vencimentos", "Prazo",
-          "Custo", "Reserva"]
+# A ORDEM AQUI E A ORDEM DAS DUAS PAGINAS, e o REGISTRO segue a mesma -- um teste
+# confere. Os cinco primeiros grupos sao a pagina do estoque; os tres ultimos, a de
+# funding e detentores. Ver PAGINAS_DO_RMD.
+GRUPOS = ["O total", "Estoque", "Vencimentos", "Prazo", "Custo",
+          "Funding", "Detentores", "Reserva"]
 
 # AS JANELAS DO DASHBOARD DO RMD. Eram duas -- "5 anos" e "completa" -- e cinco
 # anos e muito para quem quer ver o que mudou no ano. Entraram "12 meses" e
@@ -249,36 +252,6 @@ REGISTRO = [
             "A escala enquadra o dado e a banda em vez de partir do zero: a "
             "refer@Encia contra a qual o n\u00edvel se l@E \u00e9 a banda, e n\u00e3o o zero.",
             True, "completa", _fig_estoque_total),
-    Grafico("funding_net", "Funding",
-            "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
-            "aba 1.1",
-            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. A barra \u00e9 <b>uma s\u00e9rie "
-            "s\u00f3</b>, colorida pelo sinal \u2014 verde quando emitiu mais do que resgatou, "
-            "vermelho no contr\u00e1rio \u2014 e n\u00e3o emiss\u00e3o contra resgate. A linha \u00e9 a "
-            "m\u00e9dia m\u00f3vel de 3 meses. Cobre 100% do DPMFi.",
-            True, "5 anos", _fig_net),
-    Grafico("funding_indexador", "Funding",
-            "Emiss\u00e3o do DPMFi por indexador, mensal",
-            "aba 1.2",
-            "Emiss\u00e3o bruta, em reais do m\u00eas. Cobre 100% da emiss\u00e3o do DPMFi.",
-            True, "5 anos", _fig_emissao_indexador),
-    Grafico("funding_anual", "Funding",
-            "Composi\u00e7\u00e3o anual da emiss\u00e3o, em 100%",
-            "aba 1.2",
-            "Por indexador, e n\u00e3o por papel: pela aba 1.2 a cobertura \u00e9 100% da "
-            "emiss\u00e3o, contra 93% a 97% se viesse dos leil\u00f5es. O ano ainda aberto "
-            "leva asterisco.",
-            True, "5 anos", _fig_emissao_anual),
-    Grafico("emissao_papel", "Funding",
-            "Composi\u00e7\u00e3o anual da emiss\u00e3o, por papel",
-            "leiloes.csv",
-            "A mesma forma do gr\u00e1fico acima, por <b>papel</b> em vez de indexador \u2014 "
-            "e \u00e9 a\u00ed que est\u00e1 o que ele acrescenta: o prefixado de 40,3% em 2025 se "
-            "abre em 33,1% de LTN e 9,2% de NTN-F, que t\u00eam prazo m\u00e9dio muito "
-            "diferente. Vem dos leil\u00f5es, que s\u00e3o exatamente a Oferta P\u00fablica da aba "
-            "1.1 \u2014 conferido ano a ano \u2014 e portanto n\u00e3o incluem Tesouro Direto "
-            "nem emiss\u00e3o direta: 93% a 97% do total emitido.",
-            True, "5 anos", _fig_emissao_papel, None, True),
     Grafico("estoque_composicao", "Estoque",
             "Composi\u00e7\u00e3o da DPF por indexador, com a banda do PAF",
             "aba 2.1 e referencia/paf_bandas.csv",
@@ -414,49 +387,6 @@ REGISTRO = [
             "LFT-TD1 vale R$ 10,68 e um de LFT, R$ 19.220 \u2014 "
             "somar os dois em quantidade n\u00e3o descreve nada.",
             False, None, _fig_estoque_de("NTN-B")),
-    Grafico("detentores_participacao", "Detentores",
-            "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
-            "aba 2.7",
-            "O formato da p\u00e1gina 7 do RMD: uma coluna de 100% por ano fechado, mais "
-            "os dois \u00faltimos meses. Os oito detentores da aba agrupados em cinco. A "
-            "varia\u00e7\u00e3o vai em <b>reais</b>, e n\u00e3o em pontos percentuais: participa\u00e7\u00e3o "
-            "que cai com estoque subindo \u00e9 ru\u00eddo de composi\u00e7\u00e3o, n\u00e3o venda.",
-            False, None, _fig_participacao),
-    Grafico("detentores_papel", "Detentores",
-            "Quem carrega cada papel",
-            "aba 2.8",
-            "Participa\u00e7\u00e3o de cada detentor dentro de cada papel, no \u00faltimo m\u00eas. "
-            "R\u00f3tulo s\u00f3 nas fatias de 10% ou mais.",
-            False, None, _fig_por_papel),
-    Grafico("detentores_financeiro", "Detentores",
-            "Financeiro por detentor, oito pain\u00e9is",
-            "aba 2.8",
-            "Cada painel tem escala pr\u00f3pria: os detentores diferem em ordem de "
-            "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
-            True, "5 anos", _fig_financeiro_detentor),
-    Grafico("detentores_lft", "Detentores",
-            "LFT: financeiro por detentor",
-            "aba 2.8",
-            "A mesma leitura do gr\u00e1fico acima, restrita \u00e0 LFT. Quem carrega o papel "
-            "que responde por 51,2% do estoque.",
-            True, "5 anos", _fig_do_papel("LFT"), None, True),
-    Grafico("detentores_ntnb", "Detentores",
-            "NTN-B: financeiro por detentor",
-            "aba 2.8",
-            "A mesma leitura, restrita \u00e0 NTN-B \u00b7 25,7% do estoque, e o papel em que "
-            "a Previd\u00eancia concentra 44,9%.",
-            True, "5 anos", _fig_do_papel("NTN-B"), None, True),
-    Grafico("detentores_ltn", "Detentores",
-            "LTN: financeiro por detentor",
-            "aba 2.8",
-            "A mesma leitura, restrita \u00e0 LTN \u00b7 14,4% do estoque.",
-            True, "5 anos", _fig_do_papel("LTN"), None, True),
-    Grafico("detentores_ntnf", "Detentores",
-            "NTN-F: financeiro por detentor",
-            "aba 2.8",
-            "A mesma leitura, restrita \u00e0 NTN-F \u00b7 7,4% do estoque, e o papel com maior "
-            "participa\u00e7\u00e3o estrangeira: 41,8%.",
-            True, "5 anos", _fig_do_papel("NTN-F"), None, True),
     Grafico("vencimentos_cronograma", "Vencimentos",
             "Cronograma de vencimentos",
             "aba 3.4",
@@ -506,6 +436,79 @@ REGISTRO = [
             "DPMFi. Emite-se a 14,20% e carrega-se a 13,19%: a d\u00edvida encarece "
             "sem que nenhuma decis\u00e3o nova seja tomada.",
             True, "5 anos", _fig_custo_emissao),
+    Grafico("funding_net", "Funding",
+            "Net do DPMFi, com m\u00e9dia m\u00f3vel e acumulado de 12 meses",
+            "aba 1.1",
+            "Emiss\u00e3o menos resgate do DPMFi, m\u00eas a m\u00eas. A barra \u00e9 <b>uma s\u00e9rie "
+            "s\u00f3</b>, colorida pelo sinal \u2014 verde quando emitiu mais do que resgatou, "
+            "vermelho no contr\u00e1rio \u2014 e n\u00e3o emiss\u00e3o contra resgate. A linha \u00e9 a "
+            "m\u00e9dia m\u00f3vel de 3 meses. Cobre 100% do DPMFi.",
+            True, "5 anos", _fig_net),
+    Grafico("funding_indexador", "Funding",
+            "Emiss\u00e3o do DPMFi por indexador, mensal",
+            "aba 1.2",
+            "Emiss\u00e3o bruta, em reais do m\u00eas. Cobre 100% da emiss\u00e3o do DPMFi.",
+            True, "5 anos", _fig_emissao_indexador),
+    Grafico("funding_anual", "Funding",
+            "Composi\u00e7\u00e3o anual da emiss\u00e3o, em 100%",
+            "aba 1.2",
+            "Por indexador, e n\u00e3o por papel: pela aba 1.2 a cobertura \u00e9 100% da "
+            "emiss\u00e3o, contra 93% a 97% se viesse dos leil\u00f5es. O ano ainda aberto "
+            "leva asterisco.",
+            True, "5 anos", _fig_emissao_anual),
+    Grafico("emissao_papel", "Funding",
+            "Composi\u00e7\u00e3o anual da emiss\u00e3o, por papel",
+            "leiloes.csv",
+            "A mesma forma do gr\u00e1fico acima, por <b>papel</b> em vez de indexador \u2014 "
+            "e \u00e9 a\u00ed que est\u00e1 o que ele acrescenta: o prefixado de 40,3% em 2025 se "
+            "abre em 33,1% de LTN e 9,2% de NTN-F, que t\u00eam prazo m\u00e9dio muito "
+            "diferente. Vem dos leil\u00f5es, que s\u00e3o exatamente a Oferta P\u00fablica da aba "
+            "1.1 \u2014 conferido ano a ano \u2014 e portanto n\u00e3o incluem Tesouro Direto "
+            "nem emiss\u00e3o direta: 93% a 97% do total emitido.",
+            True, "5 anos", _fig_emissao_papel, None, True),
+    Grafico("detentores_participacao", "Detentores",
+            "Participa\u00e7\u00e3o por grupo, e a varia\u00e7\u00e3o em 12 meses",
+            "aba 2.7",
+            "O formato da p\u00e1gina 7 do RMD: uma coluna de 100% por ano fechado, mais "
+            "os dois \u00faltimos meses. Os oito detentores da aba agrupados em cinco. A "
+            "varia\u00e7\u00e3o vai em <b>reais</b>, e n\u00e3o em pontos percentuais: participa\u00e7\u00e3o "
+            "que cai com estoque subindo \u00e9 ru\u00eddo de composi\u00e7\u00e3o, n\u00e3o venda.",
+            False, None, _fig_participacao),
+    Grafico("detentores_papel", "Detentores",
+            "Quem carrega cada papel",
+            "aba 2.8",
+            "Participa\u00e7\u00e3o de cada detentor dentro de cada papel, no \u00faltimo m\u00eas. "
+            "R\u00f3tulo s\u00f3 nas fatias de 10% ou mais.",
+            False, None, _fig_por_papel),
+    Grafico("detentores_financeiro", "Detentores",
+            "Financeiro por detentor, oito pain\u00e9is",
+            "aba 2.8",
+            "Cada painel tem escala pr\u00f3pria: os detentores diferem em ordem de "
+            "grandeza. S\u00e9rie come\u00e7a em fev/2011, n\u00e3o em jan/2007 como a 2.7.",
+            True, "5 anos", _fig_financeiro_detentor),
+    Grafico("detentores_lft", "Detentores",
+            "LFT: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura do gr\u00e1fico acima, restrita \u00e0 LFT. Quem carrega o papel "
+            "que responde por 51,2% do estoque.",
+            True, "5 anos", _fig_do_papel("LFT"), None, True),
+    Grafico("detentores_ntnb", "Detentores",
+            "NTN-B: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 NTN-B \u00b7 25,7% do estoque, e o papel em que "
+            "a Previd\u00eancia concentra 44,9%.",
+            True, "5 anos", _fig_do_papel("NTN-B"), None, True),
+    Grafico("detentores_ltn", "Detentores",
+            "LTN: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 LTN \u00b7 14,4% do estoque.",
+            True, "5 anos", _fig_do_papel("LTN"), None, True),
+    Grafico("detentores_ntnf", "Detentores",
+            "NTN-F: financeiro por detentor",
+            "aba 2.8",
+            "A mesma leitura, restrita \u00e0 NTN-F \u00b7 7,4% do estoque, e o papel com maior "
+            "participa\u00e7\u00e3o estrangeira: 41,8%.",
+            True, "5 anos", _fig_do_papel("NTN-F"), None, True),
     Grafico("reserva_13m", "Reserva",
             "Reserva de liquidez",
             "aba 6.1",
@@ -712,11 +715,53 @@ def svg_de(figura, prefixo=""):
 #
 # A lista mora aqui, e nao em cada painel, porque tres copias de uma lista de tres
 # links viram tres listas diferentes na primeira vez que uma pagina entra ou sai.
-PAGINAS = [
-    ("dashboard.html", "o dashboard do RMD"),
+# O DASHBOARD DO RMD SAO DUAS PAGINAS, e nao uma. Medido em 21/08/2026: com os 28
+# graficos numa pagina so, o arquivo chegou a 9,62 MB contra o limiar de 10 da spec
+# -- sobravam 0,38 MB, e o proximo grafico com quatro janelas nao caberia.
+#
+# As alternativas eram cortar janela ou cortar grafico, e as duas custam informacao.
+# Quebrar em duas custa um clique, e o limiar passa a valer por pagina.
+#
+# O CORTE E POR ASSUNTO, e nao por tamanho: a primeira responde "de quanto e a
+# divida, quando ela vence, quanto ela custa"; a segunda, "o que o Tesouro emitiu,
+# quanto de colchao ele tem, e quem carrega o papel". Que elas fiquem em 3,4 e 5,0
+# MB e consequencia, nao criterio.
+PAGINAS_DO_RMD = [
+    ("dashboard.html", "estoque, prazo e custo",
+     ["O total", "Estoque", "Vencimentos", "Prazo", "Custo"],
+     "D\u00edvida P\u00fablica Federal \u00b7 estoque"),
+    ("dashboard-funding.html", "funding e detentores",
+     ["Funding", "Detentores", "Reserva"],
+     "D\u00edvida P\u00fablica Federal \u00b7 funding"),
+]
+
+PAGINAS = [(arquivo, rotulo) for arquivo, rotulo, _, _ in PAGINAS_DO_RMD] + [
     ("emissoes.html", "o que j\u00e1 foi emitido"),
     ("calendario.html", "o calend\u00e1rio"),
 ]
+
+
+def grava_o_rmd(recortes=None, destino=None):
+    """Grava as DUAS paginas do dashboard do RMD e devolve os caminhos.
+
+    Cada uma leva os grupos dela; a barra do topo liga as quatro paginas do
+    projeto, entao quem abre uma acha a outra. Ver PAGINAS_DO_RMD.
+
+    'destino' e a PASTA onde gravar, e existe para o teste poder escrever num
+    diretorio temporario. Trocar config.PROCESSED_DIR nao serve: ele tambem e de
+    onde os CSVs sao LIDOS, e a montagem morria sem achar estoque_dpf.csv.
+    """
+    destino = destino or config.PROCESSED_DIR
+    escritos = []
+    for arquivo, _, grupos, titulo in PAGINAS_DO_RMD:
+        do_grupo = [g for g in REGISTRO if g.grupo in grupos]
+        if not do_grupo:
+            raise LookupError(
+                f"a pagina {arquivo} ficou sem grafico nenhum: os grupos "
+                f"{grupos} nao existem no registro.")
+        escritos.append(grava(destino / arquivo, recortes,
+                              do_grupo, grupos, titulo))
+    return escritos
 
 
 def barra_das_paginas(atual, extras=None, familia=None):

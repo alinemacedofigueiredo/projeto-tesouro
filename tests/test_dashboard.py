@@ -344,16 +344,88 @@ def test_o_recorte_por_data_chega_nas_funcoes_de_dado():
     assert len(cortado) < len(inteiro)
 
 
-def test_o_arquivo_cabe_no_limiar_de_dez_megabytes(tmp_path):
-    # Limiar medido, nao suposto (ver a spec, secao 4.1). Se estourar, os SVGs
-    # saem para arquivos ao lado e a spec registra a troca.
-    caminho = dashboard.grava(tmp_path / "dashboard.html")
-    tamanho = caminho.stat().st_size
-    assert tamanho > 100_000, "arquivo pequeno demais; algum grafico nao entrou"
-    assert tamanho < 10 * 1024 * 1024, (
-        f"o dashboard passou de 10 MB ({tamanho / 1024 / 1024:.1f} MB). A spec "
-        f"manda trocar os SVGs embutidos por arquivos ao lado e registrar a troca."
-    )
+def test_CADA_UMA_das_paginas_cabe_no_limiar_de_dez_megabytes(tmp_path):
+    # Limiar medido, nao suposto (ver a spec, secao 4.1).
+    #
+    # ELE VALE POR PAGINA, e e por isso que o dashboard virou duas: com os 28
+    # graficos juntos o arquivo chegou a 9,62 MB e sobravam 0,38 -- o proximo
+    # grafico com quatro janelas nao caberia. Se uma das duas estourar de novo, o
+    # caminho e o mesmo: dividir por assunto, e nao cortar janela.
+    escritos = dashboard.grava_o_rmd(destino=tmp_path)
+    assert len(escritos) == len(dashboard.PAGINAS_DO_RMD)
+    for caminho in escritos:
+        tamanho = caminho.stat().st_size
+        assert tamanho > 100_000, (
+            f"{caminho.name} saiu pequeno demais; algum grafico nao entrou")
+        assert tamanho < 10 * 1024 * 1024, (
+            f"{caminho.name} passou de 10 MB ({tamanho / 1024 / 1024:.1f} MB). "
+            f"A spec manda trocar os SVGs embutidos por arquivos ao lado, ou "
+            f"dividir a pagina de novo.")
+
+
+def test_TODO_GRAFICO_esta_em_EXATAMENTE_UMA_pagina():
+    # O jeito de perder um grafico numa divisao e este: renomear um grupo, ou criar
+    # um novo, e esquecer de listar. Ele some do arquivo e nada quebra -- o registro
+    # continua com 28 e os testes de contagem passam.
+    de_pagina = {}
+    for arquivo, _, grupos, _ in dashboard.PAGINAS_DO_RMD:
+        for g in dashboard.REGISTRO:
+            if g.grupo in grupos:
+                de_pagina.setdefault(g.id, []).append(arquivo)
+
+    orfaos = [g.id for g in dashboard.REGISTRO if g.id not in de_pagina]
+    assert not orfaos, f"graficos fora das duas paginas: {orfaos}"
+    repetidos = {i: p for i, p in de_pagina.items() if len(p) > 1}
+    assert not repetidos, f"graficos em mais de uma pagina: {repetidos}"
+    assert len(de_pagina) == len(dashboard.REGISTRO)
+
+
+def test_TODO_GRUPO_esta_em_EXATAMENTE_UMA_pagina():
+    listados = [grupo for _, _, grupos, _ in dashboard.PAGINAS_DO_RMD
+                for grupo in grupos]
+    assert sorted(listados) == sorted(dashboard.GRUPOS), (
+        sorted(listados), sorted(dashboard.GRUPOS))
+    assert len(listados) == len(set(listados)), "grupo em duas paginas"
+
+
+def test_a_ordem_de_GRUPOS_e_a_ordem_das_paginas():
+    # O corpo e o indice saem na ordem da lista de grupos de cada pagina. Se GRUPOS
+    # discordar de PAGINAS_DO_RMD, a segunda pagina abre com os grupos embaralhados
+    # em relacao ao registro -- e o teste do registro continua passando.
+    esperado = [grupo for _, _, grupos, _ in dashboard.PAGINAS_DO_RMD
+                for grupo in grupos]
+    assert esperado == dashboard.GRUPOS
+
+
+def test_as_duas_paginas_do_RMD_apontam_UMA_PARA_A_OUTRA(tmp_path):
+    # Dividir sem ligar as duas e esconder metade do dashboard: quem abre por duplo
+    # clique nao tem como saber que a outra existe.
+    escritos = {c.name: c.read_text(encoding="utf-8")
+                for c in dashboard.grava_o_rmd(destino=tmp_path)}
+    assert set(escritos) == {a for a, _, _, _ in dashboard.PAGINAS_DO_RMD}
+
+    for arquivo, rotulo, _, titulo in dashboard.PAGINAS_DO_RMD:
+        html = escritos[arquivo]
+        # A propria pagina aparece como texto, e nao como link para si mesma.
+        assert f'href="{arquivo}"' not in html, arquivo
+        assert rotulo in html
+        assert f"<title>{titulo}</title>" in html
+        # E as outras tres, como link relativo -- que e o que funciona sem servidor.
+        for outra, _ in dashboard.PAGINAS:
+            if outra != arquivo:
+                assert f'href="{outra}"' in html, (arquivo, outra)
+
+
+def test_a_pagina_do_estoque_leva_o_estoque_e_a_outra_leva_o_funding():
+    # A divisao e POR ASSUNTO, e nao por tamanho. Se um dia alguem mover um grupo
+    # para equilibrar megabytes, este teste diz que a conta nao e essa.
+    primeira, segunda = dashboard.PAGINAS_DO_RMD
+    assert primeira[0] == "dashboard.html", (
+        "a pagina de entrada mudou de nome; ela e a que abre por duplo clique")
+    assert "Estoque" in primeira[2] and "Custo" in primeira[2]
+    assert "Funding" in segunda[2] and "Detentores" in segunda[2]
+    assert "Funding" not in primeira[2]
+
 
 
 # --------------------------------------------------------------------------

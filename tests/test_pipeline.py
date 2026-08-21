@@ -23,7 +23,11 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     """Substitui toda funcao de gravacao real por um stub sem IO.
 
     Se `chamadas` for uma lista, cada stub registra o proprio nome nela
-    antes de devolver None -- usado para conferir ordem.
+    antes de devolver uma LISTA VAZIA -- usado para conferir ordem.
+
+    Lista, e nao None: desde que o dashboard virou duas paginas, o pipeline ITERA
+    o retorno de grava_o_rmd para imprimir os caminhos. Um stub que devolvesse None
+    quebraria o pipeline dentro do proprio teste que mede a ordem das etapas.
     """
     alvos = [
         (parse_leiloes, "gravar"),
@@ -39,7 +43,7 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     # data/processed/dashboard.html a cada execucao. Pior, uma falha na geracao
     # pintava de vermelho o teste de rede, que nao tem nada com isso.
     from tesouro.graficos import dashboard
-    alvos.append((dashboard, "grava"))
+    alvos.append((dashboard, "grava_o_rmd"))
     # E o DV por leilao, que entrou com a entrega 3 e roda antes do dashboard.
     from tesouro import leiloes_dv
     alvos.append((leiloes_dv, "gravar"))
@@ -53,7 +57,10 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
                 chamadas.append(_nome)
-            return None
+            # LISTA VAZIA, e nao None: o pipeline itera o retorno de
+            # dashboard.grava_o_rmd para imprimir os caminhos das duas paginas, e
+            # None quebraria o proprio teste que mede a ordem das etapas.
+            return []
         monkeypatch.setattr(modulo, nome, stub)
 
 
@@ -136,7 +143,7 @@ def test_pipeline_grava_as_dez_etapas_na_ordem_certa(monkeypatch):
         "tesouro.dv.gravar_resultado",
         "tesouro.figuras.gravar_todas",
         "tesouro.leiloes_dv.gravar",
-        "tesouro.graficos.dashboard.grava",
+        "tesouro.graficos.dashboard.grava_o_rmd",
         "tesouro.graficos.painel_emissoes.grava_todas",
         "tesouro.graficos.painel_agenda.grava",
     ]
@@ -234,14 +241,17 @@ def test_o_pipeline_grava_o_dashboard_depois_das_figuras(monkeypatch):
 
     chamadas = []
     _stub_gravacoes(monkeypatch, chamadas)
-    monkeypatch.setattr(dashboard, "grava",
-                        lambda *a, **k: chamadas.append("dashboard.grava"))
+    def marca(*a, **k):
+        chamadas.append("dashboard.grava_o_rmd")
+        return []
+
+    monkeypatch.setattr(dashboard, "grava_o_rmd", marca)
 
     assert pipeline.main(["--sem-coleta"]) == 0
-    assert "dashboard.grava" in chamadas
+    assert "dashboard.grava_o_rmd" in chamadas
     # O _stub_gravacoes que ja existe no arquivo registra o nome QUALIFICADO --
     # "tesouro.figuras.gravar_todas", nao "gravar_todas".
-    assert (chamadas.index("dashboard.grava")
+    assert (chamadas.index("dashboard.grava_o_rmd")
             > chamadas.index("tesouro.figuras.gravar_todas"))
 
 
@@ -256,7 +266,7 @@ def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatc
     def _explode(*args, **kwargs):
         raise ValueError("paf_bandas.csv esta invalido")
 
-    monkeypatch.setattr(dashboard, "grava", _explode)
+    monkeypatch.setattr(dashboard, "grava_o_rmd", _explode)
 
     assert pipeline.main(["--sem-coleta"]) == 1
     saida = capsys.readouterr().out
