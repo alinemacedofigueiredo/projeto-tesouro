@@ -2002,7 +2002,10 @@ def _rodape_da_projecao(dados):
             f"estimado depois" if fronteira is not None
             else "calend\u00e1rio inteiramente estimado")
     piso, teto = p["estoque_faixa"]
-    return (f"Pace dos <b>{20} \u00faltimos dias de leil\u00e3o</b>, aplicado a "
+    from .. import rolagem
+
+    return (f"Pace dos <b>{rolagem.LEILOES_DO_PACE} últimos dias de "
+            f"leilão</b>, aplicado a "
             f"<b>{p['dias_de_leilao']} dias</b> que faltam \u2014 {onde}. "
             f"Selic impl\u00edcita de {p['selic']*100:.2f}% e infla\u00e7\u00e3o "
             f"impl\u00edcita de {p['inflacao']*100:.2f}%, tiradas da curva. "
