@@ -200,6 +200,7 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
     inflacao = curva.inflacao_implicita(ate, data_base=de)
     du = calendario.padrao().du(de.date(), ate.date())
 
+    total_emissao = 0.0
     for ind in rolagem.INDEXADORES:
         base = float(inicial[ind])
         do_ind = pagou[pagou["indexador"] == ind]
@@ -214,6 +215,23 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
         emissao_esperada = float(ritmo[ind]) * rolagem.leiloes_que_faltam(dias, ind)
         emissao_publicada = p["estoque"][ind] - base + pago - juros
         assert emissao_publicada == pytest.approx(emissao_esperada, rel=1e-6), ind
+        total_emissao += emissao_publicada
+
+    # A COMPARACAO ACIMA (emissao_publicada == emissao_esperada) chama
+    # leiloes_que_faltam nos dois lados: qualquer mutacao nela move os dois lados
+    # juntos, e a assercao continua batendo -- por isso ela nao pegava a mutacao
+    # que o revisor testou (leiloes_que_faltam mutado para devolver len(dias)).
+    #
+    # Esta comparacao NAO chama leiloes_que_faltam. O prefixado so vai a leilao
+    # as quintas, os indexados so as tercas -- cada papel usa cerca de METADE dos
+    # dias de leilao da janela. A emissao projetada tem de ser bem menor do que
+    # seria se todos os papeis fossem a leilao em todos os dias: o teto do metodo
+    # errado (contar dias, e nao leiloes do papel) e quase o dobro. 0,7 e nao 0,5
+    # porque os tres papeis nao se dividem exatamente meio a meio -- mas ainda
+    # reprova a mutacao, que leva a razao a 1,0.
+    teto_do_metodo_errado = sum(float(ritmo[ind]) * len(dias)
+                                for ind in rolagem.INDEXADORES)
+    assert total_emissao < teto_do_metodo_errado * 0.7
 
 
 def test_a_projecao_no_ramo_do_BACKTEST_usa_a_data_pedida():
