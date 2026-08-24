@@ -42,3 +42,19 @@ def test_papel_sem_cupom_nunca_paga():
     for titulo in ("LTN", "LFT", "NTN-B Principal"):
         assert not fluxos.paga_cupom_em(
             titulo, pd.Timestamp("2030-08-15"), pd.Timestamp("2026-08-15"))
+
+
+def test_papel_vencido_nao_paga_mesmo_no_mes_certo():
+    # A GUARDA SIMETRICA A DO ANIVERSARIO: cair no mes certo (multiplo de 6) nao
+    # basta se "quando" e POSTERIOR ao vencimento -- o papel ja foi resgatado.
+    # Uma NTN-B que venceu em 15/08/2026 nao paga em 15/02/2027, ainda que
+    # fevereiro diste seis meses de agosto.
+    venc = pd.Timestamp("2026-08-15")
+    assert not fluxos.paga_cupom_em("NTN-B", venc, pd.Timestamp("2027-02-15"))
+
+
+def test_vencimento_ausente_nao_paga():
+    # pd.NaT chega quando o titulo nao tem vencimento conhecido no estoque; sem
+    # esta guarda, a comparacao "quando > vencimento" explode ou mente.
+    assert not fluxos.paga_cupom_em(
+        "NTN-B", pd.NaT, pd.Timestamp("2026-08-15"))

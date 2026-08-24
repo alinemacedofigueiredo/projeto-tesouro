@@ -79,8 +79,8 @@ soma.
 - Produz:
   - `CUPOM_ANUAL: dict[str, float]` — `{"NTN-B": 0.06, "NTN-F": 0.10, "NTN-C": 0.12}`
   - `paga_cupom_em(titulo, vencimento, quando) -> bool`
-  - `cupons(ate) -> pd.DataFrame` com colunas `data`, `titulo`, `indexador`,
-    `valor_milhoes`
+  - (a tabela de fluxos é a `pagos(de, ate)` da Task 2 — esta tarefa entrega só a
+    regra de quando cada papel paga)
 
 - [ ] **Passo 1: escrever o teste que falha — a regra do aniversário**
 
