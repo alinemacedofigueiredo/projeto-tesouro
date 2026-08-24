@@ -54,7 +54,13 @@ def test_papel_vencido_nao_paga_mesmo_no_mes_certo():
 
 
 def test_vencimento_ausente_nao_paga():
-    # pd.NaT chega quando o titulo nao tem vencimento conhecido no estoque; sem
-    # esta guarda, a comparacao "quando > vencimento" explode ou mente.
+    # pd.NaT chega quando o titulo nao tem vencimento conhecido no estoque, e tem
+    # de devolver False -- mas NaT sozinho NAO testa a guarda: NaT nunca e maior
+    # que nada e NaN nunca fecha o modulo 6, entao o resultado final e False com
+    # ou sem "pd.isna(...)" na funcao. Quem de fato distingue e um vencimento
+    # None (por exemplo, de um lookup que nao achou a linha): sem a guarda,
+    # "quando > vencimento" explode com TypeError em vez de devolver False.
     assert not fluxos.paga_cupom_em(
         "NTN-B", pd.NaT, pd.Timestamp("2026-08-15"))
+    assert not fluxos.paga_cupom_em(
+        "NTN-B", None, pd.Timestamp("2026-08-15"))
