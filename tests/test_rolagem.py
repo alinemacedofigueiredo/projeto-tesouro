@@ -93,3 +93,48 @@ def test_o_CAMBIO_fica_parado_e_a_rolagem_diz_isso():
     # tres percentuais.
     assert "C\u00e2mbio" in rolagem.PARADOS
     assert "C\u00e2mbio" not in rolagem.INDEXADORES
+
+
+def test_o_pace_e_por_PAPEL_e_nao_por_dia_de_leilao():
+    # Decisao dela. O metodo anterior media por DIA DE LEILAO contando os zeros --
+    # nos dias de terca o prefixado vale zero -- e so dava certo se a mistura de
+    # tercas e quintas da janela batesse com a do futuro. Batia por sorte: 10 e 10,
+    # contra 18 e 18 no futuro.
+    #
+    # Medir sobre os leiloes DAQUELE papel nao depende de mistura, e rende numero que
+    # se confere de cabeca: 1,09 bi por leilao de NTN-B, e nao 0,21 por dia.
+    assert rolagem.LEILOES_DO_PACE == 10
+    p = rolagem.pace(pd.Timestamp("2026-08-17"))
+    for ind in rolagem.INDEXADORES:
+        assert p[ind] > 0, ind
+    # A ordem de grandeza medida em 17/08/2026: a LFT coloca 21,91 bi por leilao, o
+    # prefixado 12,32 e a NTN-B 1,09. Se essa relacao inverter, alguem trocou o
+    # denominador -- que e exatamente o defeito que este metodo veio corrigir.
+    assert p["\u00cdndice Pre\u00e7os"] * 5 < p["Taxa Flutuante"]
+    assert p["\u00cdndice Pre\u00e7os"] * 3 < p["Prefixado"]
+
+
+def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
+    # Prefixado na quinta, indexados na terca. Numa janela com 18 de cada, cada papel
+    # tem 18 leiloes -- e nao os 36 dias.
+    from tesouro import calendario_leiloes
+
+    dias = calendario_leiloes.dias_estimados(pd.Timestamp("2026-08-18"),
+                                             pd.Timestamp("2026-12-31"))
+    assert len(dias) == 36
+    for ind in rolagem.INDEXADORES:
+        quantos = rolagem.leiloes_que_faltam(dias, ind)
+        assert 15 <= quantos <= 20, (ind, quantos)
+        assert quantos < len(dias), "contou dia de leilao, e nao leilao do papel"
+
+
+def test_a_projecao_devolve_a_PREMISSA_que_usou():
+    # Numero projetado sem a premissa ao lado e opiniao com cara de medida.
+    p = rolagem.projecao(pd.Timestamp("2026-12-31"), registros=[])
+    assert 0.05 < p["selic"] < 0.30
+    assert 0.0 < p["inflacao"] < 0.15
+    assert p["dias_de_leilao"] > 0
+    assert "fronteira_do_calendario" in p
+    # A data da curva viaja junto: ela termina no ultimo RMD e a projecao parte da
+    # ultima liquidacao, semanas depois.
+    assert p["data_da_curva"] <= p["de"]

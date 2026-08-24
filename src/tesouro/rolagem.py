@@ -190,3 +190,153 @@ def estoque_em(quando, de=None):
     for ind in PARADOS:
         saida[ind] = float(inicial[ind])
     return pd.Series(saida)
+
+
+# Quantos dias de leilao entram na media do pace.
+#
+# VINTE, escolha dela: sao cerca de dez semanas e dez leiloes de cada papel. O
+# backtest de dez anos NAO DISTINGUE as janelas -- 10, 20 e 60 dias de leilao e 26
+# semanas caem todos na mesma faixa de erro (1,26 a 1,71 pp no prefixado) -- entao a
+# escolha e por ser a unidade em que se pensa, e por lidar sozinha com semana de
+# feriado e com dezembro, que tem menos leilao.
+LEILOES_DO_PACE = 10
+
+# EM QUE DIA DA SEMANA CADA PAPEL VAI A LEILAO. Regra do Tesouro, descrita pela dona
+# do projeto e medida nos ultimos dois anos:
+#
+#     prefixado (LTN e NTN-F)   quinta-feira   91% dos 104 leiloes
+#     NTN-B                     terca-feira    95% dos 101
+#     LFT                       terca-feira    99% dos  98
+#
+# Feriado que antecipa o leilao em um dia util nao muda nada aqui: o que se conta e
+# quantos leiloes DAQUELE PAPEL faltam, e nao em que dia da semana caem.
+DIA_DO_PAPEL = {"Prefixado": 3, "\u00cdndice Pre\u00e7os": 1, "Taxa Flutuante": 1}
+
+
+def pace(quando):
+    """Financeiro liquido medio por LEILAO DAQUELE PAPEL, por indexador.
+
+    OS ZEROS NAO ENTRAM NA MEDIA. Um dia de terca em que o prefixado nao foi a leilao
+    nao e um leilao de prefixado de valor zero: e um dia em que ele nao foi ofertado.
+    Contar o zero fazia a media depender da mistura de tercas e quintas da janela --
+    batia por sorte (10 e 10, contra 18 e 18 no futuro), e uma janela com 15 tercas e
+    5 quintas subestimaria o prefixado em quase metade, sem nada acusar.
+
+    Medido em 17/08/2026: prefixado 12,32 bi por leilao, indice de precos 1,09, taxa
+    flutuante 21,91.
+    """
+    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                    parse_dates=["data_leilao", "data_liquidacao"])
+    l = l[l["data_liquidacao"] <= pd.Timestamp(quando)].copy()
+    l["indexador"] = [_INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
+    l["sinal"] = [_SINAL.get(t, 0) for t in l["tipo_leilao"]]
+    l = l[l["indexador"].notna()]
+    l["fluxo"] = l["financeiro_milhoes"] * l["sinal"]
+
+    por_leilao = l.pivot_table(index="data_leilao", columns="indexador",
+                               values="fluxo", aggfunc="sum")
+    saida = {}
+    for ind in INDEXADORES:
+        if ind not in por_leilao.columns:
+            raise LookupError(f"nenhum leilao de {ind} ate {quando:%d/%m/%Y}.")
+        dele = por_leilao[ind].dropna()
+        dele = dele[dele != 0].tail(LEILOES_DO_PACE)
+        if len(dele) < LEILOES_DO_PACE:
+            raise LookupError(
+                f"so ha {len(dele)} leiloes de {ind} ate {quando:%d/%m/%Y}, e o "
+                f"pace pede {LEILOES_DO_PACE}.")
+        saida[ind] = dele.mean()
+    return pd.Series(saida)
+
+
+def leiloes_que_faltam(dias, indexador):
+    """Quantos dos dias de leilao levam AQUELE papel.
+
+    O prefixado vai a leilao na quinta e os indexados na terca -- regra do Tesouro,
+    medida em 91% a 99% dos ultimos dois anos. Feriado que antecipa o leilao em um
+    dia util nao muda a conta: o que importa e quantos leiloes daquele papel faltam.
+    """
+    alvo = DIA_DO_PAPEL[indexador]
+    return sum(1 for d in dias if pd.Timestamp(d).dayofweek == alvo)
+
+
+def projecao(ate, hoje=None, registros=None):
+    """O estoque projetado para 'ate', com a premissa que usou ao lado.
+
+    A PREMISSA VIAJA JUNTO de proposito: um numero projetado sem a Selic e a
+    inflacao que ele usou ao lado e opiniao com cara de medida, e quem le a pagina
+    nao tem como saber se a projecao mudaria com outra premissa.
+
+    O ESTOQUE SAI COMO NUMERO, e nao como faixa. Uma faixa construida sobre um
+    cenario alternativo de Selic foi cogitada e descartada: medida contra um
+    cenario plausivel (Selic 2pp mais baixa), a premissa de Selic move o estoque
+    em ~8 bi contra uma banda de ~600 -- 1,4%, ruido. O que de fato domina o erro
+    da projecao e o pace, que erra da ordem de 150 bi; uma faixa construida sobre a
+    Selic passaria a impressao de uma precisao que a projecao nao tem.
+    """
+    from . import calendario_leiloes, curva, fluxos
+
+    ate = pd.Timestamp(ate)
+
+    # A PROJECAO COMECA DE HOJE, e nao da data-base do RMD. Comecando do RMD, o
+    # pace seria aplicado tambem aos dias de leilao que JA ACONTECERAM entre a
+    # data-base e hoje -- trocando seis semanas de leilao medido por estimativa. E
+    # os dois blocos da mesma pagina partiriam de lugares diferentes.
+    #
+    # 'hoje' existe para o BACKTEST, em que quem chama quer comecar numa data de
+    # RMD de proposito, para comparar com o dezembro que de fato aconteceu.
+    if hoje is not None:
+        partida = pd.Timestamp(hoje)
+        c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
+                        parse_dates=["data"])
+        piv = c.pivot_table(index="data", columns="indexador",
+                            values="valor_milhoes", aggfunc="sum").fillna(0.0)
+        inicial = piv.loc[partida]
+    else:
+        l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                        parse_dates=["data_liquidacao"])
+        partida = l["data_liquidacao"].max()
+        inicial = estoque_em(partida)
+
+    dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,
+                                                  hoje=partida)
+    quantos = len(dias)
+    ritmo = pace(partida)
+    pagou = fluxos.pagos(partida, ate)
+    selic = curva.selic_implicita(ate, data_base=partida)
+    inflacao = curva.inflacao_implicita(ate, data_base=partida)
+    cal = calendario.padrao()
+    du = cal.du(partida.date(), ate.date())
+
+    projetado = {}
+    for ind in INDEXADORES:
+        base = float(inicial[ind])
+        do_ind = pagou[pagou["indexador"] == ind]
+        pago = do_ind["principal_milhoes"].sum() + do_ind["cupom_milhoes"].sum()
+        if ind == "Taxa Flutuante":
+            taxa = selic
+        elif ind == "\u00cdndice Pre\u00e7os":
+            taxa = (1 + inflacao) * 1.06 - 1
+        else:
+            taxa = _CARGA_DO_PREFIXADO
+        juros = base * ((1 + taxa) ** (du / 252) - 1)
+        projetado[ind] = (base + float(ritmo[ind])
+                          * leiloes_que_faltam(dias, ind) - pago + juros)
+    for ind in PARADOS:
+        projetado[ind] = float(inicial[ind])
+
+    total = sum(projetado.values())
+
+    return {"estoque": pd.Series(projetado),
+            "percentual": pd.Series({k: 100 * v / total
+                                     for k, v in projetado.items()}),
+            "selic": selic,
+            "inflacao": inflacao,
+            # DE QUANDO E A CURVA. Ela termina no ultimo RMD e a projecao parte da
+            # ultima liquidacao: sao semanas de diferenca, e apresentar premissa de
+            # sete semanas atras como "de hoje" e o tipo de coisa que esta pagina
+            # existe para nao fazer.
+            "data_da_curva": curva.data_da_curva(partida),
+            "dias_de_leilao": quantos,
+            "fronteira_do_calendario": fronteira,
+            "de": partida, "ate": ate}
