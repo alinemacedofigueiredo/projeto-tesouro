@@ -135,3 +135,24 @@ def test_inflacao_implicita_rejeita_ate_anterior_a_data_base():
     with pytest.raises(ValueError):
         curva.inflacao_implicita(pd.Timestamp("2026-01-01"),
                                   data_base=pd.Timestamp("2026-06-30"))
+
+
+def test_a_curva_aceita_data_base_que_nao_existe_no_arquivo():
+    # O composicao_dpf usa o ultimo dia CORRIDO e o dv_por_papel o ultimo dia UTIL.
+    # 30/06/2024 caiu num domingo: existe num e nao no outro. E a projecao real parte
+    # da ultima LIQUIDACAO, que vai alem do ultimo RMD -- o caminho principal da
+    # entrega levantava LookupError, e nenhum teste o exercitava.
+    assert curva.data_da_curva(pd.Timestamp("2024-06-30")) == pd.Timestamp("2024-06-28")
+    assert curva.selic_implicita(pd.Timestamp("2024-12-31"),
+                                 data_base=pd.Timestamp("2024-06-30")) > 0
+
+    # E alem do fim do arquivo: a curva mais recente vale, e quem chama fica sabendo.
+    depois = pd.Timestamp("2026-08-17")
+    usada = curva.data_da_curva(depois)
+    assert usada < depois
+    assert curva.selic_implicita(pd.Timestamp("2026-12-31"), data_base=depois) > 0
+
+
+def test_sem_curva_nenhuma_ate_a_data_ele_LEVANTA():
+    with pytest.raises(LookupError, match="curva"):
+        curva.data_da_curva(pd.Timestamp("1999-01-01"))

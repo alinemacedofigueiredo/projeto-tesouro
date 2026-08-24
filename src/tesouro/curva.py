@@ -19,11 +19,43 @@ import pandas as pd
 from . import calendario, config
 
 
+def _data_base(d, data_base):
+    """A data mais recente <= 'data_base' que existe em 'd', ou a mais recente de
+    todas se 'data_base' for None.
+
+    Fatorado para fora de '_curva' para que 'data_da_curva' devolva a mesma data
+    sem depender de um titulo especifico ter cotacao nela -- ver a explicacao em
+    '_curva'.
+    """
+    pedida = pd.Timestamp(data_base) if data_base is not None else d["data"].max()
+    disponiveis = d.loc[d["data"] <= pedida, "data"]
+    if disponiveis.empty:
+        raise LookupError(
+            f"nao ha curva ate {pedida:%d/%m/%Y} no dv_por_papel.csv. Sem curva nao "
+            f"ha premissa, e projetar com premissa inventada seria pior.")
+    return disponiveis.max()
+
+
 def _curva(titulo, data_base=None):
-    """Os papeis COM COTACAO, ordenados por dias uteis ate o vencimento."""
+    """Os papeis COM COTACAO na data-base, ordenados por dias uteis ate o vencimento.
+
+    A DATA-BASE E A MAIS RECENTE MENOR OU IGUAL a pedida, e nao igualdade exata. Dois
+    motivos, e os dois quebravam:
+
+    O composicao_dpf.csv usa o ultimo dia CORRIDO do mes e o dv_por_papel.csv usa o
+    ultimo dia UTIL. Em 30/06/2024 -- um domingo -- eles divergem, e o backtest
+    levantava LookupError num ano que existe nos dois arquivos.
+
+    E a projecao real parte da ultima LIQUIDACAO, que vai alem do ultimo RMD. A curva
+    termina no RMD. Exigir igualdade fazia o caminho principal da entrega levantar.
+
+    Quem chama recebe de volta a data que de fato valeu, porque uma curva de sete
+    semanas atras apresentada como "de hoje" e o tipo de coisa que a pagina inteira
+    existe para nao fazer.
+    """
     d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
-    base = pd.Timestamp(data_base) if data_base is not None else d["data"].max()
+    base = _data_base(d, data_base)
     g = d[(d["data"] == base) & (d["titulo"] == titulo)
           & d["taxa_pct"].notna()].copy()
     if g.empty:
@@ -33,6 +65,23 @@ def _curva(titulo, data_base=None):
     cal = calendario.padrao()
     g["du"] = [cal.du(base.date(), v.date()) for v in g["vencimento"]]
     return base, g.sort_values("du")
+
+
+def data_da_curva(data_base=None):
+    """A data que '_curva' de fato usaria para 'data_base'.
+
+    Existe para a projecao poder dizer de quando e a curva -- ela termina no ultimo
+    RMD e a projecao parte da ultima liquidacao, semanas depois, e apresentar
+    premissa de semanas atras como "de hoje" e o tipo de coisa que a pagina inteira
+    existe para nao fazer.
+
+    Nao delega a '_curva(titulo, ...)': se o titulo escolhido nao tivesse cotacao
+    justamente na data mais recente disponivel, mas outro titulo tivesse, isto
+    levantaria por um motivo que nao e "nao ha curva nenhuma".
+    """
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data", "vencimento"])
+    return _data_base(d, data_base)
 
 
 def _interpola(g, du):
