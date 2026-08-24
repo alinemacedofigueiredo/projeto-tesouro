@@ -73,8 +73,9 @@ def ntnb_de_referencia(ate, data_base=None):
     Nao e a mais proxima: em 30/06/2026 a mais proxima e a de 15/08/2026, a 33 dias
     uteis, com taxa real de 11,25% -- ponta de curva, e nao expectativa.
     """
-    _, g = _curva("NTN-B", data_base)
+    base, g = _curva("NTN-B", data_base)
     ate = pd.Timestamp(ate)
+    _checar_ordem(base, ate)
     depois = g[g["vencimento"] > ate]
     if depois.empty:
         raise LookupError(
@@ -86,6 +87,8 @@ def inflacao_implicita(ate, data_base=None):
     """Breakeven ao ano, em decimal, no prazo da NTN-B de referencia."""
     base, pre = _curva("LTN", data_base)
     _, b = _curva("NTN-B", data_base)
+    ate = pd.Timestamp(ate)
+    _checar_ordem(base, ate)
     venc = ntnb_de_referencia(ate, data_base)
     linha = b[b["vencimento"] == venc].iloc[0]
     nominal = _interpola(pre, linha["du"]) / 100

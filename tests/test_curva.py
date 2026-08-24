@@ -44,10 +44,12 @@ def test_a_inflacao_implicita_sai_da_relacao_de_Fisher():
 
 def test_a_NTN_B_de_referencia_nao_e_a_mais_proxima():
     # A mais proxima em 30/06/2026 e a de 15/08/2026, a 33 dias uteis, com taxa real
-    # de 11,25% -- ponta de curva, e nao expectativa. A de referencia e a mais curta
-    # COM COTACAO cujo vencimento passe da data-alvo.
+    # de 11,25% -- ponta de curva, e nao expectativa. A de referencia e a MAIS CURTA
+    # COM COTACAO cujo vencimento passe da data-alvo -- nao qualquer uma depois, e
+    # nao a mais longa. "> 2026-12-31" sozinho nao distingue a de 15/05/2027 (a
+    # certa) da de 2060 (a mais longa da curva); o valor exato trava as duas.
     escolhida = curva.ntnb_de_referencia(pd.Timestamp("2026-12-31"))
-    assert escolhida > pd.Timestamp("2026-12-31")
+    assert escolhida == pd.Timestamp("2027-05-15"), escolhida
 
 
 def test_selic_implicita_bate_o_valor_medido():
@@ -115,3 +117,21 @@ def test_ate_anterior_a_data_base_e_rejeitado():
     with pytest.raises(ValueError):
         curva.selic_implicita(pd.Timestamp("2026-01-01"),
                                data_base=pd.Timestamp("2026-06-30"))
+
+
+def test_ntnb_de_referencia_rejeita_ate_anterior_a_data_base():
+    # Mesma armadilha do 'du' simetrico, na segunda interface publica: sem a
+    # guarda, isso devolveria uma NTN-B (a de 15/08/2026, primeira depois de
+    # 2026-01-01) sem reclamar, ainda que 'ate' esteja antes da data-base.
+    with pytest.raises(ValueError):
+        curva.ntnb_de_referencia(pd.Timestamp("2026-01-01"),
+                                  data_base=pd.Timestamp("2026-06-30"))
+
+
+def test_inflacao_implicita_rejeita_ate_anterior_a_data_base():
+    # A mesma armadilha, na terceira interface publica. Sem a guarda isto
+    # devolvia 0.02518 (breakeven plausivel, e errado) em vez de recusar --
+    # exatamente a classe de defeito que a guarda existe para impedir.
+    with pytest.raises(ValueError):
+        curva.inflacao_implicita(pd.Timestamp("2026-01-01"),
+                                  data_base=pd.Timestamp("2026-06-30"))
