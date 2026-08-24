@@ -1445,20 +1445,6 @@ def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
         assert quantos < len(dias), "contou dia de leilao, e nao leilao do papel"
 
 
-def test_o_ESTOQUE_sai_como_FAIXA_e_os_outros_como_numero():
-    # Spec 5.5. O estoque em reais e o unico indicador em que a premissa move quase
-    # a largura da banda: congelar da 9.339 bi e apropriar da 9.850, contra uma
-    # banda de 9.700 a 10.300. Nos percentuais a mesma premissa vale 0,2 pp contra
-    # bandas de 4 pp, e a faixa seria mais larga que a informacao.
-    p = rolagem.projecao(pd.Timestamp("2026-12-31"), registros=[])
-    assert "estoque_faixa" in p
-    baixo, alto = p["estoque_faixa"]
-    assert baixo < alto
-    assert baixo < p["estoque"].sum() <= alto or baixo <= p["estoque"].sum() < alto
-    # A faixa vem de um cenario de Selic mais baixa, e nao de um numero inventado.
-    assert p["selic_do_piso"] == pytest.approx(p["selic"] - rolagem.CENARIO_SELIC)
-
-
 def test_a_projecao_devolve_a_PREMISSA_que_usou():
     # Numero projetado sem a premissa ao lado e opiniao com cara de medida.
     p = rolagem.projecao(pd.Timestamp("2026-12-31"), registros=[])
@@ -1509,9 +1495,6 @@ LEILOES_DO_PACE = 10
 # Feriado que antecipa o leilao em um dia util nao muda nada aqui: o que se conta e
 # quantos leiloes DAQUELE PAPEL faltam, e nao em que dia da semana caem.
 DIA_DO_PAPEL = {"Prefixado": 3, "\u00cdndice Pre\u00e7os": 1, "Taxa Flutuante": 1}
-
-# De quanto e o cenario alternativo que da o piso da faixa do estoque.
-CENARIO_SELIC = 0.02
 
 def pace(quando):
     """Financeiro liquido medio por LEILAO DAQUELE PAPEL, por indexador.
@@ -1619,31 +1602,10 @@ def projecao(ate, hoje=None, registros=None):
         projetado[ind] = float(inicial[ind])
 
     total = sum(projetado.values())
-    # O ESTOQUE SAI COMO FAIXA, e os outros como numero. Ver spec 5.5: e o unico
-    # indicador em que a premissa vale quase a largura da banda -- 511 bi de
-    # diferenca contra uma banda de 600. Nos percentuais a mesma premissa vale
-    # 0,2 pp contra bandas de 4 pp, e a faixa seria mais larga que a informacao.
-    piso = 0.0
-    for ind in INDEXADORES:
-        base = float(inicial[ind])
-        do_ind = pagou[pagou["indexador"] == ind]
-        pago = do_ind["principal_milhoes"].sum() + do_ind["cupom_milhoes"].sum()
-        if ind == "Taxa Flutuante":
-            taxa = selic - CENARIO_SELIC
-        elif ind == "Índice Preços":
-            taxa = (1 + inflacao) * 1.06 - 1
-        else:
-            taxa = _CARGA_DO_PREFIXADO
-        piso += (base + float(ritmo[ind]) * leiloes_que_faltam(dias, ind)
-                 - pago + base * ((1 + taxa) ** (du / 252) - 1))
-    piso += sum(float(inicial[i]) for i in PARADOS)
-
     return {"estoque": pd.Series(projetado),
-            "estoque_faixa": (piso, total),
             "percentual": pd.Series({k: 100 * v / total
                                      for k, v in projetado.items()}),
-            "selic": selic, "selic_do_piso": selic - CENARIO_SELIC,
-            "inflacao": inflacao,
+            "selic": selic, "inflacao": inflacao,
             # DE QUANDO E A CURVA. Ela termina no ultimo RMD e a projecao parte da
             # ultima liquidacao: sao semanas de diferenca, e apresentar premissa de
             # sete semanas atras como "de hoje" e o tipo de coisa que esta pagina
@@ -1866,9 +1828,15 @@ def _valores_de_hoje(quando):
             "estoque_bilhoes": total / 1000}
 
 
-def _linhas(valores, ano):
-    """Uma linha por indicador, com a banda do ano e a distancia."""
+def _linhas(valores, ano, quando=None):
+    """Uma linha por indicador, com a banda do ano, a distancia e a data.
+
+    'quando' e a data dos indicadores ROLADOS. Os parados ficam com a
+    data-base do RMD, e a diferenca entre as duas e o que a coluna
+    de_quando mostra na tabela.
+    """
     base, no_rmd = _realizado_do_rmd()
+    quando = quando if quando is not None else base
     linhas = []
     for chave, rotulo, unidade in INDICADORES:
         b = paf.bandas(chave)
@@ -1893,7 +1861,7 @@ def _linhas(valores, ano):
 def dados_hoje(hoje=None):
     """A tabela de onde estamos hoje."""
     quando = pd.Timestamp(hoje) if hoje is not None else _ultima_liquidacao()
-    return _linhas(_valores_de_hoje(quando), quando.year)
+    return _linhas(_valores_de_hoje(quando), quando.year, quando)
 
 
 def _ultima_liquidacao():
@@ -2141,25 +2109,25 @@ def _rodape_de_hoje():
 
 
 def _rodape_da_projecao(dados):
+    from .. import rolagem
+
     p = dados.attrs["premissa"]
     fronteira = p["fronteira_do_calendario"]
     onde = (f"calend\u00e1rio publicado at\u00e9 {fronteira:%d/%m/%Y} e "
             f"estimado depois" if fronteira is not None
             else "calend\u00e1rio inteiramente estimado")
-    piso, teto = p["estoque_faixa"]
-    from .. import rolagem
-
-    return (f"Pace dos <b>{rolagem.LEILOES_DO_PACE} últimos dias de "
-            f"leilão</b>, aplicado a "
-            f"<b>{p['dias_de_leilao']} dias</b> que faltam \u2014 {onde}. "
+    return (f"Pace dos <b>{rolagem.LEILOES_DO_PACE} \u00faltimos leil\u00f5es de "
+            f"cada papel</b>, aplicado aos leil\u00f5es que faltam em "
+            f"<b>{p['dias_de_leilao']} dias</b> \u2014 {onde}. "
             f"Selic impl\u00edcita de {p['selic']*100:.2f}% e infla\u00e7\u00e3o "
-            f"impl\u00edcita de {p['inflacao']*100:.2f}%, tiradas da curva. "
-            f"O <b>estoque sai como faixa</b>, de R$ {piso/1000:,.0f} a "
-            f"R$ {teto/1000:,.0f} bi: \u00e9 o \u00fanico indicador em que a "
-            f"premissa vale quase a largura da banda. "
-            f"A proje\u00e7\u00e3o sup\u00f5e que o pace continua, e falha "
-            f"quando ele n\u00e3o continua \u2014 em 2020 ela errou 6,5 pontos "
-            f"no prefixado.").replace(",", ".")
+            f"impl\u00edcita de {p['inflacao']*100:.2f}%, da curva de "
+            f"{p['data_da_curva']:%d/%m/%Y}. "
+            f"<b>O n\u00famero mais incerto \u00e9 a emiss\u00e3o:</b> em dez anos "
+            f"de backtest, projetar o segundo semestre pelo ritmo do momento errou "
+            f"<b>R$ 153 bilh\u00f5es em m\u00e9dia</b> \u2014 um quarto da largura "
+            f"da banda. A proje\u00e7\u00e3o sup\u00f5e que o ritmo continua, e "
+            f"falha quando ele n\u00e3o continua: em 2020 errou 6,5 pontos no "
+            f"prefixado.")
 
 
 def grava(caminho=None, hoje=None):
