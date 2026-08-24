@@ -54,13 +54,16 @@ def test_papel_vencido_nao_paga_mesmo_no_mes_certo():
 
 
 def test_vencimento_ausente_nao_paga():
-    # pd.NaT chega quando o titulo nao tem vencimento conhecido no estoque, e tem
-    # de devolver False -- mas NaT sozinho NAO testa a guarda: NaT nunca e maior
-    # que nada e NaN nunca fecha o modulo 6, entao o resultado final e False com
-    # ou sem "pd.isna(...)" na funcao. Quem de fato distingue e um vencimento
-    # None (por exemplo, de um lookup que nao achou a linha): sem a guarda,
-    # "quando > vencimento" explode com TypeError em vez de devolver False.
+    # pd.NaT chega quando o titulo nao tem vencimento conhecido no estoque (e o
+    # que "parse_dates" produz para celula vazia -- nunca None, entao None nao e
+    # entrada real desta funcao e nao teria dado dentes de verdade). A guarda de
+    # "pd.isna(...)" e REDUNDANTE POR CONSTRUCAO aqui: com NaT, tanto
+    # "quando.day != DIA_DO_CUPOM[titulo]" quanto "(NaT.month - quando.month) % 6
+    # == 0" ja devolvem False sozinhas, porque NaT.month e nan e nan nunca fecha
+    # o modulo 6. A guarda fica mesmo assim, por ser o idioma do projeto (guardas
+    # de pandas usam pd.isna, nao a semantica acidental de NaN) -- um leitor
+    # futuro nao deveria precisar saber que "nan % 6 == 0" e False para confiar
+    # na funcao. ESTE TESTE NAO TEM DENTES E NAO PODE TER: tirar a guarda nao o
+    # faz reprovar. Registrado aqui para nao fingir uma cobertura que nao existe.
     assert not fluxos.paga_cupom_em(
         "NTN-B", pd.NaT, pd.Timestamp("2026-08-15"))
-    assert not fluxos.paga_cupom_em(
-        "NTN-B", None, pd.Timestamp("2026-08-15"))
