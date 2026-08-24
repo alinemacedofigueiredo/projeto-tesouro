@@ -61,3 +61,41 @@ def dias_estimados(de, ate):
             continue
         dias.add(dia)
     return sorted(dias)
+
+
+def dias_ate(ate, registros=None, hoje=None):
+    """Os dias de leilao ate 'ate', e a data em que o calendario publicado acaba.
+
+    O PUBLICADO TEM PRECEDENCIA. Onde o Tesouro ja disse o que vai fazer, e
+    transcricao; alem disso e inferencia nossa. Devolver a fronteira junto nao e
+    detalhe: sem ela a pagina apresentaria palpite com a mesma cara de fato.
+
+    'registros' e a resposta ja baixada da API. Os testes passam a amostra
+    congelada, e por isso nao tocam a rede.
+    """
+    from . import api_leiloes, parse_api_leiloes
+
+    ate = pd.Timestamp(ate).normalize()
+    hoje = pd.Timestamp(hoje).normalize() if hoje is not None \
+        else pd.Timestamp.today().normalize()
+
+    if registros is None:
+        registros, _ = api_leiloes.buscar("calendario")
+
+    publicados = []
+    fronteira = None
+    if len(registros):
+        agenda = parse_api_leiloes.calendario(registros)
+        datas = sorted(set(agenda["data_leilao"].dt.normalize()))
+        publicados = [d for d in datas if hoje <= d <= ate]
+        if publicados:
+            fronteira = max(publicados)
+
+    # O estimado so comeca DEPOIS da fronteira -- nunca nela. dias_estimados ja
+    # descarta por conta propria qualquer dia que a antecipacao por feriado jogue
+    # para antes do inicio pedido (ver o teste de virada de janela em
+    # dias_estimados), entao a fronteira nao pode reaparecer aqui nem por
+    # coincidencia de data.
+    inicio = fronteira + pd.Timedelta(days=1) if fronteira is not None else hoje
+    estimados = [d for d in dias_estimados(inicio, ate) if d not in set(publicados)]
+    return sorted(set(publicados) | set(estimados)), fronteira

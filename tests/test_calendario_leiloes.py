@@ -77,3 +77,80 @@ def test_virada_de_ano_nao_devolve_leilao_fantasma():
     dias = calendario_leiloes.dias_estimados(pd.Timestamp("2025-12-20"),
                                              pd.Timestamp("2026-01-10"))
     assert pd.Timestamp("2025-12-31") not in dias
+
+
+def test_o_calendario_PUBLICADO_tem_precedencia_sobre_o_estimado():
+    # Onde o Tesouro ja disse o que vai fazer, e transcricao. So alem disso e
+    # inferencia -- e a pagina precisa saber onde uma acaba, senao apresenta
+    # palpite com a mesma cara de fato.
+    import json
+    import pathlib
+
+    fixtures = pathlib.Path(__file__).parent / "fixtures" / "api_leiloes"
+    registros = json.loads(
+        (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
+
+    # HOJE FIXO, como o test_agenda.py ja faz. A amostra congelada vai de 20/08 a
+    # 29/09/2026: com a data real do relogio, este teste comeca a reprovar sozinho
+    # em 30/09, quando 'publicados' fica vazio e a fronteira vira None. Data movel
+    # em teste e teste que quebra num dia qualquer, sem ninguem ter mexido em nada.
+    dias, ate_quando = calendario_leiloes.dias_ate(
+        pd.Timestamp("2026-12-31"), registros=registros,
+        hoje=pd.Timestamp("2026-08-24"))
+    assert ate_quando is not None
+    assert pd.Timestamp("2026-08-20") <= ate_quando <= pd.Timestamp("2026-10-31")
+    # Os dias do publicado entram como estao, mesmo os que a regra nao previa.
+    publicados = set(dias[:len(dias)])
+    assert ate_quando in publicados or ate_quando <= max(dias)
+    # E depois dele, o estimado continua ate o fim do ano.
+    assert max(dias) > ate_quando
+
+
+def test_sem_registros_a_lista_e_toda_estimada():
+    dias, ate_quando = calendario_leiloes.dias_ate(pd.Timestamp("2026-12-31"),
+                                                   registros=[],
+                                                   hoje=pd.Timestamp("2026-08-24"))
+    assert ate_quando is None
+    assert dias
+
+
+def test_fronteira_aparece_uma_vez_so_e_nao_se_repete_com_o_estimado():
+    # Achado nosso: dias_ate junta publicado e estimado com um set(), entao
+    # duplicata de VALOR nunca sobrevive -- mas isso nao prova que a fronteira foi
+    # tratada certo, so que o sintoma mais grosseiro (o mesmo dia duas vezes na
+    # lista) nao aparece. O que importa conferir e que a fronteira em si -- o
+    # ULTIMO dia do publicado -- aparece exatamente uma vez, e que o estimado
+    # nao tenta cobrir esse mesmo dia (senao um dia perderia sua origem publicada
+    # em favor de um palpite que concorda por acidente).
+    import json
+    import pathlib
+
+    fixtures = pathlib.Path(__file__).parent / "fixtures" / "api_leiloes"
+    registros = json.loads(
+        (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
+
+    dias, ate_quando = calendario_leiloes.dias_ate(
+        pd.Timestamp("2026-12-31"), registros=registros,
+        hoje=pd.Timestamp("2026-08-24"))
+    assert len(dias) == len(set(dias)), "a lista final tem dia repetido"
+    assert dias.count(ate_quando) == 1
+
+
+def test_fronteira_na_borda_do_ate_nao_deixa_estimado_vazar():
+    # Achado nosso: quando 'ate' cai EXATAMENTE no ultimo dia publicado, nao deve
+    # sobrar nenhum dia estimado depois dele -- dias_estimados(fronteira + 1 dia,
+    # fronteira) e uma janela invertida (de > ate), que tem de devolver vazio, e
+    # nao um dia fantasma reaproveitado da janela anterior.
+    import json
+    import pathlib
+
+    fixtures = pathlib.Path(__file__).parent / "fixtures" / "api_leiloes"
+    registros = json.loads(
+        (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
+
+    ultimo_publicado = pd.Timestamp("2026-09-29")
+    dias, ate_quando = calendario_leiloes.dias_ate(
+        ultimo_publicado, registros=registros, hoje=pd.Timestamp("2026-08-24"))
+    assert ate_quando == ultimo_publicado
+    assert max(dias) == ultimo_publicado
+    assert dias.count(ultimo_publicado) == 1
