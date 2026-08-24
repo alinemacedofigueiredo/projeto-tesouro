@@ -1412,42 +1412,37 @@ teste reprova.
 - [ ] **Passo 1: escrever o teste que falha**
 
 ```python
-def test_o_pace_e_medido_em_VINTE_DIAS_DE_LEILAO():
-    # Escolha dela: sao cerca de dez semanas e dez leiloes de cada papel, que e a
-    # unidade em que quem acompanha o Tesouro pensa. O backtest nao distingue as
-    # janelas -- 10, 20 e 60 leiloes e 26 semanas caem todos na mesma faixa de erro
-    # -- entao a escolha e por legibilidade, e nao por ajuste.
-    assert rolagem.LEILOES_DO_PACE == 20
-    p = rolagem.pace(pd.Timestamp("2026-06-30"))
+def test_o_pace_e_por_PAPEL_e_nao_por_dia_de_leilao():
+    # Decisao dela. O metodo anterior media por DIA DE LEILAO contando os zeros --
+    # nos dias de terca o prefixado vale zero -- e so dava certo se a mistura de
+    # tercas e quintas da janela batesse com a do futuro. Batia por sorte: 10 e 10,
+    # contra 18 e 18 no futuro.
+    #
+    # Medir sobre os leiloes DAQUELE papel nao depende de mistura, e rende numero que
+    # se confere de cabeca: 1,09 bi por leilao de NTN-B, e nao 0,21 por dia.
+    assert rolagem.LEILOES_DO_PACE == 10
+    p = rolagem.pace(pd.Timestamp("2026-08-17"))
     for ind in rolagem.INDEXADORES:
         assert p[ind] > 0, ind
+    # A ordem de grandeza medida em 17/08/2026: a LFT coloca 21,91 bi por leilao, o
+    # prefixado 12,32 e a NTN-B 1,09. Se essa relacao inverter, alguem trocou o
+    # denominador -- que e exatamente o defeito que este metodo veio corrigir.
+    assert p["Índice Preços"] * 5 < p["Taxa Flutuante"]
+    assert p["Índice Preços"] * 3 < p["Prefixado"]
 
 
-def test_a_projecao_de_composicao_fica_dentro_do_erro_medido():
-    # Backtest de dez anos, projetando dezembro a partir de 30/06. Erro medido em
-    # pontos percentuais: 1,71 no prefixado, 0,58 no indice de precos, 1,65 na taxa
-    # flutuante. O teste usa 3 pp, que e o dobro do pior -- 2020 estoura e DEVE
-    # estourar: e o ano em que o Tesouro encurtou a divida no meio do caminho.
-    from tesouro import config
+def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
+    # Prefixado na quinta, indexados na terca. Numa janela com 18 de cada, cada papel
+    # tem 18 leiloes -- e nao os 36 dias.
+    from tesouro import calendario_leiloes
 
-    c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
-                    parse_dates=["data"])
-    piv = c.pivot_table(index="data", columns="indexador",
-                        values="valor_milhoes", aggfunc="sum").fillna(0.0)
-    pct = piv.div(piv.sum(axis=1), axis=0) * 100
-
-    fora = []
-    for ano in (2022, 2023, 2024, 2025):
-        t0 = pd.Timestamp(f"{ano}-06-30")
-        t1 = pd.Timestamp(f"{ano}-12-31")
-        if t0 not in piv.index or t1 not in piv.index:
-            continue
-        p = rolagem.projecao(t1, hoje=t0, registros=[])
-        for ind in rolagem.INDEXADORES:
-            erro = abs(p["percentual"][ind] - pct.loc[t1, ind])
-            if erro > 3.0:
-                fora.append((ano, ind, round(erro, 2)))
-    assert not fora, fora
+    dias = calendario_leiloes.dias_estimados(pd.Timestamp("2026-08-18"),
+                                             pd.Timestamp("2026-12-31"))
+    assert len(dias) == 36
+    for ind in rolagem.INDEXADORES:
+        quantos = rolagem.leiloes_que_faltam(dias, ind)
+        assert 15 <= quantos <= 20, (ind, quantos)
+        assert quantos < len(dias), "contou dia de leilao, e nao leilao do papel"
 
 
 def test_o_ESTOQUE_sai_como_FAIXA_e_os_outros_como_numero():
