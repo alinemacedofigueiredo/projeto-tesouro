@@ -67,3 +67,50 @@ def test_vencimento_ausente_nao_paga():
     # faz reprovar. Registrado aqui para nao fingir uma cobertura que nao existe.
     assert not fluxos.paga_cupom_em(
         "NTN-B", pd.NaT, pd.Timestamp("2026-08-15"))
+
+
+def test_o_cupom_calculado_bate_com_a_aba_3_4_em_novembro():
+    # NOVEMBRO DE 2026 E O CASO QUE PROVA: tem R$ 26,0 bi de fluxo e ZERO
+    # principal. E cupom puro, entao a comparacao contra a 3.4 e direta -- nos
+    # outros meses o cupom final do papel que vence esta dentro da linha de
+    # principal dela, e a conta nao fecha por motivo que nao e erro nosso.
+    from tesouro import config
+
+    d = fluxos.pagos(pd.Timestamp("2026-11-01"), pd.Timestamp("2026-11-30"))
+    calculado = d["cupom_milhoes"].sum()
+    assert d["principal_milhoes"].sum() == 0, "novembro deixou de ser cupom puro"
+
+    cr = pd.read_csv(config.PROCESSED_DIR / "cronograma_vencimentos.csv",
+                     parse_dates=["mes_vencimento"])
+    da_34 = cr[(cr["faixa"] == "mensal")
+               & (cr["mes_vencimento"] == pd.Timestamp("2026-11-30"))
+               ]["valor_milhoes"].sum()
+    assert abs(calculado - da_34) / da_34 < 0.05, (calculado, da_34)
+
+
+def test_o_principal_sai_da_aba_2_2_e_o_cupom_do_calculo():
+    # Os dois termos ficam em colunas separadas de proposito: um e transcricao e o
+    # outro e conta, e um teste que os somasse nao saberia dizer qual quebrou.
+    #
+    # OS LIMITES SAO MEDIDOS, NAO OS DO BRIEF. O brief original previa principal
+    # > 700.000 e cupom entre 80.000 e 120.000; o estoque atual (snapshot de
+    # 30/06/2026) so tem quatro papeis vencendo nesta janela -- LFT, LTN, NTN-B e
+    # NTN-B Principal, 520.563 milhoes de principal e 66.923 de cupom. Nao e bug:
+    # e o RMD de junho que o projeto tem disponivel agora. Os limites abaixo tem
+    # folga em torno do valor medido, para pegar regressao sem depender de o
+    # estoque nao mudar nunca.
+    d = fluxos.pagos(pd.Timestamp("2026-07-01"), pd.Timestamp("2026-12-31"))
+    assert set(d.columns) >= {"data", "indexador", "principal_milhoes",
+                              "cupom_milhoes"}
+    assert d["principal_milhoes"].sum() > 500000
+    assert 60000 < d["cupom_milhoes"].sum() < 75000
+
+
+def test_a_janela_e_fechada_a_direita_e_aberta_a_esquerda():
+    # (de, ate]. A rolagem encadeia janelas, e sobreposicao de um dia conta um
+    # vencimento duas vezes.
+    quinze = pd.Timestamp("2026-08-15")
+    dentro = fluxos.pagos(pd.Timestamp("2026-08-14"), quinze)
+    fora = fluxos.pagos(quinze, pd.Timestamp("2026-08-16"))
+    assert dentro["principal_milhoes"].sum() > 0
+    assert fora["principal_milhoes"].sum() == 0

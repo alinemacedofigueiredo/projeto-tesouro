@@ -50,3 +50,74 @@ def paga_cupom_em(titulo, vencimento, quando):
         return False
     # Semestral: o mes tem de distar um multiplo de seis do mes do vencimento.
     return (vencimento.month - quando.month) % 6 == 0
+
+
+# Indexador de cada papel, na nomenclatura de _INDICE_DO_VNA -- e nao a coluna
+# "indexador" do estoque, que usa outros nomes (p.ex. "Selic" em vez de
+# "Taxa Flutuante"). Todo papel com quantidade > 0 no estoque mais recente tem
+# de aparecer aqui, ou ele sai da conta em silencio.
+INDEXADOR = {"LTN": "Prefixado", "NTN-F": "Prefixado",
+             "NTN-B": "Indice Precos",
+             "NTN-B Principal": "Indice Precos",
+             "NTN-C": "Indice Precos",
+             "NTN-B1 EducA+": "Indice Precos",
+             "NTN-B1 RendA+": "Indice Precos",
+             "LFT": "Taxa Flutuante", "LFT-TD1 Reserva": "Taxa Flutuante"}
+
+_INDICE_DO_VNA = {"Indice Precos": "IPCA", "Taxa Flutuante": "SELIC"}
+
+
+def _estoque_mais_recente():
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    u = e[(e["data"] == e["data"].max()) & (e["quantidade_mil"] > 0)].copy()
+    faltando = sorted(set(u["titulo"]) - set(INDEXADOR))
+    if faltando:
+        raise LookupError(
+            f"papel sem indexador em fluxos.INDEXADOR: {faltando}. Sem isso ele "
+            f"sai da conta em silencio, e o fluxo pago fica menor do que e.")
+    u["indexador"] = [INDEXADOR[t] for t in u["titulo"]]
+    return u
+
+
+def _vna(indice, quando):
+    v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
+    s = v[(v["indice"] == indice) & (v["data"] <= quando)]
+    if s.empty:
+        raise LookupError(
+            f"nao ha VNA de {indice} ate {quando:%d/%m/%Y}. O cupom de papel "
+            f"indexado nao pode ser calculado sem ele.")
+    return float(s.iloc[-1]["vna"])
+
+
+def pagos(de, ate):
+    """Principal e cupom pagos em (de, ate], por data e indexador.
+
+    JANELA FECHADA A DIREITA E ABERTA A ESQUERDA. A rolagem encadeia janelas, e
+    sobreposicao de um dia conta um vencimento duas vezes.
+    """
+    de, ate = pd.Timestamp(de), pd.Timestamp(ate)
+    u = _estoque_mais_recente()
+    linhas = []
+
+    vence = u[(u["vencimento"] > de) & (u["vencimento"] <= ate)]
+    for _, r in vence.iterrows():
+        linhas.append({"data": r["vencimento"], "indexador": r["indexador"],
+                       "principal_milhoes": r["financeiro_milhoes"],
+                       "cupom_milhoes": 0.0})
+
+    for dia in pd.date_range(de + pd.Timedelta(days=1), ate, freq="D"):
+        for _, r in u.iterrows():
+            if not paga_cupom_em(r["titulo"], r["vencimento"], dia):
+                continue
+            taxa = (1 + CUPOM_ANUAL[r["titulo"]]) ** 0.5 - 1
+            indice = _INDICE_DO_VNA[r["indexador"]]
+            base = _vna(indice, dia) if indice == "IPCA" else 1000.0
+            valor = r["quantidade_mil"] * 1000 * base * taxa / 1e6
+            linhas.append({"data": dia, "indexador": r["indexador"],
+                           "principal_milhoes": 0.0, "cupom_milhoes": valor})
+
+    if not linhas:
+        return pd.DataFrame(columns=["data", "indexador", "principal_milhoes",
+                                     "cupom_milhoes"])
+    return pd.DataFrame(linhas).sort_values("data").reset_index(drop=True)
