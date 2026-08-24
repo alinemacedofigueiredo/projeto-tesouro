@@ -46,7 +46,7 @@ na implementação.
 - projeção até 31/12 do ano corrente, com premissa saída da própria curva;
 - a leitura histórica: com que frequência o Tesouro fecha o ano dentro da banda,
   medida contra a banda **original** e contra a **vigente**;
-- uma seção nova na página `dashboard.html`.
+- uma **página nova**, `paf.html`, irmã do calendário e das emissões.
 
 **Fora:**
 
@@ -311,19 +311,42 @@ propósito. Esta entrega segue a regra: o realizado de cada indicador vem de
 `estoque_dpf.csv`. Ler o realizado de uma tabela digitada seria trocar dado
 verificado por dado redigitado.
 
-### 6.4 Onde a página fica
+### 6.4 É uma PÁGINA, e não uma seção do dashboard
 
-Uma seção nova, **"Contra o PAF"**, na página `dashboard.html` — a do estoque, que
-já tem os quatro gráficos com banda e 4,03 MB de folga contra o limiar de 10.
+A primeira versão desta spec punha tudo como um grupo novo dentro de
+`dashboard.html`. **Está errado**, e a dona do projeto apontou: isto é uma página
+própria, como o calendário. Três razões, e a terceira é a que decide.
 
-Ela entra como o **segundo grupo**, logo depois de "O total": a pergunta "estou
-dentro do que prometi?" vem antes de "de que a dívida é feita".
+**Cadência.** O dashboard muda uma vez por mês, quando sai o RMD. Esta página muda a
+cada **leilão liquidado** — é essa a razão de ela existir. Enterrar uma tabela que
+muda toda semana dentro de um arquivo de 4,03 MB significa reescrever 4 MB para
+mudar uma linha, e 16,5 segundos de geração contra os 5,6 do calendário. O
+calendário é pequeno de propósito, porque é o que se regrava sempre; esta página é
+da mesma família.
+
+**Momento de leitura.** O dashboard responde "como está a dívida", e se lê depois do
+RMD. Esta responde "estou no rumo, e o que preciso fazer", e se lê na semana do
+leilão. Leitor diferente, postura diferente, arquivo diferente.
+
+**As entregas 4 e 5 são a mesma conversa.** "Estou dentro?" e "o que faço para
+entrar?" são a pergunta e a resposta. Se a 5 é página — e é —, pôr a 4 no dashboard
+separaria as duas metades em arquivos diferentes. A entrega 5 **acrescenta um bloco a
+esta página**, e não cria outra.
+
+**O arquivo é `paf.html`**, rótulo "contra o PAF" na barra do topo, entrando entre
+`dashboard-funding.html` e `emissoes.html`. Nome de substantivo simples, como
+`calendario.html` e `emissoes.html`, e não `dashboard-*`, porque ela não é uma
+página do RMD.
+
+Tamanho esperado: os sete gráficos pequenos do §7.3 mais duas tabelas devem ficar na
+ordem do calendário, bem abaixo do limiar. A ser medido na implementação.
 
 ---
 
 ## 7. O que a página mostra
 
-Três blocos, dentro do grupo novo.
+Três blocos, cada um numa seção recolhível — o mesmo molde do calendário, que já
+usa `<details>`/`<summary>`. O primeiro abre com a página.
 
 ### 7.1 Onde estamos hoje
 
@@ -404,7 +427,7 @@ resto do projeto.
 
 | assunto | decisão | quando reabrir |
 |---|---|---|
-| Tabela de simulação "quanto emitir por semana" | Entrega 5 | Depois desta |
+| Tabela de simulação "quanto emitir por semana" | Entrega 5, **como um quarto bloco desta mesma página** | Depois desta |
 | DPFe na rolagem | Fora: não passa por leilão | Se houver fonte de emissão externa |
 | Tesouro Direto na rolagem | Fora: resíduo medido pequeno | Se o resíduo crescer |
 | Data de vigência das revisões do PAF | Não é necessária para a comparação anual | Se a leitura intra-anual for pedida |
