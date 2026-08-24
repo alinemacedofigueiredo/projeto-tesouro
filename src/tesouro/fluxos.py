@@ -56,15 +56,22 @@ def paga_cupom_em(titulo, vencimento, quando):
 # "indexador" do estoque, que usa outros nomes (p.ex. "Selic" em vez de
 # "Taxa Flutuante"). Todo papel com quantidade > 0 no estoque mais recente tem
 # de aparecer aqui, ou ele sai da conta em silencio.
+#
+# OS VALORES SAO DADO, NAO ROTULO LIVRE: tem de bater byte a byte com a coluna
+# "indexador" de composicao_dpf.csv, que a rolagem da Task 7 usa para filtrar.
+# Por isso o acento entra por escape \uXXXX -- o arquivo continua ASCII puro
+# (regra do projeto), mas a string em tempo de execucao e "Indice Precos"
+# acentuado, igual ao CSV. Ver
+# test_os_rotulos_de_INDEXADOR_batem_com_o_composicao_dpf em test_fluxos.py.
 INDEXADOR = {"LTN": "Prefixado", "NTN-F": "Prefixado",
-             "NTN-B": "Indice Precos",
-             "NTN-B Principal": "Indice Precos",
-             "NTN-C": "Indice Precos",
-             "NTN-B1 EducA+": "Indice Precos",
-             "NTN-B1 RendA+": "Indice Precos",
+             "NTN-B": "\u00cdndice Pre\u00e7os",
+             "NTN-B Principal": "\u00cdndice Pre\u00e7os",
+             "NTN-C": "\u00cdndice Pre\u00e7os",
+             "NTN-B1 EducA+": "\u00cdndice Pre\u00e7os",
+             "NTN-B1 RendA+": "\u00cdndice Pre\u00e7os",
              "LFT": "Taxa Flutuante", "LFT-TD1 Reserva": "Taxa Flutuante"}
 
-_INDICE_DO_VNA = {"Indice Precos": "IPCA", "Taxa Flutuante": "SELIC"}
+_INDICE_DO_VNA = {"\u00cdndice Pre\u00e7os": "IPCA", "Taxa Flutuante": "SELIC"}
 
 
 def _estoque_mais_recente():
@@ -111,7 +118,11 @@ def pagos(de, ate):
             if not paga_cupom_em(r["titulo"], r["vencimento"], dia):
                 continue
             taxa = (1 + CUPOM_ANUAL[r["titulo"]]) ** 0.5 - 1
-            indice = _INDICE_DO_VNA[r["indexador"]]
+            # .get() e nao []: papel Prefixado (NTN-F) nao tem entrada em
+            # _INDICE_DO_VNA porque nao tem VNA -- ele paga cupom sobre a face
+            # de 1.000, sem chamar _vna. Com [] isso e um KeyError toda vez que
+            # a janela pega 01/01 ou 01/07, os dias de cupom da NTN-F.
+            indice = _INDICE_DO_VNA.get(r["indexador"])
             base = _vna(indice, dia) if indice == "IPCA" else 1000.0
             valor = r["quantidade_mil"] * 1000 * base * taxa / 1e6
             linhas.append({"data": dia, "indexador": r["indexador"],

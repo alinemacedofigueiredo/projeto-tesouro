@@ -92,18 +92,46 @@ def test_o_principal_sai_da_aba_2_2_e_o_cupom_do_calculo():
     # Os dois termos ficam em colunas separadas de proposito: um e transcricao e o
     # outro e conta, e um teste que os somasse nao saberia dizer qual quebrou.
     #
-    # OS LIMITES SAO MEDIDOS, NAO OS DO BRIEF. O brief original previa principal
-    # > 700.000 e cupom entre 80.000 e 120.000; o estoque atual (snapshot de
-    # 30/06/2026) so tem quatro papeis vencendo nesta janela -- LFT, LTN, NTN-B e
-    # NTN-B Principal, 520.563 milhoes de principal e 66.923 de cupom. Nao e bug:
-    # e o RMD de junho que o projeto tem disponivel agora. Os limites abaixo tem
-    # folga em torno do valor medido, para pegar regressao sem depender de o
-    # estoque nao mudar nunca.
-    d = fluxos.pagos(pd.Timestamp("2026-07-01"), pd.Timestamp("2026-12-31"))
+    # A JANELA COMECA NA DATA-BASE DO RMD (30/06/2026), NAO EM 01/07. Comecar em
+    # 01/07 exclui os proprios vencimentos daquele dia -- 215,8 bi de LTN e
+    # NTN-F, mais o cupom de NTN-F do mesmo dia -- porque a janela e (de, ate] e
+    # 01/07 nao e posterior a 01/07. E o uso real (a rolagem encadeia a partir da
+    # data-base) que fixa esses limites: 736.381 milhoes de principal e 100.179
+    # de cupom, medidos com a janela certa.
+    d = fluxos.pagos(pd.Timestamp("2026-06-30"), pd.Timestamp("2026-12-31"))
     assert set(d.columns) >= {"data", "indexador", "principal_milhoes",
                               "cupom_milhoes"}
-    assert d["principal_milhoes"].sum() > 500000
-    assert 60000 < d["cupom_milhoes"].sum() < 75000
+    assert d["principal_milhoes"].sum() > 700000
+    assert 80000 < d["cupom_milhoes"].sum() < 120000
+
+
+def test_o_cupom_da_NTN_F_nao_estoura_porque_ela_e_prefixada():
+    # A NTN-F paga cupom em 01/01 e 01/07 e nao tem VNA -- e prefixada, paga
+    # sobre a face de 1.000. _INDICE_DO_VNA so tem entrada para papel indexado
+    # (Indice Precos, Taxa Flutuante); buscar "Prefixado" nele com [] e KeyError,
+    # e estoura em qualquer janela que contenha 01/01 ou 01/07. A janela do
+    # teste anterior comeca em 01/07 e por isso nunca pegava esse dia -- (de,
+    # ate] exclui o proprio 01/07 quando de == 01/07. Aqui a janela comeca antes
+    # e cobre o dia.
+    d = fluxos.pagos(pd.Timestamp("2026-06-30"), pd.Timestamp("2026-07-02"))
+    cupom_prefixado = d[(d["data"] == pd.Timestamp("2026-07-01"))
+                        & (d["indexador"] == "Prefixado")]["cupom_milhoes"]
+    assert cupom_prefixado.sum() > 0
+
+
+def test_os_rotulos_de_INDEXADOR_batem_com_o_composicao_dpf():
+    # INDEXADOR NAO E ROTULO LIVRE, E DADO: a rolagem filtra
+    # pagou[pagou["indexador"] == "..."] contra os mesmos valores que
+    # composicao_dpf.csv usa. Se o rotulo aqui nao bater byte a byte com o do
+    # CSV (por exemplo por causa da regra ASCII do arquivo-fonte, que exige
+    # escapar o acento), o filtro nao acha nada e o termo de fluxo pago vira
+    # zero em silencio -- sem excecao, sem teste que capture, so um numero
+    # errado la na frente.
+    from tesouro import config
+
+    c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv")
+    do_csv = set(c["indexador"].unique())
+    assert set(fluxos.INDEXADOR.values()) <= do_csv
 
 
 def test_a_janela_e_fechada_a_direita_e_aberta_a_esquerda():
