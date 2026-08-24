@@ -67,7 +67,12 @@ def test_a_rolagem_casa_por_LIQUIDACAO_e_nao_por_data_de_leilao():
     vira = l[(l["data_liquidacao"].dt.to_period("M")
               != l["data_leilao"].dt.to_period("M"))
              & (l["tipo_leilao"] == "Venda")]
-    assert len(vira) > 1000, "os leiloes que viram o mes sumiram do dado"
+    # PRE-CONDICAO DE DADO, NAO PROPRIEDADE DO CODIGO: 996 e a contagem medida
+    # hoje, e o filtro acima e so tipo_leilao == "Venda" -- o total SEM filtro
+    # de tipo e maior (1.196). Comparar um numero medido com filtro contra um
+    # limite pensado sem filtro foi o erro que fez o limite original (1000)
+    # ficar errado; o proximo leitor que remedir nao deve repetir isso.
+    assert len(vira) > 900, "os leiloes que viram o mes sumiram do dado"
 
     r = vira.sort_values("data_liquidacao").iloc[-1]
     fim_do_mes_do_leilao = (r["data_leilao"] + pd.offsets.MonthEnd(0))
