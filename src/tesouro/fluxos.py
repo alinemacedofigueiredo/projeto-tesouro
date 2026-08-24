@@ -74,10 +74,25 @@ INDEXADOR = {"LTN": "Prefixado", "NTN-F": "Prefixado",
 _INDICE_DO_VNA = {"\u00cdndice Pre\u00e7os": "IPCA", "Taxa Flutuante": "SELIC"}
 
 
-def _estoque_mais_recente():
+def _estoque_em(de):
+    """O estoque de titulos e vencimentos no snapshot vigente em 'de'.
+
+    NAO PODE SER SEMPRE O SNAPSHOT MAIS RECENTE. pagos() e chamado pelo backtest
+    da rolagem em janelas do passado, e um titulo que ja venceu antes de hoje ja
+    saiu do snapshot mais recente -- o vencimento dele desapareceria da conta em
+    silencio, e exatamente nos meses de maior resgate (medido: R$115-341 bi de
+    LTN/LFT sumindo em cada virada de trimestre). O snapshot certo para saber o
+    que PODE vencer ou pagar cupom dentro da janela e o vigente no INICIO dela.
+    """
     e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                     parse_dates=["data", "vencimento"])
-    u = e[(e["data"] == e["data"].max()) & (e["quantidade_mil"] > 0)].copy()
+    disponiveis = e[e["data"] <= pd.Timestamp(de)]
+    if disponiveis.empty:
+        raise LookupError(
+            f"nao ha snapshot de estoque_titulos_vencimento.csv ate "
+            f"{pd.Timestamp(de):%d/%m/%Y}.")
+    u = e[(e["data"] == disponiveis["data"].max())
+          & (e["quantidade_mil"] > 0)].copy()
     faltando = sorted(set(u["titulo"]) - set(INDEXADOR))
     if faltando:
         raise LookupError(
@@ -104,7 +119,7 @@ def pagos(de, ate):
     sobreposicao de um dia conta um vencimento duas vezes.
     """
     de, ate = pd.Timestamp(de), pd.Timestamp(ate)
-    u = _estoque_mais_recente()
+    u = _estoque_em(de)
     linhas = []
 
     vence = u[(u["vencimento"] > de) & (u["vencimento"] <= ate)]
