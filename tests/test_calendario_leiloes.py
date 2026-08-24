@@ -1,7 +1,7 @@
 """O calendario de leiloes: o publicado, e o estimado alem dele."""
 import pandas as pd
 
-from tesouro import calendario_leiloes
+from tesouro import calendario_leiloes, parse_api_leiloes
 
 
 def test_o_estimador_acerta_as_datas_de_2024_e_2025():
@@ -99,9 +99,16 @@ def test_o_calendario_PUBLICADO_tem_precedencia_sobre_o_estimado():
         hoje=pd.Timestamp("2026-08-24"))
     assert ate_quando is not None
     assert pd.Timestamp("2026-08-20") <= ate_quando <= pd.Timestamp("2026-10-31")
-    # Os dias do publicado entram como estao, mesmo os que a regra nao previa.
-    publicados = set(dias[:len(dias)])
-    assert ate_quando in publicados or ate_quando <= max(dias)
+    # Achado do revisor (Minor): 'dias[:len(dias)]' era a lista inteira, nao o
+    # subconjunto publicado -- o nome enganava, e a assercao seguinte nao media o
+    # que o comentario prometia. Recalcula o publicado de verdade, a partir da
+    # mesma amostra, para conferir que os dias do publicado entram como estao.
+    agenda = parse_api_leiloes.calendario(registros)
+    hoje = pd.Timestamp("2026-08-24")
+    publicados = {d for d in agenda["data_leilao"].dt.normalize()
+                  if hoje <= d <= pd.Timestamp("2026-12-31")}
+    assert ate_quando in publicados
+    assert publicados <= set(dias)
     # E depois dele, o estimado continua ate o fim do ano.
     assert max(dias) > ate_quando
 
@@ -114,14 +121,21 @@ def test_sem_registros_a_lista_e_toda_estimada():
     assert dias
 
 
-def test_fronteira_aparece_uma_vez_so_e_nao_se_repete_com_o_estimado():
-    # Achado nosso: dias_ate junta publicado e estimado com um set(), entao
-    # duplicata de VALOR nunca sobrevive -- mas isso nao prova que a fronteira foi
-    # tratada certo, so que o sintoma mais grosseiro (o mesmo dia duas vezes na
-    # lista) nao aparece. O que importa conferir e que a fronteira em si -- o
-    # ULTIMO dia do publicado -- aparece exatamente uma vez, e que o estimado
-    # nao tenta cobrir esse mesmo dia (senao um dia perderia sua origem publicada
-    # em favor de um palpite que concorda por acidente).
+def test_o_estimado_nao_recalcula_a_fronteira():
+    # Achado do revisor (Critical, sobre este teste): a versao anterior conferia
+    # len(dias) == len(set(dias)) e dias.count(x) == 1. dias_ate junta os dois
+    # componentes com set(publicados) | set(estimados) -- um set() NUNCA guarda
+    # duplicata, por definicao do TIPO, entao as duas assercoes eram verdadeiras
+    # para QUALQUER entrada, inclusive para um mutante que descarta o publicado
+    # inteiro e preenche tudo com o estimador. Elas nao provavam nada sobre o
+    # algoritmo.
+    #
+    # Aqui a assercao mede os COMPONENTES, nao so o resultado final ja deduplicado:
+    # reconstroi o publicado e o estimado de fora, do mesmo jeito que dias_ate faz
+    # por dentro (estimado a partir do dia SEGUINTE a fronteira, nunca dela), e
+    # cruza contra o que dias_ate realmente devolveu. Isso trava que a fronteira
+    # continua vindo do publicado -- e nao de um estimado que so concorda com ela
+    # por coincidencia de calendario.
     import json
     import pathlib
 
@@ -129,11 +143,18 @@ def test_fronteira_aparece_uma_vez_so_e_nao_se_repete_com_o_estimado():
     registros = json.loads(
         (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
 
-    dias, ate_quando = calendario_leiloes.dias_ate(
-        pd.Timestamp("2026-12-31"), registros=registros,
-        hoje=pd.Timestamp("2026-08-24"))
-    assert len(dias) == len(set(dias)), "a lista final tem dia repetido"
-    assert dias.count(ate_quando) == 1
+    ate = pd.Timestamp("2026-12-31")
+    hoje = pd.Timestamp("2026-08-24")
+    dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros, hoje=hoje)
+    assert fronteira is not None
+
+    agenda = parse_api_leiloes.calendario(registros)
+    publicados = {d for d in agenda["data_leilao"].dt.normalize() if hoje <= d <= ate}
+    assert fronteira == max(publicados)
+
+    estimados = calendario_leiloes.dias_estimados(fronteira + pd.Timedelta(days=1), ate)
+    assert fronteira not in estimados
+    assert set(dias) == publicados | set(estimados)
 
 
 def test_fronteira_na_borda_do_ate_nao_deixa_estimado_vazar():
@@ -154,3 +175,49 @@ def test_fronteira_na_borda_do_ate_nao_deixa_estimado_vazar():
     assert ate_quando == ultimo_publicado
     assert max(dias) == ultimo_publicado
     assert dias.count(ultimo_publicado) == 1
+
+
+def test_leilao_publicado_numa_quarta_sobrevive_no_resultado():
+    # CRITICAL do revisor: os testes anteriores passavam ate num mutante que
+    # descarta o publicado inteiro e preenche tudo com dias_estimados -- porque,
+    # na amostra congelada, as 11 datas publicadas caem todas em terca ou quinta,
+    # exatamente o que o estimador ja produziria por conta propria. Os dois
+    # conjuntos sao identicos, entao nenhum teste anterior conseguia distinguir
+    # "o publicado tem precedencia" de "o publicado e ignorado e o estimado
+    # imita ele por coincidencia".
+    #
+    # A UNICA forma de provar precedencia e um dia em que os dois DIVERGEM: uma
+    # quarta-feira, dia que _DIAS_DA_SEMANA nunca produz (so terca e quinta).
+    # Injeta um leilao sintetico em 26/08/2026 (quarta) na amostra publicada e
+    # confere que ele sobrevive em dias_ate -- se o publicado fosse descartado,
+    # esse dia nao apareceria em lugar nenhum, porque o estimador jamais o
+    # gera.
+    import json
+    import pathlib
+
+    fixtures = pathlib.Path(__file__).parent / "fixtures" / "api_leiloes"
+    registros = json.loads(
+        (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
+
+    quarta = pd.Timestamp("2026-08-26")
+    assert quarta.day_name() == "Wednesday"
+
+    registro_sintetico = {
+        "DATA_LEILAO": "2026-08-26",
+        "TITULO": "LTN",
+        "VENCIMENTO": "2028-01-01",
+        "TIPO_LEILAO": "Venda",
+        "BENCHMARK": "LTN 12 meses",
+    }
+    registros_com_quarta = registros + [registro_sintetico]
+
+    dias, ate_quando = calendario_leiloes.dias_ate(
+        pd.Timestamp("2026-12-31"), registros=registros_com_quarta,
+        hoje=pd.Timestamp("2026-08-24"))
+
+    # A quarta nunca sairia de dias_estimados: confirma que o dia isolado, so
+    # pela regra estimada, realmente nao a produziria (senao o teste nao
+    # distinguiria nada).
+    assert quarta not in calendario_leiloes.dias_estimados(
+        pd.Timestamp("2026-08-24"), pd.Timestamp("2026-12-31"))
+    assert quarta in dias
