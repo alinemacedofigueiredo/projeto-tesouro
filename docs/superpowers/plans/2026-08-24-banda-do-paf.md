@@ -609,8 +609,13 @@ def test_o_calendario_PUBLICADO_tem_precedencia_sobre_o_estimado():
     registros = json.loads(
         (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
 
+    # HOJE FIXO, como o test_agenda.py ja faz. A amostra congelada vai de 20/08 a
+    # 29/09/2026: com a data real do relogio, este teste comeca a reprovar sozinho
+    # em 30/09, quando 'publicados' fica vazio e a fronteira vira None. Data movel
+    # em teste e teste que quebra num dia qualquer, sem ninguem ter mexido em nada.
     dias, ate_quando = calendario_leiloes.dias_ate(
-        pd.Timestamp("2026-12-31"), registros=registros)
+        pd.Timestamp("2026-12-31"), registros=registros,
+        hoje=pd.Timestamp("2026-08-24"))
     assert ate_quando is not None
     assert pd.Timestamp("2026-08-20") <= ate_quando <= pd.Timestamp("2026-10-31")
     # Os dias do publicado entram como estao, mesmo os que a regra nao previa.
@@ -622,7 +627,8 @@ def test_o_calendario_PUBLICADO_tem_precedencia_sobre_o_estimado():
 
 def test_sem_registros_a_lista_e_toda_estimada():
     dias, ate_quando = calendario_leiloes.dias_ate(pd.Timestamp("2026-12-31"),
-                                                   registros=[])
+                                                   registros=[],
+                                                   hoje=pd.Timestamp("2026-08-24"))
     assert ate_quando is None
     assert dias
 ```
