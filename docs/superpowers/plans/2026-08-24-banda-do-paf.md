@@ -1442,15 +1442,26 @@ def projecao(ate, hoje=None, registros=None):
     from . import calendario_leiloes, curva, fluxos
 
     ate = pd.Timestamp(ate)
-    hoje = pd.Timestamp(hoje) if hoje is not None else None
-    partida = hoje if hoje is not None else base_do_rmd()[0]
-    inicial = estoque_em(partida) if hoje is None else base_do_rmd()[1]
+
+    # A PROJECAO COMECA DE HOJE, e nao da data-base do RMD. Comecando do RMD, o
+    # pace seria aplicado tambem aos dias de leilao que JA ACONTECERAM entre a
+    # data-base e hoje -- trocando seis semanas de leilao medido por estimativa. E
+    # os dois blocos da mesma pagina partiriam de lugares diferentes.
+    #
+    # 'hoje' existe para o BACKTEST, em que quem chama quer comecar numa data de
+    # RMD de proposito, para comparar com o dezembro que de fato aconteceu.
     if hoje is not None:
+        partida = pd.Timestamp(hoje)
         c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
                         parse_dates=["data"])
         piv = c.pivot_table(index="data", columns="indexador",
                             values="valor_milhoes", aggfunc="sum").fillna(0.0)
         inicial = piv.loc[partida]
+    else:
+        l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                        parse_dates=["data_liquidacao"])
+        partida = l["data_liquidacao"].max()
+        inicial = estoque_em(partida)
 
     dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,
                                                   hoje=partida)
