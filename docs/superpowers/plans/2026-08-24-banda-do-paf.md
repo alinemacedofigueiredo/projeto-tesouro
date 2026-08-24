@@ -1497,33 +1497,67 @@ Esperado: FAIL, `has no attribute 'LEILOES_DO_PACE'`.
 # semanas caem todos na mesma faixa de erro (1,26 a 1,71 pp no prefixado) -- entao a
 # escolha e por ser a unidade em que se pensa, e por lidar sozinha com semana de
 # feriado e com dezembro, que tem menos leilao.
-LEILOES_DO_PACE = 20
+LEILOES_DO_PACE = 10
 
-# De quanto e o cenario alternativo que da o piso da faixa do estoque: dois pontos
-# percentuais abaixo da Selic implicita. Nao e previsao -- e a distancia tipica
-# entre a curva e o que aconteceu, e serve para a pagina mostrar largura em vez de
-# um ponto onde a premissa decide o veredito.
+# EM QUE DIA DA SEMANA CADA PAPEL VAI A LEILAO. Regra do Tesouro, descrita pela dona
+# do projeto e medida nos ultimos dois anos:
+#
+#     prefixado (LTN e NTN-F)   quinta-feira   91% dos 104 leiloes
+#     NTN-B                     terca-feira    95% dos 101
+#     LFT                       terca-feira    99% dos  98
+#
+# Feriado que antecipa o leilao em um dia util nao muda nada aqui: o que se conta e
+# quantos leiloes DAQUELE PAPEL faltam, e nao em que dia da semana caem.
+DIA_DO_PAPEL = {"Prefixado": 3, "\u00cdndice Pre\u00e7os": 1, "Taxa Flutuante": 1}
+
+# De quanto e o cenario alternativo que da o piso da faixa do estoque.
 CENARIO_SELIC = 0.02
 
-
 def pace(quando):
-    """Financeiro liquido medio POR DIA DE LEILAO, por indexador."""
+    """Financeiro liquido medio por LEILAO DAQUELE PAPEL, por indexador.
+
+    OS ZEROS NAO ENTRAM NA MEDIA. Um dia de terca em que o prefixado nao foi a leilao
+    nao e um leilao de prefixado de valor zero: e um dia em que ele nao foi ofertado.
+    Contar o zero fazia a media depender da mistura de tercas e quintas da janela --
+    batia por sorte (10 e 10, contra 18 e 18 no futuro), e uma janela com 15 tercas e
+    5 quintas subestimaria o prefixado em quase metade, sem nada acusar.
+
+    Medido em 17/08/2026: prefixado 12,32 bi por leilao, indice de precos 1,09, taxa
+    flutuante 21,91.
+    """
     l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_liquidacao"])
+                    parse_dates=["data_leilao", "data_liquidacao"])
     l = l[l["data_liquidacao"] <= pd.Timestamp(quando)].copy()
     l["indexador"] = [_INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
     l["sinal"] = [_SINAL.get(t, 0) for t in l["tipo_leilao"]]
     l = l[l["indexador"].notna()]
     l["fluxo"] = l["financeiro_milhoes"] * l["sinal"]
 
-    por_dia = l.pivot_table(index="data_liquidacao", columns="indexador",
-                            values="fluxo", aggfunc="sum").fillna(0.0)
-    ultimos = por_dia.tail(LEILOES_DO_PACE)
-    if len(ultimos) < LEILOES_DO_PACE:
-        raise LookupError(
-            f"so ha {len(ultimos)} dias de leilao ate {quando:%d/%m/%Y}, e o pace "
-            f"pede {LEILOES_DO_PACE}.")
-    return ultimos.mean().reindex(list(INDEXADORES)).fillna(0.0)
+    por_leilao = l.pivot_table(index="data_leilao", columns="indexador",
+                               values="fluxo", aggfunc="sum")
+    saida = {}
+    for ind in INDEXADORES:
+        if ind not in por_leilao.columns:
+            raise LookupError(f"nenhum leilao de {ind} ate {quando:%d/%m/%Y}.")
+        dele = por_leilao[ind].dropna()
+        dele = dele[dele != 0].tail(LEILOES_DO_PACE)
+        if len(dele) < LEILOES_DO_PACE:
+            raise LookupError(
+                f"so ha {len(dele)} leiloes de {ind} ate {quando:%d/%m/%Y}, e o "
+                f"pace pede {LEILOES_DO_PACE}.")
+        saida[ind] = dele.mean()
+    return pd.Series(saida)
+
+
+def leiloes_que_faltam(dias, indexador):
+    """Quantos dos dias de leilao levam AQUELE papel.
+
+    O prefixado vai a leilao na quinta e os indexados na terca -- regra do Tesouro,
+    medida em 91% a 99% dos ultimos dois anos. Feriado que antecipa o leilao em um
+    dia util nao muda a conta: o que importa e quantos leiloes daquele papel faltam.
+    """
+    alvo = DIA_DO_PAPEL[indexador]
+    return sum(1 for d in dias if pd.Timestamp(d).dayofweek == alvo)
 
 
 def projecao(ate, hoje=None, registros=None):
@@ -1579,7 +1613,8 @@ def projecao(ate, hoje=None, registros=None):
         else:
             taxa = _CARGA_DO_PREFIXADO
         juros = base * ((1 + taxa) ** (du / 252) - 1)
-        projetado[ind] = base + float(ritmo[ind]) * quantos - pago + juros
+        projetado[ind] = (base + float(ritmo[ind])
+                          * leiloes_que_faltam(dias, ind) - pago + juros)
     for ind in PARADOS:
         projetado[ind] = float(inicial[ind])
 
@@ -1599,8 +1634,8 @@ def projecao(ate, hoje=None, registros=None):
             taxa = (1 + inflacao) * 1.06 - 1
         else:
             taxa = _CARGA_DO_PREFIXADO
-        piso += (base + float(ritmo[ind]) * quantos - pago
-                 + base * ((1 + taxa) ** (du / 252) - 1))
+        piso += (base + float(ritmo[ind]) * leiloes_que_faltam(dias, ind)
+                 - pago + base * ((1 + taxa) ** (du / 252) - 1))
     piso += sum(float(inicial[i]) for i in PARADOS)
 
     return {"estoque": pd.Series(projetado),
