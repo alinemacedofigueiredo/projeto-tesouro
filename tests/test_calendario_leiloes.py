@@ -52,3 +52,28 @@ def test_o_leilao_antecipa_quando_o_dia_cai_em_feriado():
                                              pd.Timestamp("2026-04-25"))
     assert pd.Timestamp("2026-04-21") not in dias
     assert pd.Timestamp("2026-04-20") in dias
+
+
+def test_dia_antecipado_antes_do_inicio_da_janela_nao_reaparece():
+    # Achado do revisor: quando 'de' cai exatamente no dia que a regra antecipa,
+    # o dia antecipado (2026-04-20, segunda) fica ANTES de 'de' -- e pertence a
+    # janela anterior, entao nao pode ser reatribuido para dentro desta. Medido:
+    # dias_estimados(2026-04-21, 2026-04-25) devolve so [2026-04-23].
+    dias = calendario_leiloes.dias_estimados(pd.Timestamp("2026-04-21"),
+                                             pd.Timestamp("2026-04-25"))
+    assert pd.Timestamp("2026-04-20") not in dias
+    assert pd.Timestamp("2026-04-21") not in dias
+    assert pd.Timestamp("2026-04-23") in dias
+
+
+def test_virada_de_ano_nao_devolve_leilao_fantasma():
+    # Achado do revisor: 01/01/2026 e quinta E feriado, entao a antecipacao por
+    # feriado empurraria o leilao para 31/12/2025 -- que seria falso positivo,
+    # pois leiloes.csv nao registra nenhum leilao entre 18/12/2025 e 06/01/2026.
+    # Quem descarta esse fantasma e o corte de dezembro, nao a antecipacao: as
+    # duas regras so parecem concordar aqui por coincidencia, e esse teste trava
+    # o resultado para que a coincidencia nao se desfaca em silencio se uma delas
+    # mudar.
+    dias = calendario_leiloes.dias_estimados(pd.Timestamp("2025-12-20"),
+                                             pd.Timestamp("2026-01-10"))
+    assert pd.Timestamp("2025-12-31") not in dias

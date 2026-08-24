@@ -53,6 +53,9 @@ def dias_estimados(de, ate):
             continue
         dia = _anterior_util(cal, d)
         if dia < de:
+            # A antecipacao por feriado pode jogar o dia para antes do inicio
+            # pedido; esse leilao pertence a janela anterior, entao fica de
+            # fora daqui em vez de ser reatribuido.
             continue
         if dia.month == 12 and dia.day > _ULTIMO_DIA_DE_DEZEMBRO:
             continue
