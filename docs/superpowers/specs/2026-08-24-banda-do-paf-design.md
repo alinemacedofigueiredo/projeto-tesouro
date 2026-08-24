@@ -1,7 +1,7 @@
 # Distância até a banda do PAF (entrega 4)
 
 **Data:** 2026-08-24
-**Status:** design escrito, **aguardando revisão da dona do projeto**
+**Status:** design revisado com ela em 24/08/2026, **aguardando o sim final para o plano**
 **Depende de:** a camada de dados (`2026-08-14-camada-de-dados-design.md`), a
 entrega 2 (`2026-08-17-dv01-decay-design.md`) e a entrega 1
 (`2026-08-18-dashboard-design.md`)
@@ -121,7 +121,7 @@ Para cada indexador, entre a data-base do último RMD (t0) e a data corrente (t1
 ```
 estoque(t1) = estoque(t0)
             + leilões liquidados em (t0, t1]
-            - vencimentos em (t0, t1]
+            - fluxos pagos em (t0, t1]        <- principal E CUPOM
             + juros apropriados no período
 ```
 
@@ -153,7 +153,44 @@ Erro típico da rolagem completa, em % do estoque do indexador:
 | Índice de preços | 0,51% |
 | Prefixado | 0,75% |
 
-### 4.3 O termo que falta no prefixado
+### 4.3 O cupom entra no termo de fluxos, e é 12% dele
+
+Correção dela, em 24/08/2026: *"lembrar que nos vencimentos tem cupons também"*.
+
+**Medido.** Até 31/12/2026, o fluxo a pagar é de R$ 833,5 bi pela aba 3.4, contra
+R$ 736,4 bi de principal pela aba 2.2. A diferença — **R$ 97,1 bilhões, 12% do
+fluxo** — é cupom: 55,9 de NTN-B e 33,2 de LTN/NTN-F.
+
+**Novembro de 2026 é o caso que prova.** Tem R$ 26,0 bi de fluxo e **zero
+principal**: é cupom puro. Uma rolagem que só olhasse a 2.2 faria novembro
+desaparecer.
+
+**O cupom é CALCULADO, e não lido da 3.4.** Duas razões:
+
+1. A 3.4 é o **retrato atual** — a camada de dados guarda só o mês corrente. Lido
+   dela, o termo não teria como ser testado nos 24 meses do backtest do §4.2.
+2. A 3.4 é **mensal**, e a rolagem corta em data. O cupom de NTN-B cai no dia 15, o
+   de NTN-F no dia 1º: ratear pelo mês poria dentro da janela um fluxo que ainda não
+   aconteceu.
+
+A conta é `quantidade × VNA × ((1 + taxa do cupom)^0,5 − 1)`, com 6% a.a. para a
+NTN-B e 10% para a NTN-F.
+
+**ARMADILHA, e ela custou uma tentativa.** A NTN-B **não** paga em todo fevereiro,
+maio, agosto e novembro: ela paga **no mês do vencimento dela e seis meses antes**.
+Os vencimentos se dividem em dois grupos — 188,6 milhões de títulos vencem em maio e
+267,3 em agosto — então agosto e novembro pagam a grupos diferentes. Aplicar a regra
+errada dá **2,1 vezes o cupom real**.
+
+Validado contra a 3.4 em novembro, mês em que nada vence e o número é cupom puro:
+**calculado R$ 26,4 bi contra R$ 25,8 bi da 3.4, +2,4%**. Em agosto a diferença
+aparente é maior porque a NTN-B 15/08/2026 vence nesse mês e o cupom final dela está
+dentro da linha de principal da 3.4; descontados esses R$ 7,1 bi, sobram 30,3 contra
+30,1.
+
+A NTN-B Principal não paga cupom, e por isso não entra nesta conta.
+
+### 4.4 O termo que falta no prefixado
 
 LTN e NTN-F não têm VNA: carregam para o par pela taxa de emissão. O resíduo médio
 do prefixado é **+12,2 bi/mês sobre ~1.900 bi, ou 0,64% ao mês** — que é uma carga
@@ -164,13 +201,13 @@ do próprio estoque: a mesma inversão que descobriu que a aba 2.2 avalia a cart
 pelo custo de carregamento (achado de 22/08/2026, registrado no commit `84db0ca`).
 O teste é o resíduo cair de 0,75% para a mesma ordem dos outros dois.
 
-### 4.4 O que sobra depois dos quatro termos
+### 4.5 O que sobra depois dos termos
 
 Tesouro Direto e emissão direta. Medido no §4.2: o resíduo final é 0,07% a 0,75% do
 estoque por mês. **Não é modelado, e a página diz isso.** Modelar exigiria dado que
 o projeto não tem, e o tamanho não justifica.
 
-### 4.5 O indexador Câmbio fica parado, e isso é uma escolha medida
+### 4.6 O indexador Câmbio fica parado, e isso é uma escolha medida
 
 O indexador **Câmbio da composição é, na prática, a DPFe**: comparados os 307 meses
 da série, a diferença mediana entre os dois é de **R$ 4,9 bilhões**, e hoje são
@@ -186,7 +223,7 @@ O que **não** é aceitável é segurá-lo em silêncio: como ele entra no denom
 outros três percentuais, um erro nele contamina todos. Por isso a linha do câmbio na
 tabela do §7.1 aparece marcada como não rolada, e não como se fosse medida de hoje.
 
-### 4.6 O VNA depois do último RMD — e por que não precisa da Bloomberg
+### 4.7 O VNA depois do último RMD — e por que não precisa da Bloomberg
 
 O `vna.csv` é mensal e termina **exatamente na data-base do RMD**. Os leilões vão
 além dela. Sem VNA nesses dias não há termo de juros.
@@ -245,11 +282,69 @@ realizado médio de 237 (prefixado), 85 (índice de preços) e 216 (flutuante):
 | Índice de preços | 43,1 | 54,5 | 57,7 | 48,5 | **37,3** |
 | Taxa flutuante | 72,2 | 70,6 | 76,9 | **66,0** | 72,5 |
 
-São erros de 31% a 44%, e **nenhuma janela é muito melhor que outra**. A escolha é
-**26 semanas**, que é a melhor em dois dos três e a segunda no terceiro, e que tem a
-virtude de cobrir um semestre inteiro de sazonalidade.
+São erros de 31% a 44%, e **nenhuma janela é muito melhor que outra**.
 
-### 5.3 Mas o erro se cancela no percentual — e é o percentual que a banda mede
+Refeito na unidade que ela propôs — **dias de leilão** em vez de semanas — o erro da
+composição projetada, em pontos percentuais:
+
+| janela | Prefixado | Índice de preços | Taxa flutuante |
+|---|---|---|---|
+| 10 leilões | 1,45 | **0,46** | **1,29** |
+| **20 leilões** | 1,71 | 0,58 | 1,65 |
+| 60 leilões | **1,26** | 0,69 | 1,61 |
+| 26 semanas | 1,35 | 0,66 | 1,53 |
+
+**O dado não distingue as janelas.** Tudo cai na mesma faixa, e com dez anos de
+backtest escolher a melhor é ajustar ao ruído.
+
+**A escolha é 20 dias de leilão**, decisão dela, por dois motivos que não são
+estatísticos: são cerca de dez semanas e **dez leilões de cada papel**, que é a
+unidade em que quem acompanha o Tesouro pensa; e o dia de leilão lida sozinho com
+semana de feriado e com dezembro, que tem menos leilão que os outros meses.
+
+### 5.3 Quantos leilões faltam: o calendário estimado
+
+Pergunta dela, e um buraco real na primeira versão desta spec, que dizia "os leilões
+que faltam" sem dizer como contar.
+
+**A fonte é híbrida, e a página diz onde uma acaba e a outra começa:**
+
+1. **O calendário publicado pelo Tesouro**, que a API traz em `/calendario`. Ele vai
+   cerca de **seis semanas** à frente — é transcrição, não inferência.
+2. **Além dele, o padrão do próprio Tesouro**, descrito por ela e verificado aqui.
+
+**As regras, e o que a medição diz de cada uma** (dias de leilão de venda distintos,
+2021 em diante):
+
+| regra | verificação |
+|---|---|
+| prefixado toda quinta | **94%** dos 288 dias |
+| NTN-B toda terça | **97%** dos 280 dias |
+| LFT toda terça | **81%** — e **18% na quinta**, que a regra não previa |
+| antecipa um dia útil em feriado | **71%** dos 17 casos fora da quinta |
+| duas últimas semanas do ano sem leilão | o último leilão do ano caiu entre **15 e 21 de dezembro** nos cinco anos |
+
+**O estimador construído com essas regras acerta quase exatamente.** Dias de leilão
+de 1º de setembro a 31 de dezembro:
+
+| ano | estimado | real | erro |
+|---|---|---|---|
+| 2021 | 32 | 31 | +1 |
+| 2022 | 32 | 31 | +1 |
+| 2023 | 32 | 32 | 0 |
+| 2024 | 32 | 34 | −2 |
+| 2025 | 32 | 33 | −1 |
+
+E nas **datas exatas**: 32 de 32 acertadas em 2024 e em 2025, **sem nenhum falso
+positivo** — os dois e um dias que faltaram foram leilões extraordinários, que não há
+como prever.
+
+2019 e 2020 erram mais (+8 e +4) e ficam de fora da validação: são anteriores ao
+padrão atual, e 2020 foi o ano da pandemia.
+
+Para 2026, a partir de 18/08: **36 dias de leilão**, o último em **17/12**.
+
+### 5.4 Mas o erro se cancela no percentual — e é o percentual que a banda mede
 
 Backtest da **composição projetada de dezembro**, a partir de 30/06, com a rolagem
 completa do §4 mais o pace de 26 semanas. Erro em pontos percentuais:
@@ -266,7 +361,7 @@ Isso vai escrito na página, e não numa nota de rodapé: **a projeção supõe 
 continua, e falha exatamente quando ele não continua** — que é quando mais se
 gostaria de saber.
 
-### 5.4 O estoque em reais sai com faixa, e não com ponto
+### 5.5 O estoque em reais sai com faixa, e não com ponto
 
 É o único indicador em que a premissa move quase a largura da banda. Medido, só com
 apropriação de juros de 30/06 a 31/12, sem emitir nem resgatar nada:
@@ -345,8 +440,9 @@ ordem do calendário, bem abaixo do limiar. A ser medido na implementação.
 
 ## 7. O que a página mostra
 
-Três blocos, cada um numa seção recolhível — o mesmo molde do calendário, que já
-usa `<details>`/`<summary>`. O primeiro abre com a página.
+**Dois blocos**, cada um numa seção recolhível — o mesmo molde do calendário, que já
+usa `<details>`/`<summary>`. O primeiro abre com a página. (Havia um terceiro; ver
+§7.3.)
 
 ### 7.1 Onde estamos hoje
 
@@ -355,7 +451,7 @@ Uma tabela, sete linhas — uma por indicador. Colunas: o valor no último RMD, 
 anos, ou R$ bilhões). Quem está dentro aparece neutro; quem está fora, marcado, com
 o sinal de que lado.
 
-A linha do **câmbio** aparece marcada como **não rolada** (§4.5), e não como medida
+A linha do **câmbio** aparece marcada como **não rolada** (§4.6), e não como medida
 de hoje.
 
 A tabela diz, em uma linha acima dela, **de quando é o "hoje"** e quantos leilões
@@ -364,17 +460,23 @@ entraram na rolagem. Sem isso, o número não tem procedência.
 ### 7.2 Onde fechamos o ano
 
 A mesma tabela, com a coluna do projetado em 31/12 e a distância projetada. O
-estoque sai como faixa (§5.4). Uma linha diz a Selic e a inflação implícitas usadas,
+estoque sai como faixa (§5.5). Uma linha diz a Selic e a inflação implícitas usadas,
 com a data da curva.
 
-### 7.3 O histórico: ele cumpre o que promete?
+### 7.3 O histórico saiu
 
-Um gráfico por indicador, pequeno, em grade: o realizado de dezembro de cada ano
-contra as duas bandas — a original e a vigente. O ano em que a revisão salvou o
-resultado aparece com as duas faixas, e a de origem pontilhada, que é o idioma que a
-entrega 1 já usa.
+A primeira versão desta spec tinha um terceiro bloco: um gráfico por indicador com o
+realizado de dezembro de cada ano contra as duas bandas.
 
-E os dois números do §3.2 escritos: 70% contra 79%.
+**Cortado por ela em 24/08/2026, e a decisão está certa.** Aquele bloco é *análise*,
+e não monitoramento — responde "quanto vale a promessa do PAF", que é uma pergunta
+boa e não é a que faz alguém abrir esta página na terça de manhã. Sete gráficos para
+um achado que cabe em duas linhas.
+
+**O achado fica, como texto**, no rodapé dos dois blocos que sobraram: o Tesouro
+fecha o ano dentro da banda em **70% dos casos pela banda original e 79% pela
+vigente**, e em **14 de 14** inversões a revisão pôs o realizado dentro, nunca fora.
+A tabela por indicador está no §3.2 deste documento, para quem quiser o detalhe.
 
 ---
 
@@ -394,9 +496,15 @@ Cada afirmação medida nesta spec vira um teste. Os que têm de existir:
 6. **A distância tem o sinal certo** dos dois lados da banda, e zero dentro dela.
 7. **O realizado não vem da coluna `realizado`** do arquivo de referência.
 8. **A contagem de acertos** bate com a tabela do §3.2, contra as duas bandas.
-9. **A projeção de composição** fica dentro do erro medido no §5.3, nos dez anos do
+9. **A projeção de composição** fica dentro do erro medido no §5.4, nos dez anos do
    backtest — com 2020 nomeado como o caso que estoura.
-10. **A página cabe no limiar** de 10 MB, como as outras.
+10. **O cupom calculado bate com a 3.4** em novembro, dentro de 3% — o mês em que
+    nada vence e o número é cupom puro.
+11. **A NTN-B paga no aniversário dela**, e não em todo fevereiro/maio/agosto/
+    novembro: aplicar a regra errada dá 2,1 vezes o cupom real.
+12. **O calendário estimado acerta os dias** de setembro a dezembro dentro de dois,
+    nos anos de 2021 em diante.
+13. **A página cabe no limiar** de 10 MB, como as outras.
 
 Cada guarda é verificada quebrando a linha de produção que ela protege, como no
 resto do projeto.
@@ -418,7 +526,12 @@ resto do projeto.
 7. **Câmbio e DPFe são a mesma coisa** — diferença mediana de R$ 4,9 bi em 307
    meses. Quem tirar uma da rolagem tira a outra, e o câmbio está no denominador dos
    outros três percentuais.
-8. **A NTN-B mais próxima não é a de referência.** A de 33 dias úteis tem taxa real
+8. **A NTN-B só paga cupom no aniversário dela.** Metade do estoque vence em maio e
+   metade em agosto; a regra ingênua dobra o cupom.
+9. **Novembro de 2026 é cupom puro** — R$ 26,0 bi e zero principal. Quem só olhar a
+   aba 2.2 faz o mês sumir.
+10. **A LFT também leiloa na quinta**, em 18% dos casos. A regra "terça" cobre 81%.
+11. **A NTN-B mais próxima não é a de referência.** A de 33 dias úteis tem taxa real
    de 11,25%, que é ponta de curva, não expectativa.
 
 ---
