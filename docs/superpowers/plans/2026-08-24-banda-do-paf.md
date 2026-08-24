@@ -1319,6 +1319,96 @@ git commit -m "A rolagem do estoque, conferida em 24 meses fechados"
 - Produz: `LEILOES_DO_PACE: int`; `pace(quando) -> pd.Series`;
   `projecao(ate, hoje=None, registros=None) -> dict`
 
+- [ ] **Passo 0: consertar `curva._curva` antes de tudo**
+
+Achado por mim ao varrer o brief, e é **bloqueante**: `_curva` casa a data-base por
+igualdade exata, e isso quebra nos dois caminhos que esta tarefa precisa.
+
+**No backtest:** `composicao_dpf.csv` usa o último dia **corrido** do mês e
+`dv_por_papel.csv` usa o último dia **útil**. Em 2024 eles divergem — 30/06/2024 caiu
+num domingo, então o `dv_por_papel` tem 28/06. `curva.selic_implicita(data_base=
+30/06/2024)` levanta `LookupError`.
+
+**No caminho real, que é pior:** a projeção parte da última **liquidação**, que hoje
+é 17/08/2026, e o `dv_por_papel` termina em 30/06/2026. O caminho principal da
+entrega levantaria `LookupError` — e nenhum teste o exercitava.
+
+Mude `_curva(titulo, data_base=None)` para usar a **data mais recente menor ou igual
+a `data_base`**, em vez de igualdade exata:
+
+```python
+def _curva(titulo, data_base=None):
+    """Os papeis COM COTACAO na data-base, ordenados por dias uteis ate o vencimento.
+
+    A DATA-BASE E A MAIS RECENTE MENOR OU IGUAL a pedida, e nao igualdade exata. Dois
+    motivos, e os dois quebravam:
+
+    O composicao_dpf.csv usa o ultimo dia CORRIDO do mes e o dv_por_papel.csv usa o
+    ultimo dia UTIL. Em 30/06/2024 -- um domingo -- eles divergem, e o backtest
+    levantava LookupError num ano que existe nos dois arquivos.
+
+    E a projecao real parte da ultima LIQUIDACAO, que vai alem do ultimo RMD. A curva
+    termina no RMD. Exigir igualdade fazia o caminho principal da entrega levantar.
+
+    Quem chama recebe de volta a data que de fato valeu, porque uma curva de sete
+    semanas atras apresentada como "de hoje" e o tipo de coisa que a pagina inteira
+    existe para nao fazer.
+    """
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data", "vencimento"])
+    pedida = pd.Timestamp(data_base) if data_base is not None else d["data"].max()
+    disponiveis = d.loc[d["data"] <= pedida, "data"]
+    if disponiveis.empty:
+        raise LookupError(
+            f"nao ha curva ate {pedida:%d/%m/%Y} no dv_por_papel.csv. Sem curva nao "
+            f"ha premissa, e projetar com premissa inventada seria pior.")
+    base = disponiveis.max()
+    g = d[(d["data"] == base) & (d["titulo"] == titulo)
+          & d["taxa_pct"].notna()].copy()
+    if g.empty:
+        raise LookupError(
+            f"nenhuma {titulo} com cotacao em {base:%d/%m/%Y}. Sem curva nao ha "
+            f"premissa, e projetar com premissa inventada seria pior.")
+    cal = calendario.padrao()
+    g["du"] = [cal.du(base.date(), v.date()) for v in g["vencimento"]]
+    return base, g.sort_values("du")
+```
+
+E acrescente `data_da_curva(data_base=None) -> pd.Timestamp`, que devolve a data que
+`_curva` de fato usaria — a projeção precisa dela para a página dizer de quando é a
+curva.
+
+Testes que vão junto:
+
+```python
+def test_a_curva_aceita_data_base_que_nao_existe_no_arquivo():
+    # O composicao_dpf usa o ultimo dia CORRIDO e o dv_por_papel o ultimo dia UTIL.
+    # 30/06/2024 caiu num domingo: existe num e nao no outro. E a projecao real parte
+    # da ultima LIQUIDACAO, que vai alem do ultimo RMD -- o caminho principal da
+    # entrega levantava LookupError, e nenhum teste o exercitava.
+    from tesouro import curva
+
+    assert curva.data_da_curva(pd.Timestamp("2024-06-30")) == pd.Timestamp("2024-06-28")
+    assert curva.selic_implicita(pd.Timestamp("2024-12-31"),
+                                 data_base=pd.Timestamp("2024-06-30")) > 0
+
+    # E alem do fim do arquivo: a curva mais recente vale, e quem chama fica sabendo.
+    depois = pd.Timestamp("2026-08-17")
+    usada = curva.data_da_curva(depois)
+    assert usada < depois
+    assert curva.selic_implicita(pd.Timestamp("2026-12-31"), data_base=depois) > 0
+
+
+def test_sem_curva_nenhuma_ate_a_data_ele_LEVANTA():
+    from tesouro import curva
+
+    with pytest.raises(LookupError, match="curva"):
+        curva.data_da_curva(pd.Timestamp("1999-01-01"))
+```
+
+Verifique os dentes: volte `_curva` para igualdade exata e confirme que o primeiro
+teste reprova.
+
 - [ ] **Passo 1: escrever o teste que falha**
 
 ```python
@@ -1381,6 +1471,9 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
     assert 0.0 < p["inflacao"] < 0.15
     assert p["dias_de_leilao"] > 0
     assert "fronteira_do_calendario" in p
+    # A data da curva viaja junto: ela termina no ultimo RMD e a projecao parte da
+    # ultima liquidacao, semanas depois.
+    assert p["data_da_curva"] <= p["de"]
 ```
 
 - [ ] **Passo 2: rodar e ver falhar**
@@ -1521,6 +1614,11 @@ def projecao(ate, hoje=None, registros=None):
                                      for k, v in projetado.items()}),
             "selic": selic, "selic_do_piso": selic - CENARIO_SELIC,
             "inflacao": inflacao,
+            # DE QUANDO E A CURVA. Ela termina no ultimo RMD e a projecao parte da
+            # ultima liquidacao: sao semanas de diferenca, e apresentar premissa de
+            # sete semanas atras como "de hoje" e o tipo de coisa que esta pagina
+            # existe para nao fazer.
+            "data_da_curva": curva.data_da_curva(partida),
             "dias_de_leilao": quantos,
             "fronteira_do_calendario": fronteira,
             "de": partida, "ate": ate}
