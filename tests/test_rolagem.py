@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from tesouro import rolagem
+from tesouro import config, rolagem
 
 
 def test_o_VNA_recuperado_do_leilao_bate_com_o_conhecido():
@@ -104,14 +104,45 @@ def test_o_pace_e_por_PAPEL_e_nao_por_dia_de_leilao():
     # Medir sobre os leiloes DAQUELE papel nao depende de mistura, e rende numero que
     # se confere de cabeca: 1,09 bi por leilao de NTN-B, e nao 0,21 por dia.
     assert rolagem.LEILOES_DO_PACE == 10
-    p = rolagem.pace(pd.Timestamp("2026-08-17"))
+    quando = pd.Timestamp("2026-08-17")
+    p = rolagem.pace(quando)
     for ind in rolagem.INDEXADORES:
         assert p[ind] > 0, ind
     # A ordem de grandeza medida em 17/08/2026: a LFT coloca 21,91 bi por leilao, o
     # prefixado 12,32 e a NTN-B 1,09. Se essa relacao inverter, alguem trocou o
     # denominador -- que e exatamente o defeito que este metodo veio corrigir.
+    #
+    # ISSO SOZINHO NAO TRAVA A DECISAO: as razoes acima continuam valendo mesmo se
+    # os zeros voltarem a entrar na media (revisor mediu: reverter para o metodo
+    # antigo passa nos oito testes, porque a NTN-B e pequena demais para as
+    # desigualdades quebrarem). O trecho abaixo calcula o pace DOS DOIS JEITOS,
+    # dentro do proprio teste -- com e sem os dias em que o papel nao foi
+    # ofertado -- e confere que excluir os zeros muda a resposta na direcao certa.
     assert p["\u00cdndice Pre\u00e7os"] * 5 < p["Taxa Flutuante"]
     assert p["\u00cdndice Pre\u00e7os"] * 3 < p["Prefixado"]
+
+    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                    parse_dates=["data_leilao", "data_liquidacao"])
+    l = l[l["data_liquidacao"] <= quando].copy()
+    l["indexador"] = [rolagem._INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
+    l["sinal"] = [rolagem._SINAL.get(t, 0) for t in l["tipo_leilao"]]
+    l = l[l["indexador"].notna()]
+    l["fluxo"] = l["financeiro_milhoes"] * l["sinal"]
+    por_leilao = l.pivot_table(index="data_leilao", columns="indexador",
+                               values="fluxo", aggfunc="sum")
+    # O METODO ANTIGO: media por DIA DE LEILAO, com fillna(0) em vez do filtro
+    # dele != 0 que rolagem.pace usa -- os dias em que o papel nao foi a leilao
+    # entram como zero, e nao ficam de fora.
+    com_zeros = por_leilao.fillna(0.0).tail(rolagem.LEILOES_DO_PACE).mean()
+
+    for ind in rolagem.INDEXADORES:
+        # Sem os zeros e sempre estritamente maior: e a mesma soma dividida por
+        # nao mais leiloes.
+        assert com_zeros[ind] < p[ind], ind
+    # O prefixado so vai a leilao as quintas: contar os zeros das tercas derruba
+    # a media por quase a metade (medido: com zeros fica a 53% do valor sem
+    # zeros). Materialmente maior, e nao so estatisticamente maior.
+    assert com_zeros["Prefixado"] < 0.7 * p["Prefixado"]
 
 
 def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
@@ -138,3 +169,73 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
     # A data da curva viaja junto: ela termina no ultimo RMD e a projecao parte da
     # ultima liquidacao, semanas depois.
     assert p["data_da_curva"] <= p["de"]
+
+    # ANCORA DE SANIDADE que sobrevive a dado novo: os percentuais somam 100, e
+    # nenhum indexador fica fora de [0, 100] -- nem negativo, nem maior que o todo.
+    assert p["percentual"].sum() == pytest.approx(100.0)
+    for ind in p["percentual"].index:
+        assert 0 <= p["percentual"][ind] <= 100, ind
+
+    # O UNICO TESTE DO CAMINHO REAL PRECISA DEFENDER O NUMERO QUE A PAGINA
+    # PUBLICA -- ate aqui o teste so conferia a premissa ao lado (Selic, inflacao,
+    # datas), e nunca p["estoque"] nem p["percentual"]. Revisor mediu: mutar
+    # leiloes_que_faltam para devolver len(dias) (contar DIAS de leilao em vez de
+    # LEILOES DAQUELE PAPEL) dobra a emissao projetada (635 -> 1.271 bi) e empurra
+    # o total para fora de qualquer banda razoavel -- e nada aqui acusava.
+    #
+    # Recalcula a emissao de forma independente da chamada de projecao() -- com as
+    # mesmas pecas publicas que ela usa por dentro -- e confere que bate com a
+    # diferenca que a projecao de fato produziu (estoque - base + pago - juros,
+    # tambem recalculados aqui e nao lidos do dict devolvido). Isto trava a fiacao
+    # entre pace()/leiloes_que_faltam() e o numero publicado sem prender o teste a
+    # um valor cravado que muda quando o pipeline roda de novo.
+    from tesouro import calendario, calendario_leiloes, curva, fluxos
+
+    de, ate = p["de"], p["ate"]
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=[], hoje=de)
+    ritmo = rolagem.pace(de)
+    inicial = rolagem.estoque_em(de)
+    pagou = fluxos.pagos(de, ate)
+    selic = curva.selic_implicita(ate, data_base=de)
+    inflacao = curva.inflacao_implicita(ate, data_base=de)
+    du = calendario.padrao().du(de.date(), ate.date())
+
+    for ind in rolagem.INDEXADORES:
+        base = float(inicial[ind])
+        do_ind = pagou[pagou["indexador"] == ind]
+        pago = do_ind["principal_milhoes"].sum() + do_ind["cupom_milhoes"].sum()
+        if ind == "\u00cdndice Pre\u00e7os":
+            taxa = (1 + inflacao) * 1.06 - 1
+        elif ind == "Taxa Flutuante":
+            taxa = selic
+        else:
+            taxa = rolagem._CARGA_DO_PREFIXADO
+        juros = base * ((1 + taxa) ** (du / 252) - 1)
+        emissao_esperada = float(ritmo[ind]) * rolagem.leiloes_que_faltam(dias, ind)
+        emissao_publicada = p["estoque"][ind] - base + pago - juros
+        assert emissao_publicada == pytest.approx(emissao_esperada, rel=1e-6), ind
+
+
+def test_a_projecao_no_ramo_do_BACKTEST_usa_a_data_pedida():
+    # 'hoje' existe para o backtest: comecar de uma data de RMD de proposito, e
+    # nao da ultima liquidacao, para comparar com o dezembro que de fato
+    # aconteceu. Nenhum teste exercitava este ramo ate aqui.
+    c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
+                    parse_dates=["data"])
+    datas = sorted(c["data"].unique())
+    hoje = pd.Timestamp(datas[-2])
+    ate = pd.Timestamp(datas[-1])
+
+    p = rolagem.projecao(ate, hoje=hoje, registros=[])
+    assert p["de"] == hoje
+    assert p["ate"] == ate
+    assert p["estoque"].sum() > 0
+
+
+def test_a_projecao_no_ramo_do_BACKTEST_levanta_LookupError_diagnosavel():
+    # piv.loc[partida] sem guarda levantava um KeyError cru do pandas -- nao diz
+    # qual data faltou nem quais existem por perto. Troquei por um LookupError com
+    # as duas informacoes.
+    with pytest.raises(LookupError, match="composicao_dpf"):
+        rolagem.projecao(pd.Timestamp("2026-12-31"),
+                         hoje=pd.Timestamp("1999-01-01"), registros=[])

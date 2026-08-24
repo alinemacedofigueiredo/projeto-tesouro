@@ -291,6 +291,19 @@ def projecao(ate, hoje=None, registros=None):
                         parse_dates=["data"])
         piv = c.pivot_table(index="data", columns="indexador",
                             values="valor_milhoes", aggfunc="sum").fillna(0.0)
+        if partida not in piv.index:
+            # 'hoje' e para o BACKTEST: quem chama passa uma data de RMD de
+            # proposito. piv.loc[partida] sem guarda levantava um KeyError cru
+            # do pandas -- nao diz qual data faltou nem quais existem por
+            # perto, e quem chama fica sem saber se digitou a data errada ou
+            # se e o arquivo que nao tem aquele mes.
+            vizinhas = sorted(piv.index)
+            antes = [d for d in vizinhas if d <= partida][-3:]
+            depois = [d for d in vizinhas if d > partida][:3]
+            texto = ", ".join(d.strftime("%d/%m/%Y") for d in antes + depois)
+            raise LookupError(
+                f"nao ha composicao_dpf.csv na data {partida:%d/%m/%Y}. Datas "
+                f"por perto: {texto}.")
         inicial = piv.loc[partida]
     else:
         l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
