@@ -1833,7 +1833,7 @@ def _linhas(valores, ano, quando=None):
 
     'quando' e a data dos indicadores ROLADOS. Os parados ficam com a
     data-base do RMD, e a diferenca entre as duas e o que a coluna
-    de_quando mostra na tabela.
+    data_base mostra na tabela.
     """
     base, no_rmd = _realizado_do_rmd()
     quando = quando if quando is not None else base
@@ -2098,36 +2098,11 @@ def _recolhe(conteudo, chave, rotulo, aberta):
             f"<summary>{rotulo}</summary>\n{conteudo}\n</details>")
 
 
-def _rodape_de_hoje():
-    quantos, base, ate = banda.quantos_leiloes_entraram()
-    return (f"Estoque do RMD de {base:%d/%m/%Y}, rolado at\u00e9 "
-            f"{ate:%d/%m/%Y} com <b>{quantos} dias de leil\u00e3o</b> "
-            f"liquidados no meio, mais os fluxos pagos e os juros apropriados. "
-            f"As linhas com * n\u00e3o s\u00e3o roladas: o c\u00e2mbio \u00e9 "
-            f"a d\u00edvida externa, que n\u00e3o passa por leil\u00e3o, e o "
-            f"prazo e o vincendo ficam para a entrega 5.")
-
-
-def _rodape_da_projecao(dados):
-    from .. import rolagem
-
-    p = dados.attrs["premissa"]
-    fronteira = p["fronteira_do_calendario"]
-    onde = (f"calend\u00e1rio publicado at\u00e9 {fronteira:%d/%m/%Y} e "
-            f"estimado depois" if fronteira is not None
-            else "calend\u00e1rio inteiramente estimado")
-    return (f"Pace dos <b>{rolagem.LEILOES_DO_PACE} \u00faltimos leil\u00f5es de "
-            f"cada papel</b>, aplicado aos leil\u00f5es que faltam em "
-            f"<b>{p['dias_de_leilao']} dias</b> \u2014 {onde}. "
-            f"Selic impl\u00edcita de {p['selic']*100:.2f}% e infla\u00e7\u00e3o "
-            f"impl\u00edcita de {p['inflacao']*100:.2f}%, da curva de "
-            f"{p['data_da_curva']:%d/%m/%Y}. "
-            f"<b>O n\u00famero mais incerto \u00e9 a emiss\u00e3o:</b> em dez anos "
-            f"de backtest, projetar o segundo semestre pelo ritmo do momento errou "
-            f"<b>R$ 153 bilh\u00f5es em m\u00e9dia</b> \u2014 um quarto da largura "
-            f"da banda. A proje\u00e7\u00e3o sup\u00f5e que o ritmo continua, e "
-            f"falha quando ele n\u00e3o continua: em 2020 errou 6,5 pontos no "
-            f"prefixado.")
+# O RODAPE E DA TABELA, e nao desta pagina. A Task 9 fez `tabela()` monta-lo
+# sozinha a partir dos attrs que `dados_hoje` e `dados_projecao` ja carregam -- a
+# data do "hoje", quantos dias de leilao entraram na rolagem, e a premissa inteira
+# da projecao. Um segundo rodape aqui duplicaria a fonte da verdade, e a pagina
+# poderia acabar dizendo uma coisa enquanto a tabela diz outra.
 
 
 def grava(caminho=None, hoje=None):
@@ -2147,10 +2122,8 @@ def grava(caminho=None, hoje=None):
     de_hoje = banda.dados_hoje(hoje)
     projetado = banda.dados_projecao()
     corpo = "\n".join([
-        _recolhe(banda.tabela(de_hoje, "tabela-hoje", _rodape_de_hoje()),
-                 *SECOES[0]),
-        _recolhe(banda.tabela(projetado, "tabela-projecao",
-                              _rodape_da_projecao(projetado)) + _ACHADO,
+        _recolhe(banda.tabela(de_hoje, "tabela-hoje"), *SECOES[0]),
+        _recolhe(banda.tabela(projetado, "tabela-projecao") + _ACHADO,
                  *SECOES[1]),
     ])
     html = html[:inicio] + "\n" + corpo + "\n" + html[fim:]
