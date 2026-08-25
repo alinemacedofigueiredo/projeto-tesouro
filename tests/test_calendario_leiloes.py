@@ -229,3 +229,60 @@ def test_leilao_publicado_numa_quarta_sobrevive_no_resultado():
     assert quarta not in calendario_leiloes.dias_estimados(
         pd.Timestamp("2026-08-24"), pd.Timestamp("2026-12-31"))
     assert quarta in dias
+
+
+def test_dias_possiveis_NAO_aplica_a_regra_de_dezembro():
+    """A regra que corta o fim do ano tem de ser VISIVEL, e nao so aplicada.
+
+    Ela mora numa constante -- nada de leilao depois de 21/12 -- e ate agora
+    estava enterrada num filtro dentro de dias_estimados. Quem olhasse a pagina
+    via os dias que a gente conta, e nao os que a gente DESCARTA.
+
+    Ela pediu justamente o contrario: "em um cenario hipotetico que ele va emitir
+    na ultima semana do ano, consigo ver rapido que nao estamos considerando esse
+    cenario". Para mostrar a ausencia e preciso te-la como dado.
+    """
+    de = pd.Timestamp("2026-12-01")
+    ate = pd.Timestamp("2026-12-31")
+
+    possiveis = calendario_leiloes.dias_possiveis(de, ate)
+    contados = calendario_leiloes.dias_estimados(de, ate)
+
+    descartados = [d for d in possiveis if d not in set(contados)]
+    assert descartados, "dezembro tem de ter dia descartado pela regra"
+    assert all(d.day > calendario_leiloes._ULTIMO_DIA_DE_DEZEMBRO
+               for d in descartados), (
+        "so a regra de dezembro pode descartar dia; apareceu outro motivo")
+    # E o que sobrou e exatamente o que dias_estimados ja devolvia.
+    assert set(contados) <= set(possiveis)
+    assert all(d.day <= calendario_leiloes._ULTIMO_DIA_DE_DEZEMBRO
+               for d in contados)
+
+
+def test_dias_possiveis_respeita_semana_e_feriado():
+    """O que dias_possiveis NAO abre mao: terca/quinta e antecipacao por feriado.
+
+    Tirar a regra de dezembro nao pode ter tirado as outras duas junto -- seria
+    trocar um filtro escondido por uma lista errada.
+    """
+    from tesouro import calendario
+
+    cal = calendario.padrao()
+    for d in calendario_leiloes.dias_possiveis("2026-01-01", "2026-11-30"):
+        assert cal.eh_dia_util(d.date()), f"{d:%d/%m/%Y} nao e dia util"
+        # Terca ou quinta, ou o dia util anterior a uma delas por feriado. A
+        # INVARIANTE E O CAMINHO, e nao a distancia: _anterior_util so anda para
+        # tras por cima de dia NAO util, entao tudo entre o dia devolvido e a
+        # terca/quinta de origem tem de ser feriado ou fim de semana.
+        #
+        # Primeiro limite que escrevi foi "no maximo 3 dias", e estava errado:
+        # em 2026 o Carnaval cai na segunda e na terca, e o leilao de terca
+        # 17/02 recua para sexta 13/02 -- quatro dias. Numero arbitrario num
+        # teste e so o meu palpite disfarcado de regra.
+        original = d
+        while original.dayofweek not in calendario_leiloes._DIAS_DA_SEMANA:
+            original += pd.Timedelta(days=1)
+        pulados = pd.date_range(d + pd.Timedelta(days=1), original)
+        assert all(not cal.eh_dia_util(x.date()) for x in pulados), (
+            f"{d:%d/%m/%Y} nao e a terca/quinta {original:%d/%m/%Y} nem o dia "
+            f"util anterior a ela: ha dia util no meio")

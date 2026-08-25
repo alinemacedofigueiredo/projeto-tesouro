@@ -582,3 +582,35 @@ def test_as_frases_do_rodape_de_hoje_chegam_INTEIRAS():
                   "14 dessas fecharam o ano dentro dela."):
         esperada = frase.replace("{E}", "\u00e9")
         assert esperada in texto, f"frase quebrada no rodape: {esperada!r}"
+
+def test_nenhuma_frase_do_rodape_COLA_na_seguinte():
+    """O primo da frase emendada, e o teste anterior nao pegava.
+
+    Os rodapes desta pagina sao montados por concatenacao de literais, e cada
+    fragmento tem de terminar com o espaco que o separa do proximo. Esquecer esse
+    espaco produz "fecharam o ano dentro dela.O denominador desta tabela" -- que
+    e legivel o bastante para passar despercebido numa leitura rapida e feio o
+    bastante para ela ver na hora.
+
+    Aconteceu em 25/08/2026, ao acrescentar a frase dos denominadores. O teste
+    que guarda as frases INTEIRAS nao pega isto, porque as duas frases continuam
+    inteiras -- so falta o espaco entre elas.
+
+    Vale para os dois rodapes e para o achado, e vai valer para o que vier
+    depois: e generico de proposito, porque o rodape so cresce.
+    """
+    def cola(html):
+        texto = re.sub(r"<[^>]+>", "", html)
+        # Ponto (ou dois-pontos) seguido direto de maiuscula, sem espaco. O
+        # "\u00b7" e o separador de titulo e nao entra; numeros tambem nao,
+        # senao "R$ 1.234" e "0,05%" acusariam.
+        return re.findall(r"[a-z\u00e0-\u00fc][.:][A-Z\u00c0-\u00dc]", texto)
+
+    for nome, dados in (("hoje", banda.dados_hoje()),
+                        ("projecao", banda.dados_projecao(registros=[]))):
+        html = banda.tabela(dados, f"t-{nome}")
+        assert not cola(html), (
+            f"rodape de {nome}: frase colada na seguinte em {cola(html)}")
+
+    from tesouro.graficos import painel_paf
+    assert not cola(painel_paf._ACHADO), "o achado tem frase colada"
