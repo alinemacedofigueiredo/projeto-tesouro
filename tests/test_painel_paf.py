@@ -2,6 +2,7 @@
 import pandas as pd
 import pytest
 
+from tesouro import config, rolagem
 from tesouro.graficos import banda
 
 
@@ -34,10 +35,21 @@ def test_a_linha_do_CAMBIO_aparece_marcada_como_NAO_ROLADA():
 
 def test_a_tabela_diz_DE_QUANDO_e_o_hoje_e_quantos_leiloes_entraram():
     # Numero sem procedencia nao serve: quem le precisa saber se o "hoje" e de
-    # ontem ou de tres semanas atras.
-    html = banda.tabela(banda.dados_hoje(), "tabela-hoje")
+    # ontem ou de tres semanas atras. A CONTAGEM e refeita aqui, direto do
+    # leiloes.csv, e NAO chamando banda.quantos_leiloes_entraram() -- se os dois
+    # lados chamassem a mesma funcao, uma mutacao nela moveria os dois juntos e o
+    # teste nao pegaria nada (foi o que aconteceu na Task 8 com a projecao).
+    d = banda.dados_hoje()
+    base = d.attrs["leiloes_de"]
+    hoje = d.attrs["hoje"]
+    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                    parse_dates=["data_liquidacao"])
+    entre = l[(l["data_liquidacao"] > base) & (l["data_liquidacao"] <= hoje)]
+    esperado = entre["data_liquidacao"].nunique()
+
+    html = banda.tabela(d, "tabela-hoje")
     assert "leil" in html
-    assert "20" in html
+    assert str(esperado) in html
 
 
 def test_prazo_medio_e_vincendo_mostram_a_DATA_e_nao_asterisco():
@@ -85,3 +97,20 @@ def test_a_tabela_de_projecao_nao_e_identica_a_de_hoje():
     assert html_hoje != html_projecao
     assert "leil\u00e3o" in html_hoje
     assert "Selic" in html_projecao
+
+
+def test_o_denominador_do_RMD_e_travado_por_ESTRUTURA_nao_por_valor():
+    # 'Demais' esta zerada desde 06/2006 (medido): com o dado de hoje, somar as
+    # quatro colunas certas (INDEXADORES + PARADOS) ou somar TODAS as colunas do
+    # composicao_dpf.csv da o MESMO NUMERO -- nenhum teste de VALOR pega se
+    # _realizado_do_rmd voltar a somar comp.sum(axis=1) inteiro. Este teste trava
+    # o CONJUNTO de colunas que a guarda confere, direto, sem depender de
+    # _realizado_do_rmd nem de dado nenhum ter mudado de valor.
+    certo = list(rolagem.INDEXADORES) + list(rolagem.PARADOS)
+    banda._confere_colunas_do_denominador(certo)  # nao levanta
+
+    with pytest.raises(ValueError):
+        banda._confere_colunas_do_denominador(certo + ["Demais"])
+
+    with pytest.raises(ValueError):
+        banda._confere_colunas_do_denominador(list(rolagem.INDEXADORES))

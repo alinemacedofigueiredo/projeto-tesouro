@@ -60,6 +60,25 @@ _DA_COMPOSICAO = {"prefixado_pct": "Prefixado",
                   "cambio_pct": "C\u00e2mbio"}
 
 
+def _confere_colunas_do_denominador(colunas):
+    """A guarda do denominador: o CONJUNTO tem de ser exatamente o que a rolagem
+    move ou segura, nem mais (a coluna 'Demais' do CSV entraria) nem menos (um
+    indexador ficaria de fora do percentual).
+
+    ISSO E ESTRUTURAL, E NAO DE VALOR DE PROPOSITO. 'Demais' esta zerada desde
+    06/2006 (medido): com o dado de hoje, somar as quatro colunas certas ou
+    somar TODAS as colunas do CSV da o MESMO NUMERO, entao nenhuma comparacao de
+    valor pega se alguem trocar de volta para comp.sum(axis=1). Comparar o
+    CONJUNTO de colunas pega -- e continua pegando no dia em que 'Demais' deixar
+    de ser zero, quando o teste de valor teria comecado a mentir sozinho.
+    """
+    esperado = set(rolagem.INDEXADORES) | set(rolagem.PARADOS)
+    if set(colunas) != esperado:
+        raise ValueError(
+            "_realizado_do_rmd: o denominador tem de somar exatamente "
+            f"{sorted(esperado)}, e recebeu {sorted(set(colunas))}.")
+
+
 def _realizado_do_rmd():
     """O valor de cada indicador na data-base do RMD, do NOSSO dado.
 
@@ -74,8 +93,10 @@ def _realizado_do_rmd():
     # O denominador e so os quatro que a rolagem move ou segura (INDEXADORES e
     # PARADOS) -- o MESMO total que rolagem.estoque_em() soma. A coluna 'Demais' do
     # CSV fica fora do denominador para o percentual de hoje e o do RMD serem
-    # comparaveis contra a mesma base.
+    # comparaveis contra a mesma base. _confere_colunas_do_denominador() trava
+    # ISSO por ESTRUTURA -- ver o docstring dela.
     colunas = list(rolagem.INDEXADORES) + list(rolagem.PARADOS)
+    _confere_colunas_do_denominador(colunas)
     total = comp[colunas].sum(axis=1)
     pct = comp[colunas].div(total, axis=0) * 100
 
