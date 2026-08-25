@@ -99,22 +99,85 @@ def test_a_tabela_de_projecao_nao_e_identica_a_de_hoje():
     assert "Selic" in html_projecao
 
 
-def test_o_denominador_do_RMD_e_travado_por_ESTRUTURA_nao_por_valor():
-    # 'Demais' esta zerada desde 06/2006 (medido): com o dado de hoje, somar as
-    # quatro colunas certas (INDEXADORES + PARADOS) ou somar TODAS as colunas do
-    # composicao_dpf.csv da o MESMO NUMERO -- nenhum teste de VALOR pega se
-    # _realizado_do_rmd voltar a somar comp.sum(axis=1) inteiro. Este teste trava
-    # o CONJUNTO de colunas que a guarda confere, direto, sem depender de
-    # _realizado_do_rmd nem de dado nenhum ter mudado de valor.
-    certo = list(rolagem.INDEXADORES) + list(rolagem.PARADOS)
-    banda._confere_colunas_do_denominador(certo)  # nao levanta
+def test_a_guarda_do_denominador_olha_o_CSV_e_nao_a_propria_constante():
+    """As duas perguntas que so podem ser feitas ao dado.
 
-    with pytest.raises(ValueError):
-        banda._confere_colunas_do_denominador(certo + ["Demais"])
+    A PRIMEIRA versao desta guarda recebia list(INDEXADORES) + list(PARADOS) e
+    comparava contra set(INDEXADORES) | set(PARADOS): os dois lados saiam da
+    mesma constante, era impossivel divergir, e a guarda nao podia disparar. O
+    teste que a acompanhava tambem montava as listas a mao -- testava a funcao,
+    nunca o lugar onde ela e chamada. Achado na revisao da branch.
+    """
+    do_csv = list(rolagem.INDEXADORES) + list(rolagem.PARADOS)
 
-    with pytest.raises(ValueError):
-        banda._confere_colunas_do_denominador(list(rolagem.INDEXADORES))
+    # 'Demais' pode estar no CSV: ela fica fora do denominador de proposito.
+    assert (banda._confere_colunas_do_denominador(do_csv + ["Demais"])
+            == list(rolagem.INDEXADORES) + list(rolagem.PARADOS))
 
+    # Rotulo desacentuado pelo parser: a coluna some e o indexador iria a ZERO
+    # em silencio. E o defeito do ruling 4, agora travado do lado do dado.
+    sem_acento = [c.replace("\u00cd", "I").replace("\u00e7", "c")
+                  for c in do_csv]
+    with pytest.raises(ValueError, match="zera o indexador"):
+        banda._confere_colunas_do_denominador(sem_acento)
+
+    # Indexador novo no CSV: ficaria fora do denominador sem ninguem ver.
+    with pytest.raises(ValueError, match="indexador novo"):
+        banda._confere_colunas_do_denominador(do_csv + ["Hibrido"])
+
+
+def test_o_denominador_IGNORA_a_coluna_Demais_mesmo_quando_ela_NAO_e_zero():
+    """O teste que so um dado sintetico consegue fazer.
+
+    No CSV de verdade 'Demais' e zero desde 06/2006, e por isso somar as quatro
+    colunas certas ou somar o pivo inteiro da EXATAMENTE o mesmo numero. Nenhum
+    teste contra o dado real distingue as duas coisas -- confirmado na revisao,
+    que trocou o denominador por comp.sum(axis=1) e viu a suite inteira passar.
+
+    Com 'Demais' diferente de zero as duas contas divergem, e a diferenca e
+    grande de proposito: 1.000 de 'Demais' sobre 9.000 de denominador muda cada
+    percentual em ~10%.
+    """
+    comp = pd.DataFrame(
+        {"Prefixado": [2000.0], "\u00cdndice Pre\u00e7os": [2000.0],
+         "Taxa Flutuante": [4000.0], "C\u00e2mbio": [1000.0],
+         "Demais": [1000.0]},
+        index=pd.DatetimeIndex([pd.Timestamp("2026-06-30")], name="data"))
+
+    pct = banda._percentuais(comp)
+
+    # Denominador 9.000 (sem 'Demais'), e nao 10.000.
+    assert pct.loc[pct.index[0]].sum() == pytest.approx(100.0)
+    assert pct.iloc[0]["Prefixado"] == pytest.approx(2000 / 9000 * 100)
+    assert "Demais" not in pct.columns
+
+
+def test_o_percentual_de_HOJE_na_data_base_reproduz_o_do_RMD():
+    """A ancora dos numeros que a pagina publica.
+
+    ESTE E O TESTE QUE FALTAVA. A revisao trocou "prefixado_pct" por
+    "taxa_flutuante_pct" em _valores_de_hoje -- a pagina passaria a publicar
+    Prefixado 52,81% (fora da banda por +2,81 pp) e Taxa Flutuante 20,15% (fora
+    por -0,85 pp), invertendo o veredito dos dois indicadores de maior peso -- e
+    os quinze testes deste arquivo passaram. Nenhum comparava o valor de 'hoje'
+    com coisa alguma.
+
+    A ancora e a identidade da JANELA NULA: rolar o estoque do RMD ate a propria
+    data-base nao emite, nao resgata e nao apropria nada, entao 'hoje' tem de
+    devolver o RMD de volta. Vale contra qualquer fiacao trocada, contra erro de
+    unidade, e sobrevive ao pipeline rodar de novo, porque os dois lados andam
+    juntos quando o dado muda -- mas NAO andam juntos quando o codigo erra, que
+    e a diferenca que interessa.
+    """
+    base, _ = banda._realizado_do_rmd()
+    d = banda.dados_hoje(hoje=base).set_index("indicador")
+
+    rolados = d[d["rolado"].astype(bool)]
+    assert len(rolados) >= 4, "a ancora precisa cobrir os indicadores rolados"
+    for indicador, linha in rolados.iterrows():
+        assert linha["hoje"] == pytest.approx(linha["no_rmd"], rel=1e-9), (
+            f"{indicador}: rolar ate a propria data-base do RMD tem de "
+            f"devolver o valor do RMD, e devolveu {linha['hoje']}")
 
 @pytest.fixture(scope="module")
 def pagina(tmp_path_factory):
@@ -221,3 +284,131 @@ def test_a_pagina_se_grava_com_a_REDE_BLOQUEADA_e_confessa_a_estimativa(
     assert "publicado at\u00e9" not in html
     # E continua sendo a pagina inteira, e nao um esqueleto.
     assert html.count("id='tabela-") == 2
+
+
+def test_a_guarda_e_ALIMENTADA_PELO_CSV_e_nao_pela_constante(tmp_path,
+                                                             monkeypatch):
+    """Trava o LUGAR onde a guarda e chamada, e nao apenas a guarda.
+
+    Passar comp.columns em vez da constante conserta o defeito, mas nada impede
+    alguem de realimentar a constante depois: medido, os outros dezesseis testes
+    ficam todos verdes se isso acontecer, porque nenhum deles poe um CSV
+    diferente na frente de _realizado_do_rmd.
+
+    Este poe. Um 'Hibrido' no composicao_dpf.csv tem de fazer a leitura levantar.
+    Se a guarda estiver olhando a constante, ela nunca enxerga o 'Hibrido', nao
+    levanta, e este teste fica vermelho.
+    """
+    import shutil
+
+    from tesouro import config
+
+    for nome in ("composicao_dpf.csv", "prazo_medio_por_titulo.csv",
+                 "vencimentos_faixa.csv", "estoque_dpf.csv"):
+        shutil.copy(config.PROCESSED_DIR / nome, tmp_path / nome)
+
+    # Um indexador que o parser passou a devolver e que ninguem poe no
+    # denominador: sem a guarda, ele sai do percentual em silencio.
+    comp = pd.read_csv(tmp_path / "composicao_dpf.csv", parse_dates=["data"])
+    ultima = comp["data"].max()
+    intrusa = pd.DataFrame({"data": [ultima], "indexador": ["Hibrido"],
+                            "valor_milhoes": [123456.0]})
+    pd.concat([comp, intrusa], ignore_index=True).to_csv(
+        tmp_path / "composicao_dpf.csv", index=False)
+
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+
+    with pytest.raises(ValueError, match="indexador novo"):
+        banda._realizado_do_rmd()
+
+def test_o_ESTOQUE_nao_traz_distancia_na_tabela_de_hoje_mas_traz_na_projecao():
+    """A banda de estoque e alvo de 31/12, e em agosto o estoque nao chegou la.
+
+    Medido nos 23 anos de PAF: o estoque de AGOSTO caiu fora da banda de
+    dezembro em 18 deles, e 14 desses 18 fecharam o ano DENTRO. Publicar
+    "R$ -610 bi" como distancia convida a ler descumprimento onde so ha
+    calendario -- e o leitor desta pagina leva o numero para os colegas.
+
+    Na projecao a distancia fica: la os dois lados sao 31/12.
+    """
+    import re
+
+    hoje = banda.tabela(banda.dados_hoje(), "t-hoje")
+    proj = banda.tabela(banda.dados_projecao(registros=[]), "t-proj")
+
+    def celula_do_estoque(html):
+        linha = re.search(r"<tr[^>]*><td>Estoque</td>(.*?)</tr>", html, re.S)
+        celulas = re.findall(r"<td[^>]*>(.*?)</td>", linha.group(0), re.S)
+        return celulas[-1]
+
+    assert "alvo de 31/12" in celula_do_estoque(hoje)
+    assert "bi" not in celula_do_estoque(hoje), (
+        "a tabela de hoje nao pode publicar distancia em reais para o estoque")
+    # A projecao continua medindo, e neste dado ela esta dentro.
+    assert "alvo de 31/12" not in celula_do_estoque(proj)
+
+
+def test_um_ano_SEM_BANDA_no_arquivo_falha_em_voz_alta():
+    """Antes ele saia como tabela VAZIA, com o rodape normal por cima.
+
+    paf_bandas.csv e digitado a mao e cobre 2003-2026. Em janeiro de 2027, antes
+    de alguem digitar o PAF novo, _linhas() pulava cada indicador em silencio e a
+    pagina publicava uma tabela de conformidade em branco -- ou, pior, faltando
+    so alguns indicadores. Classe "dependencia de relogio" mais "caminho nunca
+    exercitado": nenhum teste passava por ali porque hoje e 2026.
+    """
+    with pytest.raises(LookupError, match="paf_bandas"):
+        banda._linhas({}, 2099)
+
+
+def test_a_coluna_da_banda_avisa_quando_ela_foi_REVISADA():
+    """Em 8 dos 23 anos a banda mudou no meio do ano.
+
+    A coluna sempre mostrou a vigente sem dizer que era a vigente -- e logo
+    abaixo da tabela a pagina afirma, em negrito, que em 14 de 14 casos a revisao
+    pos o realizado DENTRO. As duas coisas juntas, sem aviso, enganam.
+
+    Em 2026 nao houve revisao, entao a celula do dado real sai limpa; o caso
+    revisado e montado a mao para o ramo nao ficar sem teste.
+    """
+    sem_revisao = pd.Series({"minimo": 21.0, "maximo": 25.0,
+                             "minimo_original": 21.0, "maximo_original": 25.0,
+                             "unidade": "pp"})
+    assert "revisada" not in banda._banda_da_celula(sem_revisao)
+
+    revisada = pd.Series({"minimo": 21.0, "maximo": 25.0,
+                          "minimo_original": 20.0, "maximo_original": 24.0,
+                          "unidade": "pp"})
+    celula = banda._banda_da_celula(revisada)
+    assert "revisada" in celula
+    assert "20,00 a 24,00" in celula, "a banda ORIGINAL tem de aparecer"
+
+    # E o dado de verdade de 2026 nao traz o aviso, porque nao houve revisao.
+    assert "revisada" not in banda.tabela(banda.dados_hoje(), "t")
+
+
+def test_o_rodape_diz_MEDIA_e_nao_MAXIMO_do_erro_de_emissao():
+    """153 bi e o erro MEDIO de dez anos de backtest, nao o pior caso.
+
+    O texto dizia "errou ate 153 bi", que le como teto. Numa pagina cuja unica
+    quantificacao de incerteza do estoque projetado e essa frase, dizer "ate"
+    subestima -- metade dos anos foi pior. Achado na revisao da branch.
+    """
+    html = banda.tabela(banda.dados_projecao(registros=[]), "t")
+    assert "M{E}DIA".replace("{E}", "\u00c9") in html
+    assert "errou at{E}".replace("{E}", "\u00e9") not in html
+    assert "153" in html
+
+
+def test_o_rodape_de_hoje_diz_o_QUE_NAO_ESTA_MODELADO():
+    """Spec 4.5 e 4.6: o que a rolagem nao cobre tem de estar escrito.
+
+    Faltavam as tres frases. A do Tesouro Direto e a que mais importa: o residuo
+    e da ordem de 0,25 pp nesta janela, e a pagina publica distancias de 0,85 pp
+    -- sem a frase o leitor nao tem como saber que a margem e dessa ordem.
+    """
+    html = banda.tabela(banda.dados_hoje(), "t")
+    assert "Tesouro Direto" in html
+    assert "0,25 pp" in html
+    assert "d{I}vida".replace("{I}", "\u00ed") in html      # o cambio e a DPFe
+    assert "it{A}lico".replace("{A}", "\u00e1") in html     # o que a marca quer dizer

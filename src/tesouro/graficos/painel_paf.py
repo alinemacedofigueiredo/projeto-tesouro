@@ -43,6 +43,7 @@ _CSS = """
   border-bottom: 2px solid #ccc; }
 td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
 tr.parado td { color: var(--fraco); font-style: italic; }
+.revisada { font-size: 11.5px; color: var(--fraco); font-style: italic; }
 p.rodape, p.achado { font-size: 12.5px; color: var(--fraco); max-width: 1180px;
   margin: 6px auto 0; }
 .secao { margin: 0 auto 18px; max-width: 1180px; }
