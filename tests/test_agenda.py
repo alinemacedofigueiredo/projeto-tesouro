@@ -478,10 +478,17 @@ def test_a_taxa_da_tabela_e_ponderada_pelo_financeiro(pagina):
 
 def test_a_tabela_do_calendario_tem_uma_linha_por_papel_e_um_cabecalho_por_dia(
         pagina, dados):
-    # A pagina tem DUAS tabelas, entao a contagem e so do calendario: uma linha por
-    # papel, mais um cabecalho por dia, mais o do <thead>.
+    # A pagina tem TRES tabelas desde 25/08/2026, entao a contagem e so do
+    # calendario: uma linha por papel, mais um cabecalho por dia, mais o do
+    # <thead>.
+    #
+    # O RECORTE FECHA NA PROPRIA TABELA. Antes ia de "tabela-calendario" ate o
+    # FIM DO ARQUIVO, o que so funcionava enquanto esta era a ultima coisa da
+    # pagina. Quando a secao da Expectativa entrou depois dela, as linhas da
+    # nova foram contadas junto -- 105 onde se esperava 66. O teste estava
+    # certo no que media e errado no que recortava.
     i = pagina.index('id="tabela-calendario"')
-    so_calendario = pagina[i:]
+    so_calendario = pagina[i:pagina.index("</table>", i)]
     assert so_calendario.count('<tr class="dia"') == dados["data_leilao"].nunique()
     assert (so_calendario.count("<tr")
             == len(dados) + dados["data_leilao"].nunique() + 1)
