@@ -112,10 +112,10 @@ git. Num clone novo eles falham até você rodar o pipeline uma vez:
 
     $env:PYTHONPATH="src"; python -m pytest -q          # muitas falhas num clone novo
     $env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta
-    $env:PYTHONPATH="src"; python -m pytest -q          # 766 passed, 1 skipped
+    $env:PYTHONPATH="src"; python -m pytest -q          # 773 passed, 1 skipped
 
 A última contagem exata de quantos dependem do pipeline é de 21/08/2026: **155 de
-451**. A proporção não foi remedida desde então — a suíte cresceu para 767 — e
+451**. A proporção não foi remedida desde então — a suíte cresceu para 774 — e
 está aqui como ordem de grandeza, não como número atual.
 
 Não é defeito: são as âncoras de valor, que existem justamente para conferir número

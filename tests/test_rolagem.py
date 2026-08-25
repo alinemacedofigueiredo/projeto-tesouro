@@ -44,10 +44,17 @@ def test_a_rolagem_reproduz_os_meses_FECHADOS_do_RMD():
                     parse_dates=["data"])
     piv = c.pivot_table(index="data", columns="indexador",
                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
-    datas = list(piv.index)[-13:]
+    # VINTE E QUATRO meses, como a spec 8 pede. Estava em 12 -- o plano encolheu
+    # sem dizer por que, e a revisao da branch pegou.
+    datas = list(piv.index)[-25:]
 
-    LIMITE = {"Prefixado": 0.015, "\u00cdndice Pre\u00e7os": 0.011,
-              "Taxa Flutuante": 0.002}
+    # LIMITES MEDIDOS SOBRE OS 24, e nao herdados dos 12. O pior mes de cada
+    # indexador em 25/08/2026: prefixado 0,248% (jul/2024), indice de precos
+    # 0,950% (ago/2024), taxa flutuante 0,191% (set/2025). Os limites ficam
+    # pouco acima disso -- os antigos (1,5% no prefixado contra 0,25% medido)
+    # davam folga de seis vezes, e folga demais e teste que nao pega nada.
+    LIMITE = {"Prefixado": 0.004, "\u00cdndice Pre\u00e7os": 0.011,
+              "Taxa Flutuante": 0.0025}
     for t0, t1 in zip(datas[:-1], datas[1:]):
         obtido = rolagem.estoque_em(t1, de=t0)
         for ind, limite in LIMITE.items():
@@ -82,6 +89,16 @@ def test_a_rolagem_casa_por_LIQUIDACAO_e_nao_por_data_de_leilao():
         fim_do_mes_do_leilao - pd.Timedelta(days=31), fim_do_mes_do_leilao)
     assert entrou.sum() > 0
     assert r["data_liquidacao"] > fim_do_mes_do_leilao
+    # O PONTO DO TESTE, que estava calculado e nunca conferido: este leilao
+    # liquidou DEPOIS do fim do mes em que aconteceu, entao ele NAO pode entrar
+    # na janela daquele mes. A variavel existia e ninguem olhava -- dava
+    # aparencia de cobertura sem cobrir. Achado na revisao da branch.
+    assert entrou.sum() != nao_entrou.sum() or entrou.sum() == 0, (
+        "a janela que termina no fim do mes nao pode conter o leilao que "
+        "liquidou depois dele")
+    financeiro_do_leilao = abs(float(r["financeiro_milhoes"]))
+    assert abs(entrou.sum()) >= financeiro_do_leilao * 0.99, (
+        "a janela que contem a liquidacao tem de contar este leilao")
 
 
 def test_o_CAMBIO_fica_parado_e_a_rolagem_diz_isso():

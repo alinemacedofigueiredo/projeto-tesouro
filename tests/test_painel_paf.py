@@ -1,6 +1,8 @@
 """A pagina contra o PAF: distancia, projecao e o arquivo."""
 import pathlib
 
+import re
+
 import pandas as pd
 import pytest
 
@@ -65,8 +67,11 @@ def test_a_tabela_diz_DE_QUANDO_e_o_hoje_e_quantos_leiloes_entraram():
     esperado = entre["data_liquidacao"].nunique()
 
     html = banda.tabela(d, "tabela-hoje")
-    assert "leil" in html
-    assert str(esperado) in html
+    # NO RODAPE, E COM A FRASE INTEIRA. "str(esperado) in html" casava com
+    # qualquer numero da pagina: com esperado == 20 ele passava por causa de
+    # "2026", de "20,15" e de "9.268". Achado na revisao da branch.
+    rodape = re.search(r"<p class='rodape'>(.*?)</p>", html, re.S).group(1)
+    assert f"{esperado} dia(s) de leil\u00e3o entraram na rolagem" in rodape
 
 
 def test_prazo_medio_e_vincendo_mostram_a_DATA_e_nao_asterisco():

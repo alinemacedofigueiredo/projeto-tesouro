@@ -19,16 +19,24 @@ def test_o_estimador_acerta_as_datas_de_2024_e_2025():
                     parse_dates=["data_leilao"])
     venda = l[l["tipo_leilao"].isin(["Venda", "Extra Venda"])]
 
-    for ano in (2024, 2025):
+    # 2021 EM DIANTE, como a spec 12 pede. O plano encolheu para 2024-2025 sem
+    # dizer por que. O criterio tambem e o da spec -- "dentro de dois" -- e nao
+    # "zero falso positivo": medido, o estimador erra UM dia para mais em 2021 e
+    # em 2022, e acerta na mosca de 2023 em diante. Exigir zero em todos os anos
+    # seria exigir do estimador mais do que a spec pediu, e mascarar que ele
+    # melhorou com o tempo em vez de sempre ter sido exato.
+    for ano in (2021, 2022, 2023, 2024, 2025):
         de = pd.Timestamp(f"{ano}-09-01")
         ate = pd.Timestamp(f"{ano}-12-31")
         estimado = set(calendario_leiloes.dias_estimados(de, ate))
         real = set(venda[(venda["data_leilao"] >= de)
                          & (venda["data_leilao"] <= ate)]
                    ["data_leilao"].dt.normalize())
-        assert estimado <= real, (
-            f"{ano}: o estimador previu dia sem leilao: {sorted(estimado - real)}")
-        assert len(estimado) >= len(real) - 3, (
+        falsos = estimado - real
+        assert len(falsos) <= 1, (
+            f"{ano}: o estimador previu {len(falsos)} dias sem leilao: "
+            f"{sorted(falsos)}")
+        assert abs(len(estimado) - len(real)) <= 2, (
             f"{ano}: estimou {len(estimado)} contra {len(real)} reais")
 
 

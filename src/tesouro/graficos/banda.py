@@ -249,7 +249,7 @@ def dados_hoje(hoje=None):
     return d
 
 
-def dados_projecao(ate=None, registros=None):
+def dados_projecao(ate=None, registros=None, hoje=None):
     """A tabela de onde a rolagem projeta o fechamento do ano.
 
     O ESTOQUE SAI COMO NUMERO (rolagem.projecao ja devolve um numero so, e nao uma
@@ -257,9 +257,14 @@ def dados_projecao(ate=None, registros=None):
     nao tocarem rede: passam registros=[] e calendario_leiloes.dias_ate usa so o
     calendario estimado.
     """
+    # 'hoje' E O MESMO DOS DOIS BLOCOS. A pagina passa o dela para ca e para
+    # dados_hoje, senao a tabela de hoje anda e a projecao fica na ultima
+    # liquidacao real -- dois blocos da mesma pagina partindo de datas
+    # diferentes, que e o que o ruling 1 existiu para evitar.
+    referencia = pd.Timestamp(hoje) if hoje is not None else _ultima_liquidacao()
     ate = pd.Timestamp(ate) if ate is not None else pd.Timestamp(
-        f"{_ultima_liquidacao().year}-12-31")
-    p = rolagem.projecao(ate, registros=registros)
+        f"{referencia.year}-12-31")
+    p = rolagem.projecao(ate, hoje=hoje, registros=registros)
     valores = {"prefixado_pct": p["percentual"]["Prefixado"],
                "indice_precos_pct": p["percentual"]["\u00cdndice Pre\u00e7os"],
                "taxa_flutuante_pct": p["percentual"]["Taxa Flutuante"],
@@ -286,6 +291,11 @@ def _casas(unidade):
 
 
 def _celula(valor, unidade):
+    # AUSENTE E TRACO, e nao "nan pp". Hoje nenhuma banda vem sem numero, mas o
+    # paf_bandas.csv e digitado a mao: uma celula em branco viraria "nan pp" na
+    # pagina, que parece dado. Achado na revisao da branch.
+    if valor is None or pd.isna(valor):
+        return "\u2014"
     return _com_unidade(_numero(valor, _casas(unidade)), unidade)
 
 

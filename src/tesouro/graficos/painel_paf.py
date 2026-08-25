@@ -99,9 +99,15 @@ def grava(caminho=None, hoje=None, registros=None):
     fim = html.rindex("</main>")
 
     de_hoje = banda.dados_hoje(hoje)
-    projetado = banda.dados_projecao(registros=registros)
+    # 'hoje' VAI PARA OS DOIS. Sem isto a tabela de hoje andava e a projecao
+    # ficava na ultima liquidacao real, e os dois blocos da mesma pagina partiam
+    # de datas diferentes -- exatamente o que o ruling 1 existiu para evitar.
+    projetado = banda.dados_projecao(registros=registros, hoje=hoje)
     corpo = "\n".join([
-        _recolhe(banda.tabela(de_hoje, "tabela-hoje"), *SECOES[0]),
+        # O ACHADO NOS DOIS BLOCOS, como a spec 7.3 pede. Ele responde "com que
+        # frequencia o Tesouro fecha dentro da banda", que e pergunta tanto de
+        # quem olha onde estamos hoje quanto de quem olha onde o ano fecha.
+        _recolhe(banda.tabela(de_hoje, "tabela-hoje") + _ACHADO, *SECOES[0]),
         _recolhe(banda.tabela(projetado, "tabela-projecao") + _ACHADO,
                  *SECOES[1]),
     ])
