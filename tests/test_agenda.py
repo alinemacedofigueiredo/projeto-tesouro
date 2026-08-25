@@ -55,7 +55,12 @@ def test_cada_linha_da_agenda_sabe_de_que_leilao_veio_a_taxa(dados):
     # como julgar se ela ainda vale.
     assert dados["taxa_pct"].notna().all()
     assert dados["taxa_de_quando"].notna().all()
-    assert (dados["taxa_de_quando"] < dados["data_leilao"]).all()
+    # MENOR OU IGUAL, e nao menor. O papel pode ir a leilao HOJE e estar na
+    # agenda de hoje: assim que o resultado sai, a taxa dele passa a ser a do
+    # proprio dia. A invariante de verdade e que a taxa nao venha do FUTURO.
+    # Quebrou em 25/08/2026, quando o resultado do dia entrou antes de a agenda
+    # do dia sair de cena.
+    assert (dados["taxa_de_quando"] <= dados["data_leilao"]).all()
 
 
 def test_a_taxa_velha_e_sinalizada(dados):

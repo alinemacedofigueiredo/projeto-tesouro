@@ -219,9 +219,7 @@ def _linhas(valores, ano):
 
 def _ultima_liquidacao():
     """A data de liquidacao mais recente que o dado de leiloes tem."""
-    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_liquidacao"])
-    return l["data_liquidacao"].max()
+    return rolagem.leiloes()["data_liquidacao"].max()
 
 
 def quantos_leiloes_entraram(hoje=None):
@@ -232,8 +230,7 @@ def quantos_leiloes_entraram(hoje=None):
     """
     base, _ = _realizado_do_rmd()
     ate = pd.Timestamp(hoje) if hoje is not None else _ultima_liquidacao()
-    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_liquidacao"])
+    l = rolagem.leiloes()
     entre = l[(l["data_liquidacao"] > base) & (l["data_liquidacao"] <= ate)]
     return entre["data_liquidacao"].nunique(), base, ate
 

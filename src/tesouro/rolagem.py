@@ -26,7 +26,7 @@ onde o RMD corta.
 
 import pandas as pd
 
-from . import calendario, config, leiloes_dv
+from . import calendario, config, curva, leiloes_dv
 
 # Qual papel serve para recuperar o VNA de cada indice.
 _PAPEL_DO_INDICE = {"SELIC": "LFT", "IPCA": "NTN-B"}
@@ -35,8 +35,78 @@ _PAPEL_DO_INDICE = {"SELIC": "LFT", "IPCA": "NTN-B"}
 _JANELA_DO_VNA = 15
 
 
-def vna_em(indice, quando):
-    """O VNA do indice na data, recuperado do leilao mais proximo.
+DATAS_DO_LEILAO = ["data_leilao", "data_liquidacao", "data_vencimento"]
+
+
+def leiloes(com_provisorio=True):
+    """Os leiloes: a planilha do Tesouro, e o provisorio DEPOIS de onde ela acaba.
+
+    Decisao dela, 25/08/2026: "tudo que teve de leilao que ainda nao esta na
+    planilha, usa o do leilao, pq ja temos inclusive o resultado -- da planilha
+    ate hj usa o leilao."
+
+    A FRONTEIRA E A ULTIMA LIQUIDACAO DA PLANILHA, e nao a data de hoje nem o
+    estagio da linha. Antes dela manda a planilha; depois dela, o provisorio da
+    API. E o unico corte que nao pode contar o mesmo leilao duas vezes -- e
+    contar duas vezes erra para MAIS, que numa tabela de conformidade e o erro
+    que faz o Tesouro parecer mais perto do teto do que esta.
+
+    O preco disso: se a planilha estiver COMPLETA ate a fronteira mas faltando
+    uma linha anterior a ela, essa linha nao entra. Preferi perder uma linha
+    velha a arriscar somar uma nova duas vezes.
+
+    Sem o arquivo provisorio -- num clone novo, antes do primeiro
+    'python -m tesouro.leilao_do_dia' -- devolve so a planilha, sem reclamar.
+    """
+    oficial = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                          parse_dates=DATAS_DO_LEILAO)
+    if not com_provisorio:
+        return oficial
+
+    caminho = config.PROCESSED_DIR / "leiloes_recentes.csv"
+    if not caminho.exists():
+        return oficial
+
+    novo = pd.read_csv(caminho, parse_dates=DATAS_DO_LEILAO)
+    novo = novo[novo["data_liquidacao"] > oficial["data_liquidacao"].max()]
+    if novo.empty:
+        return oficial
+    return pd.concat([oficial, novo[oficial.columns]], ignore_index=True)
+
+
+def _carrega_vna(indice, valor, de, ate):
+    """Carrega o VNA da ancora ate a data, com a premissa que a projecao ja usa.
+
+    Decisao dela, 25/08/2026: "vc tem o vna do ultimo leilao. projeta tudo a
+    partir da data do ultimo leilao, ai vc usa as premissas que ja estava
+    usando."
+
+    E melhor do que a alternativa que eu tinha proposto (procurar uma serie de
+    Selic diaria): nao acrescenta fonte de dado, usa o mesmo numero que ja
+    aparece no rodape da projecao, e sobre poucos dias uteis a diferenca entre a
+    Selic implicita e a efetiva e ruido perto do vao que ela fecha.
+
+    A data-base da curva e a DA ANCORA, e nao a de hoje: assim uma chamada
+    historica pega a curva que existia entao, em vez de projetar para tras --
+    que curva.selic_implicita recusa, e com razao.
+
+    O VNA da NTN-B corre so a INFLACAO. O cupom real nao entra aqui: quem
+    apropria o cupom e _apropriacao, pela razao entre os dois VNAs.
+    """
+    de, ate = pd.Timestamp(de), pd.Timestamp(ate)
+    du = calendario.padrao().du(de.date(), ate.date())
+    if du <= 0:
+        return valor
+    taxa = (curva.selic_implicita(ate, data_base=de) if indice == "SELIC"
+            else curva.inflacao_implicita(ate, data_base=de))
+    return valor * (1 + taxa) ** (du / 252)
+
+
+def vna_ancorado(indice, quando):
+    """O VNA do leilao ancora, E A DATA DELE.
+
+    A ancora e o ultimo leilao do papel ate 'quando' -- quase nunca a propria
+    data pedida. Quem quer o VNA NA data usa vna_em, que carrega daqui ate la.
 
     PU = VNA x cotacao, e a cotacao depende so da taxa e das datas -- entao o PU
     efetivo (financeiro / quantidade) dividido pela cotacao devolve o VNA que o
@@ -48,8 +118,7 @@ def vna_em(indice, quando):
     """
     quando = pd.Timestamp(quando)
     titulo = _PAPEL_DO_INDICE[indice]
-    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_leilao", "data_vencimento"])
+    l = leiloes()
     g = l[(l["titulo"] == titulo) & (l["tipo_leilao"] == "Venda")
           & l["taxa_media_pct"].notna() & (l["venda_qtd"] > 0)
           & (l["financeiro_milhoes"] > 0)
@@ -70,7 +139,23 @@ def vna_em(indice, quando):
         raise LookupError(
             f"o leilao de {titulo} em {r['data_leilao']:%d/%m/%Y} nao permitiu "
             f"recuperar o VNA de {indice}.")
-    return implicito
+    return implicito, r["data_leilao"]
+
+
+def vna_em(indice, quando):
+    """O VNA do indice NA DATA: o do leilao ancora, carregado dali ate aqui.
+
+    O VIES QUE ISTO FECHA, medido em 17/08/2026 antes da correcao: a ancora era
+    11/08 para LFT e para NTN-B, e os quatro dias uteis entre uma data e outra
+    nao eram apropriados -- R$ 10,6 bi de SELIC mais R$ 1,5 bi de IPCA, R$ 12,1
+    bi a menos, e SEMPRE para baixo, nunca para cima.
+
+    Achado na revisao da branch banda-do-paf (item 7). O backtest dos meses
+    fechados nao pegava porque todas as datas dele caem dentro da cobertura do
+    vna.csv, onde este caminho nem chega a ser chamado.
+    """
+    valor, ancora = vna_ancorado(indice, quando)
+    return _carrega_vna(indice, valor, ancora, quando)
 
 
 # Os indexadores que a rolagem move. O Cambio fica de fora -- ver PARADOS.
@@ -117,8 +202,7 @@ def base_do_rmd():
 
 def leiloes_liquidados(de, ate):
     """Financeiro liquido dos leiloes liquidados em (de, ate], por indexador."""
-    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_liquidacao"])
+    l = leiloes()
     l = l[(l["data_liquidacao"] > pd.Timestamp(de))
           & (l["data_liquidacao"] <= pd.Timestamp(ate))].copy()
     l["indexador"] = [_INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
@@ -247,8 +331,7 @@ def pace(quando):
     Medido em 17/08/2026: prefixado 12,32 bi por leilao, indice de precos 1,09, taxa
     flutuante 21,91.
     """
-    l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_leilao", "data_liquidacao"])
+    l = leiloes()
     l = l[l["data_liquidacao"] <= pd.Timestamp(quando)].copy()
     l["indexador"] = [_INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
     l["sinal"] = [_SINAL.get(t, 0) for t in l["tipo_leilao"]]
@@ -328,9 +411,7 @@ def projecao(ate, hoje=None, registros=None):
                 f"por perto: {texto}.")
         inicial = piv.loc[partida]
     else:
-        l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                        parse_dates=["data_liquidacao"])
-        partida = l["data_liquidacao"].max()
+        partida = leiloes()["data_liquidacao"].max()
         inicial = estoque_em(partida)
 
     dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,

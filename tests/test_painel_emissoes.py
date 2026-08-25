@@ -679,3 +679,53 @@ def test_a_linha_do_estado_fica_dentro_do_conteudo_e_fora_do_cabecalho(pagina):
     assert i_estado > i_main, "a linha do estado ficou fora do main"
     assert i_estado > i_header, "a linha do estado entrou no cabecalho grudado"
     assert i_estado < pagina.index("</main>")
+
+def test_a_serie_de_uma_familia_vai_ate_o_FIM_mesmo_que_ela_pare_antes(
+        tmp_path, monkeypatch):
+    """O buraco na cauda, forcado por dado sintetico.
+
+    O teste acima, contra o dado de verdade, so tem dentes quando o ultimo
+    leilao do arquivo e de TERCA: ai LFT e NTN-B estao em dia e o prefixado esta
+    dois dias atras, e a cauda dele fica NaN. Numa quinta o prefixado esta em dia
+    e o mesmo defeito passa despercebido. Foi assim que ele entrou -- e so
+    apareceu em 25/08/2026, uma terca, com o resultado do dia ja no dado.
+
+    Aqui as duas familias param em datas DIFERENTES de proposito, todo dia do
+    ano. A LFT vai ate o fim; a LTN para tres dias antes. As duas series tem de
+    chegar ao mesmo ultimo dia, porque a razao e uma soma movel de seis meses e
+    ela nao deixa de existir no dia em que aquele papel nao foi a mercado.
+    """
+    import pandas as pd
+
+    from tesouro import config
+    from tesouro.graficos import emissao
+
+    dias_de_leilao = pd.date_range("2024-01-02", "2025-01-02", freq="7D")
+    linhas = []
+    for data in dias_de_leilao:
+        for familia, titulo in (("LFT", "LFT"), ("LTN", "LTN")):
+            # A LTN para tres dias antes do fim: sem leilao no ultimo pregao.
+            if familia == "LTN" and data == dias_de_leilao[-1]:
+                continue
+            linhas.append({
+                "estagio": "planilha", "data_leilao": data,
+                "data_liquidacao": data + pd.Timedelta(days=1),
+                "titulo": titulo, "familia": familia, "operacao": "venda",
+                "volta": "1a volta", "data_vencimento": "2030-01-01",
+                "quantidade": 1000.0, "oferta_qtd": 2000.0,
+                "financeiro_milhoes": 100.0, "taxa_media_pct": 10.0,
+                "dv_milhoes": 5.0, "dv_ofertado_milhoes": 10.0,
+            })
+    pd.DataFrame(linhas).to_csv(
+        tmp_path / "dv_emitido_por_leilao.csv", index=False)
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+
+    d = emissao.colocado_por_familia()
+
+    assert not d.empty, "o dado sintetico nao produziu serie"
+    for familia in ("LFT", "LTN"):
+        assert familia in d.columns, familia
+        assert d[familia].isna().sum() == 0, (
+            f"{familia} ficou com buraco: a serie de cada familia tem de cobrir "
+            f"o periodo inteiro, e nao so os dias em que ela foi a leilao")
+    assert d["LFT"].last_valid_index() == d["LTN"].last_valid_index()

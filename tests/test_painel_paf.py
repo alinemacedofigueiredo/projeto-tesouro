@@ -47,8 +47,20 @@ def test_a_tabela_diz_DE_QUANDO_e_o_hoje_e_quantos_leiloes_entraram():
     d = banda.dados_hoje()
     base = d.attrs["leiloes_de"]
     hoje = d.attrs["hoje"]
+    # OS DOIS ARQUIVOS, lidos aqui direto -- e nao via rolagem.leiloes(), que e
+    # o que a producao chama. Desde 25/08/2026 a rolagem conta tambem o leilao
+    # que a planilha ainda nao traz (decisao dela), e recontar so pelo
+    # leiloes.csv passou a dar menos. Chamar rolagem.leiloes() aqui consertaria
+    # o numero e destruiria o teste: os dois lados andariam juntos sob qualquer
+    # mutacao. Entao a recontagem refaz a juncao, a mao.
     l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
                     parse_dates=["data_liquidacao"])
+    provisorio = config.PROCESSED_DIR / "leiloes_recentes.csv"
+    if provisorio.exists():
+        r = pd.read_csv(provisorio, parse_dates=["data_liquidacao"])
+        r = r[r["data_liquidacao"] > l["data_liquidacao"].max()]
+        l = pd.concat([l[["data_liquidacao"]], r[["data_liquidacao"]]],
+                      ignore_index=True)
     entre = l[(l["data_liquidacao"] > base) & (l["data_liquidacao"] <= hoje)]
     esperado = entre["data_liquidacao"].nunique()
 
@@ -445,11 +457,13 @@ def test_o_rodape_do_calendario_PUBLICADO_tem_teste(monkeypatch):
     assert f"{fronteira:%d/%m/%Y}" in html
     assert "inteiramente estimado" not in html
 
-    # E o publicado tem de MUDAR a conta, senao a frase seria decorativa: com o
-    # calendario da amostra sao menos dias de leilao do que estimando tudo.
+    # NAO se exige que a CONTAGEM mude. Era o que este teste fazia, e estava
+    # errado: quando o estimador acerta o calendario publicado -- que e o
+    # objetivo dele -- as duas contagens coincidem e o teste quebrava por acerto.
+    # Aconteceu em 25/08/2026, com 33 dias dos dois lados. O que tem de mudar e
+    # a PROCEDENCIA declarada, e isso as tres assercoes acima ja travam.
     so_estimado = banda.dados_projecao(registros=[])
-    assert (d.attrs["premissa"]["dias_de_leilao"]
-            != so_estimado.attrs["premissa"]["dias_de_leilao"])
+    assert so_estimado.attrs["premissa"]["fronteira_do_calendario"] is None
 
 
 def test_os_numeros_do_ACHADO_historico_saem_do_DADO_MEDIDO():

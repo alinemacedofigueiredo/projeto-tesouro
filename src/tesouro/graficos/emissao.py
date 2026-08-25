@@ -342,7 +342,18 @@ def colocado_por_familia(janela=None, com_segunda_volta=True, meses=6):
         return pd.DataFrame(columns=ORDEM_FAMILIAS)
 
     dias = int(meses * 30.44)
-    colunas = {}
+
+    # UM CALENDARIO SO, COMUM AS CINCO FAMILIAS. Cada uma montava a serie diaria
+    # no proprio intervalo, e como LFT e NTN-B vao a mercado na terca e o
+    # prefixado na quinta, elas terminam em dias diferentes -- o DataFrame
+    # alinhava os indices e sobrava NaN na cauda da familia que parou antes.
+    # Exatamente o buraco que o comentario abaixo promete nao existir.
+    #
+    # DEPENDIA DO DIA DA SEMANA: quando o ultimo leilao do dado era quinta, o
+    # prefixado estava em dia e o teste passava; quando era terca, ele ficava
+    # dois dias atras e o teste quebrava. Apareceu em 25/08/2026, uma terca, com
+    # o resultado do proprio dia ja no dado.
+    por_familia = {}
     for familia in ORDEM_FAMILIAS:
         g = d[d["familia"] == familia]
         if g.empty:
@@ -350,10 +361,18 @@ def colocado_por_familia(janela=None, com_segunda_volta=True, meses=6):
         em_dv = g["dv_milhoes"].notna().sum() > 0
         cima = "dv_milhoes" if em_dv else "quantidade"
         baixo = "dv_ofertado_milhoes" if em_dv else "oferta_qtd"
-        por_dia = g.groupby("data_leilao").agg(
+        por_familia[familia] = g.groupby("data_leilao").agg(
             cima=(cima, "sum"), baixo=(baixo, "sum"))
-        diario = por_dia.reindex(pd.date_range(
-            por_dia.index.min(), por_dia.index.max(), freq="D")).fillna(0.0)
+
+    if not por_familia:
+        return pd.DataFrame(columns=ORDEM_FAMILIAS)
+    inicio = min(v.index.min() for v in por_familia.values())
+    fim = max(v.index.max() for v in por_familia.values())
+    todo_o_periodo = pd.date_range(inicio, fim, freq="D")
+
+    colunas = {}
+    for familia, por_dia in por_familia.items():
+        diario = por_dia.reindex(todo_o_periodo).fillna(0.0)
         movel = diario.rolling(f"{dias}D").sum()
         # A razao vale TODO DIA, e nao so nos dias de leilao daquele papel: e uma
         # soma movel de seis meses, e ela nao deixa de existir na terca porque o

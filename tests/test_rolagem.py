@@ -257,3 +257,180 @@ def test_a_projecao_no_ramo_do_BACKTEST_levanta_LookupError_diagnosavel():
     with pytest.raises(LookupError, match="composicao_dpf"):
         rolagem.projecao(pd.Timestamp("2026-12-31"),
                          hoje=pd.Timestamp("1999-01-01"), registros=[])
+
+# ---------------------------------------------------------------------------
+# Decisao dela, 25/08/2026: "tudo que teve de leilao que ainda nao esta na
+# planilha, usa o do leilao, pq ja temos inclusive o resultado. ou seja, da
+# planilha ate hj usa o leilao."
+# ---------------------------------------------------------------------------
+
+
+def test_o_provisorio_entra_DEPOIS_de_onde_a_planilha_acaba():
+    """A planilha do Tesouro atrasa ate cinco dias; a API tem o resultado hoje.
+
+    A fronteira e a ULTIMA LIQUIDACAO da planilha. Antes dela manda a planilha,
+    depois dela manda o provisorio -- assim nenhum leilao entra duas vezes, que
+    e o unico jeito de esta juncao errar para MAIS.
+
+    A PROPRIEDADE NAO E "nao ha linha repetida". A planilha ja tem 1.027 linhas
+    que repetem (data, titulo, vencimento, volta) por conta propria: sao Venda e
+    Compra no mesmo dia e no mesmo papel, mais linhas zeradas. Foi a primeira
+    chave que escrevi, e ela acusava a planilha, nao a juncao. O que importa e
+    que a juncao NAO ACRESCENTE repetido, e que tudo que ela acrescenta esteja
+    depois da fronteira.
+    """
+    chave = ["data_leilao", "titulo", "data_vencimento", "volta", "tipo_leilao"]
+    oficial = rolagem.leiloes(com_provisorio=False)
+    tudo = rolagem.leiloes()
+
+    fronteira = oficial["data_liquidacao"].max()
+    assert tudo["data_liquidacao"].max() >= fronteira
+
+    assert (tudo.duplicated(subset=chave).sum()
+            == oficial.duplicated(subset=chave).sum()), (
+        "a juncao acrescentou linha repetida -- algum leilao entrou pela "
+        "planilha E pelo provisorio")
+
+    # E o que entrou a mais esta TODO depois da fronteira, e e exatamente o
+    # tanto que o arquivo provisorio tem dali em diante.
+    caminho = config.PROCESSED_DIR / "leiloes_recentes.csv"
+    if caminho.exists():
+        prov = pd.read_csv(caminho, parse_dates=["data_liquidacao"])
+        alem = prov[prov["data_liquidacao"] > fronteira]
+        assert len(tudo) == len(oficial) + len(alem)
+        if len(alem):
+            entrou = tudo.tail(len(alem))
+            assert (entrou["data_liquidacao"] > fronteira).all()
+
+def test_a_rolagem_ENXERGA_o_leilao_que_a_planilha_ainda_nao_traz():
+    """O ponto da decisao 3, medido no numero e nao na existencia do arquivo.
+
+    Sem isto a tabela "onde estamos hoje" ficava ate cinco dias atrasada, dizendo
+    17/08 num dia 25/08 -- honesta no rodape, mas cega para tres dias de leilao
+    que ja tinham resultado publicado.
+    """
+    import pandas as pd
+
+    oficial = rolagem.leiloes(com_provisorio=False)
+    tudo = rolagem.leiloes()
+    fronteira = oficial["data_liquidacao"].max()
+    depois = tudo[tudo["data_liquidacao"] > fronteira]
+    if depois.empty:
+        pytest.skip("a planilha esta em dia; nao ha provisorio para somar")
+
+    base, _ = rolagem.base_do_rmd()
+    ate = tudo["data_liquidacao"].max()
+
+    com = rolagem.leiloes_liquidados(base, ate)
+    ate_a_planilha = rolagem.leiloes_liquidados(base, fronteira)
+
+    # O que entrou a mais tem de ser EXATAMENTE o financeiro liquido do
+    # provisorio -- nem mais (duplicou) nem menos (perdeu linha).
+    esperado = {}
+    for ind in rolagem.INDEXADORES:
+        d = depois[[rolagem._INDEXADOR_DO_TITULO.get(t) == ind
+                    for t in depois["titulo"]]]
+        sinais = [rolagem._SINAL.get(t, 0) for t in d["tipo_leilao"]]
+        esperado[ind] = float((d["financeiro_milhoes"] * sinais).sum())
+
+    for ind in rolagem.INDEXADORES:
+        assert com[ind] - ate_a_planilha[ind] == pytest.approx(
+            esperado[ind], rel=1e-9), ind
+
+
+# ---------------------------------------------------------------------------
+# Decisao dela, 25/08/2026: "vc tem o vna do ultimo leilao. projeta tudo a
+# partir da data do ultimo leilao, ai vc usa as premissas que ja estava usando"
+# ---------------------------------------------------------------------------
+
+
+def test_o_VNA_e_CARREGADO_da_ancora_ate_a_data_pedida():
+    """A ancora e o ultimo leilao ate a data, e nao a data.
+
+    Antes, vna_em devolvia o VNA do leilao ancora como se fosse o da data
+    pedida. Em 17/08/2026 a ancora era 11/08: quatro dias uteis sem apropriar,
+    R$ 12,1 bi a menos, SEMPRE para baixo. Agora carrega da ancora ate a data
+    com a Selic (ou a inflacao) implicita da curva -- a mesma premissa que a
+    projecao ja usava.
+    """
+    import pandas as pd
+
+    from tesouro import calendario
+
+    carrego = {}
+    for indice in ("SELIC", "IPCA"):
+        valor, ancora = rolagem.vna_ancorado(indice, pd.Timestamp("2026-08-17"))
+        carregado = rolagem.vna_em(indice, pd.Timestamp("2026-08-17"))
+
+        du = calendario.padrao().du(ancora.date(), pd.Timestamp("2026-08-17").date())
+        if du == 0:
+            assert carregado == pytest.approx(valor)
+            pytest.skip(f"{indice} ancorou na propria data; sem carrego a medir")
+        # Carregou para CIMA, e por um fator plausivel para poucos dias uteis.
+        assert carregado > valor, indice
+        assert carregado / valor - 1 < 0.01, (
+            f"{indice}: carrego de {du} dias uteis nao pode passar de 1%")
+        carrego[indice] = carregado / valor - 1
+
+    # E CADA INDICE COM A SUA TAXA. So "subiu, e pouco" nao distingue Selic de
+    # inflacao: sobre um dia util as duas passam nesse teste, e trocar uma pela
+    # outra ficava verde (medido). A Selic implicita e ~13,8% a.a. e a inflacao
+    # ~4,7%, entao o carrego da SELIC tem de ser varias vezes o do IPCA -- razao
+    # que so vale se cada um estiver usando a propria premissa.
+    assert carrego["SELIC"] > 2 * carrego["IPCA"], (
+        f"o carrego da SELIC ({carrego['SELIC']:.5f}) devia ser bem maior que o "
+        f"do IPCA ({carrego['IPCA']:.5f}); parece que os dois usam a mesma taxa")
+
+
+def test_carregar_ate_a_PROPRIA_data_da_ancora_nao_muda_nada():
+    """A identidade que separa "carregou certo" de "carregou qualquer coisa".
+
+    Um teste que so olhasse "ficou maior" passaria com qualquer fator. Este fixa
+    a ponta: pedir o VNA na data do proprio leilao ancora tem de devolver o VNA
+    daquele leilao, sem carrego nenhum.
+    """
+    import pandas as pd
+
+    for indice in ("SELIC", "IPCA"):
+        _, ancora = rolagem.vna_ancorado(indice, pd.Timestamp("2026-08-17"))
+        na_ancora, mesma = rolagem.vna_ancorado(indice, ancora)
+        assert mesma == ancora
+        assert rolagem.vna_em(indice, ancora) == pytest.approx(na_ancora)
+
+def test_a_fronteira_BARRA_o_provisorio_que_a_planilha_ja_tem(tmp_path,
+                                                              monkeypatch):
+    """O corte na fronteira, exercitado com dado que o forca a agir.
+
+    Com o arquivo de verdade esta mutacao nao aparece: o provisorio de hoje so
+    tem linhas ALEM da fronteira, entao tirar o filtro nao muda nada e o teste
+    fica verde contra codigo que duplicaria. Medido -- foi o que aconteceu na
+    primeira rodada de mutacao.
+
+    Aqui o provisorio leva DUAS linhas de proposito: uma copia de um leilao que
+    a planilha ja tem, e uma nova depois da fronteira. So a segunda pode entrar.
+    Se a fronteira parar de cortar, a primeira entra tambem e o estoque emitido
+    conta o mesmo leilao duas vezes -- erro para MAIS, o pior lado numa tabela
+    de conformidade.
+    """
+    import shutil
+
+    oficial = rolagem.leiloes(com_provisorio=False)
+    fronteira = oficial["data_liquidacao"].max()
+
+    shutil.copy(config.PROCESSED_DIR / "leiloes.csv",
+                tmp_path / "leiloes.csv")
+
+    ja_tem = oficial[oficial["data_liquidacao"] == fronteira].iloc[[0]].copy()
+    nova = ja_tem.copy()
+    nova["data_liquidacao"] = fronteira + pd.Timedelta(days=1)
+    nova["data_leilao"] = fronteira + pd.Timedelta(days=1)
+    pd.concat([ja_tem, nova], ignore_index=True).to_csv(
+        tmp_path / "leiloes_recentes.csv", index=False)
+
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+
+    tudo = rolagem.leiloes()
+    assert len(tudo) == len(oficial) + 1, (
+        "so a linha DEPOIS da fronteira pode entrar; a que a planilha ja tem "
+        "nao pode ser contada de novo")
+    assert tudo["data_liquidacao"].max() == fronteira + pd.Timedelta(days=1)
