@@ -1,9 +1,14 @@
 """A pagina contra o PAF: distancia, projecao e o arquivo."""
+import pathlib
+
 import pandas as pd
 import pytest
 
 from tesouro import config, rolagem
 from tesouro.graficos import banda
+
+RAIZ_DO_PROJETO = pathlib.Path(
+    config.PROCESSED_DIR).parent.parent
 
 
 def test_a_distancia_tem_o_sinal_certo_dos_dois_lados_e_zero_DENTRO():
@@ -412,3 +417,127 @@ def test_o_rodape_de_hoje_diz_o_QUE_NAO_ESTA_MODELADO():
     assert "0,25 pp" in html
     assert "d{I}vida".replace("{I}", "\u00ed") in html      # o cambio e a DPFe
     assert "it{A}lico".replace("{A}", "\u00e1") in html     # o que a marca quer dizer
+
+def test_o_rodape_do_calendario_PUBLICADO_tem_teste(monkeypatch):
+    """O ramo que a producao usa era o unico sem teste.
+
+    Todo teste desta pagina chama dados_projecao(registros=[]) para nao tocar a
+    rede -- e com isso so exercita o ramo "calendario inteiramente estimado". A
+    frase que o pipeline de verdade escreve, "de calendario publicado ate DD/MM
+    e estimado depois", podia ser trocada por qualquer coisa sem ficar vermelho.
+    Achado na revisao da branch.
+
+    A amostra congelada de tests/fixtures/api_leiloes resolve sem rede.
+    """
+    import json
+    import pathlib as _pathlib
+
+    fixtures = _pathlib.Path(__file__).parent / "fixtures" / "api_leiloes"
+    registros = json.loads(
+        (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
+
+    d = banda.dados_projecao(registros=registros)
+    html = banda.tabela(d, "t")
+
+    fronteira = d.attrs["premissa"]["fronteira_do_calendario"]
+    assert fronteira is not None, "a amostra tem de ter calendario publicado"
+    assert "publicado at\u00e9" in html
+    assert f"{fronteira:%d/%m/%Y}" in html
+    assert "inteiramente estimado" not in html
+
+    # E o publicado tem de MUDAR a conta, senao a frase seria decorativa: com o
+    # calendario da amostra sao menos dias de leilao do que estimando tudo.
+    so_estimado = banda.dados_projecao(registros=[])
+    assert (d.attrs["premissa"]["dias_de_leilao"]
+            != so_estimado.attrs["premissa"]["dias_de_leilao"])
+
+
+def test_os_numeros_do_ACHADO_historico_saem_do_DADO_MEDIDO():
+    """70%, 79% e 14-de-14 eram prosa fixa, sem nada conferindo.
+
+    E A FONTE NAO E OBVIA. A coluna 'realizado' do referencia/paf_bandas.csv NAO
+    serve para recontar: ela nao tem uma unica linha de vincendo_12m_pct, e tem
+    23 de prazo_medio onde a conta da spec usa 21. Recontar por ela da 69% / 78%
+    / 13 -- tres numeros diferentes dos tres que a pagina publica, e todos
+    errados. Foi o que aconteceu com duas tentativas independentes de reconta.
+
+    A fonte e o dado MEDIDO em data/processed/, o mesmo que _realizado_do_rmd()
+    ja le -- so que no fechamento de cada dezembro. Reconstruido assim, bate com
+    a tabela da spec 3.2 linha por linha: 102 de 146 e 116 de 146.
+    """
+    from tesouro.graficos import painel_paf
+
+    fecha = _fechamentos_de_dezembro()
+    b = pd.read_csv(RAIZ_DO_PROJETO / "referencia" / "paf_bandas.csv")
+    orig = b[b["versao"] == "original"].set_index(["indicador", "ano"])
+    rev = b[b["versao"] == "revisado"].set_index(["indicador", "ano"])
+
+    n = dentro_original = dentro_vigente = 0
+    inversoes = para_dentro = 0
+    for chave, _, _ in banda.INDICADORES:
+        for ano in sorted(set(orig.loc[chave].index)):
+            if ano not in fecha.index or pd.isna(fecha.loc[ano, chave]):
+                continue
+            real = fecha.loc[ano, chave]
+            o = orig.loc[(chave, ano)]
+            d_o = o["minimo"] <= real <= o["maximo"]
+            if (chave, ano) in rev.index:
+                r = rev.loc[(chave, ano)]
+                d_v = r["minimo"] <= real <= r["maximo"]
+            else:
+                d_v = d_o
+            n += 1
+            dentro_original += d_o
+            dentro_vigente += d_v
+            if d_o != d_v:
+                inversoes += 1
+                para_dentro += d_v
+
+    assert n == 146, f"a contagem da spec 3.2 e sobre 146 pares, e deu {n}"
+    assert f"{round(100 * dentro_original / n)}%" in painel_paf._ACHADO
+    assert f"{round(100 * dentro_vigente / n)}%" in painel_paf._ACHADO
+    assert f"{inversoes} de {inversoes}" in painel_paf._ACHADO
+    assert para_dentro == inversoes, (
+        "a pagina afirma que TODAS as inversoes puseram o realizado dentro; "
+        f"foram {para_dentro} de {inversoes}")
+
+
+def _fechamentos_de_dezembro():
+    """Os sete indicadores do PAF em cada 31/12, do dado medido.
+
+    Mesma leitura que banda._realizado_do_rmd faz para uma data so.
+    """
+    c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
+                    parse_dates=["data"])
+    comp = c.pivot_table(index="data", columns="indexador",
+                         values="valor_milhoes", aggfunc="sum").fillna(0.0)
+    pct = banda._percentuais(comp)
+
+    p = pd.read_csv(config.PROCESSED_DIR / "prazo_medio_por_titulo.csv",
+                    parse_dates=["data"])
+    prazo = p[(p["nivel"] == "DPF") & p["entidade"].isna()
+              & p["titulo"].isna()].set_index("data")["prazo_anos"]
+
+    v = pd.read_csv(config.PROCESSED_DIR / "vencimentos_faixa.csv",
+                    parse_dates=["data"])
+    fx = v[v["nivel"] == "DPF"].pivot_table(
+        index="data", columns="faixa", values="valor_milhoes", aggfunc="sum")
+
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_dpf.csv",
+                    parse_dates=["data"])
+    ag = e[e["entidade"].isna() & e["titulo"].isna()]
+    est = ag[ag["nivel"] == "DPF em poder do publico"].set_index(
+        "data")["valor_milhoes"] / 1000
+
+    d = pd.DataFrame({
+        "prefixado_pct": pct["Prefixado"],
+        "indice_precos_pct": pct["\u00cdndice Pre\u00e7os"],
+        "taxa_flutuante_pct": pct["Taxa Flutuante"],
+        "cambio_pct": pct["C\u00e2mbio"],
+        "prazo_medio_anos": prazo,
+        "vincendo_12m_pct": fx["At\u00e9 12 meses"] / fx.sum(axis=1) * 100,
+        "estoque_bilhoes": est,
+    })
+    d = d[d.index.month == 12]
+    d.index = d.index.year
+    return d

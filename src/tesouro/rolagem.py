@@ -141,6 +141,28 @@ def _vna_para_apropriacao(indice, quando):
     vna_em so e necessario ALEM do vna.csv, que termina na data-base do RMD
     (ver o docstring dele) -- e e exatamente ali, e so ali, que ele deve ser
     chamado.
+
+    VIES CONHECIDO, MEDIDO, E AINDA NAO CORRIGIDO (revisao da branch, item 7).
+    Fora da cobertura do vna.csv o desvio nao cancela: vna_em devolve o VNA da
+    ANCORA -- o ultimo leilao do papel ate 'quando' -- e ninguem carrega dali
+    ate a data pedida. Em 17/08/2026 a ancora e 11/08 para LFT e para NTN-B, e
+    ficam QUATRO DIAS UTEIS sem apropriar:
+
+        SELIC  0,221% sobre R$ 4.800,7 bi  ->  R$ 10,6 bi a menos
+        IPCA   0,073% sobre R$ 2.111,0 bi  ->  R$  1,5 bi a menos
+                                               R$ 12,1 bi, SEMPRE para baixo
+
+    Nos percentuais isso vale ate 0,05 pp (Taxa Flutuante sai 52,81% e seria
+    52,86%), o que nao inverte nenhum veredito de banda com o dado de hoje --
+    mas e um vies de sentido unico, e cresce com a distancia ate a ancora.
+
+    Corrigir exige decidir COM QUE SERIE carregar da ancora ate a data (a Selic
+    diaria efetiva, e nao a implicita da curva, que e premissa e nao medida), e
+    essa decisao e da dona do projeto.
+
+    O backtest dos meses fechados NAO cobre isto: todas as datas dele sao fins de
+    mes de RMD, ou seja, dentro da cobertura do vna.csv, onde este caminho nem e
+    chamado.
     """
     quando = pd.Timestamp(quando)
     v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
