@@ -377,9 +377,20 @@ Nos percentuais a premissa vale 0,2 pp contra bandas de 4 pp. No estoque ela val
 **R$ 511 bi contra uma banda de 600 bi de largura** (9.700 a 10.300 em 2026):
 congelar joga para fora, apropriar joga para dentro.
 
-**Decisão: o estoque é o único que sai como faixa**, entre o cenário da curva e o
-cenário de Selic 2 pp abaixo. Os outros seis saem como número, porque ali a faixa
-seria mais larga que a informação.
+**CORRIGIDO EM 24/08/2026, e o raciocínio acima estava errado.** A tabela compara
+com **congelar a Selic em zero**, que ninguém faria nunca. Contra um cenário
+plausível — a Selic realizada se afastou da implícita em 0,23 pp em média e 0,51 no
+pior dos últimos sete anos — a premissa move o estoque em **R$ 8 bi contra uma banda
+de 600**, ou 1,4%. É ruído.
+
+O que **de fato** domina o estoque é a projeção de emissão: dez anos de backtest dão
+erro médio de **R$ 153 bi**, ou **26% da largura da banda**.
+
+Uma faixa construída sobre a Selic teria 8 bi de largura e passaria a impressão de
+que o número é vinte vezes mais firme do que é — pior do que não ter faixa nenhuma.
+
+**Decisão dela: o estoque sai como número**, como os outros seis, e a incerteza do
+pace vai escrita ao lado.
 
 ---
 

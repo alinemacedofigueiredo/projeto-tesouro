@@ -77,17 +77,46 @@ Com `--de`/`--ate` sai **uma** página só, com todos os gráficos, no caminho d
 `--saida` se ele for dado. Serve para inspecionar; não é o formato publicado, e
 pode estourar o limiar.
 
+### As outras cinco páginas
+
+O `pipeline` grava mais cinco, que não saem de `python -m tesouro.graficos`
+porque não são do RMD — elas mudam em ritmos próprios:
+
+| arquivo | tamanho | o que leva | muda quando |
+|---|---|---|---|
+| `data/processed/paf.html` | 0,01 MB | onde a dívida está hoje contra a banda do PAF, e onde o ano fecha no ritmo atual | a cada leilão liquidado |
+| `data/processed/calendario.html` | 0,19 MB | a agenda do que o Tesouro planeja ofertar | a cada publicação do calendário |
+| `data/processed/emissoes.html` | 6,78 MB | o que já foi emitido (só venda, com 2ª volta) | a cada leilão |
+| `data/processed/emissoes-1a-volta.html` | 6,79 MB | idem, só 1ª volta | a cada leilão |
+| `data/processed/emissoes-com-compra.html` | 6,83 MB | idem, venda e compra | a cada leilão |
+
+**Por que separadas do dashboard.** O corte não é só de assunto, é de **cadência**:
+as duas páginas do RMD mudam uma vez por mês, e a do PAF muda toda semana.
+Enterrar uma tabela semanal num arquivo de 4 MB obriga a reescrever 4 MB para
+mudar uma linha. A do PAF é minúscula porque não tem gráfico nenhum — são duas
+tabelas.
+
+A página do PAF é a única que precisa do calendário da API. Com `--sem-coleta`
+ela é gravada assim mesmo, estimando o calendário, e o rodapé dela passa a dizer
+"calendário inteiramente estimado" em vez de "publicado até DD/MM". A diferença
+não é decorativa: são 34 dias de leilão até 31/12 pelo publicado contra 36
+estimando tudo.
+
 O `pipeline` já gera o dashboard no fim, depois de reescrever os CSVs; o
 comando acima serve para regerar sem rodar o pipeline inteiro.
 
 ### A suíte precisa que o pipeline tenha rodado
 
-**155 dos 451 testes leem CSVs de `data/processed/`**, que é gerado e fica fora do
-git. Num clone novo, `pytest` falha nesses 155 até você rodar o pipeline uma vez:
+**Boa parte dos testes lê CSVs de `data/processed/`**, que é gerado e fica fora do
+git. Num clone novo eles falham até você rodar o pipeline uma vez:
 
-    $env:PYTHONPATH="src"; python -m pytest -q          # 155 falhas num clone novo
+    $env:PYTHONPATH="src"; python -m pytest -q          # muitas falhas num clone novo
     $env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta
-    $env:PYTHONPATH="src"; python -m pytest -q          # 450 passed, 1 skipped
+    $env:PYTHONPATH="src"; python -m pytest -q          # 773 passed, 1 skipped
+
+A última contagem exata de quantos dependem do pipeline é de 21/08/2026: **155 de
+451**. A proporção não foi remedida desde então — a suíte cresceu para 774 — e
+está aqui como ordem de grandeza, não como número atual.
 
 Não é defeito: são as âncoras de valor, que existem justamente para conferir número
 real contra as páginas do RMD — um teste que não lê o dado não pegaria erro de

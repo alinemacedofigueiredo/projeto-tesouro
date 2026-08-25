@@ -736,6 +736,7 @@ PAGINAS_DO_RMD = [
 ]
 
 PAGINAS = [(arquivo, rotulo) for arquivo, rotulo, _, _ in PAGINAS_DO_RMD] + [
+    ("paf.html", "contra o PAF"),
     ("emissoes.html", "o que j\u00e1 foi emitido"),
     ("calendario.html", "o calend\u00e1rio"),
 ]

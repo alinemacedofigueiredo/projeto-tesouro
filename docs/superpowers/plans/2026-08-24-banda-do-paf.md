@@ -79,8 +79,8 @@ soma.
 - Produz:
   - `CUPOM_ANUAL: dict[str, float]` — `{"NTN-B": 0.06, "NTN-F": 0.10, "NTN-C": 0.12}`
   - `paga_cupom_em(titulo, vencimento, quando) -> bool`
-  - `cupons(ate) -> pd.DataFrame` com colunas `data`, `titulo`, `indexador`,
-    `valor_milhoes`
+  - (a tabela de fluxos é a `pagos(de, ate)` da Task 2 — esta tarefa entrega só a
+    regra de quando cada papel paga)
 
 - [ ] **Passo 1: escrever o teste que falha — a regra do aniversário**
 
@@ -609,8 +609,13 @@ def test_o_calendario_PUBLICADO_tem_precedencia_sobre_o_estimado():
     registros = json.loads(
         (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
 
+    # HOJE FIXO, como o test_agenda.py ja faz. A amostra congelada vai de 20/08 a
+    # 29/09/2026: com a data real do relogio, este teste comeca a reprovar sozinho
+    # em 30/09, quando 'publicados' fica vazio e a fronteira vira None. Data movel
+    # em teste e teste que quebra num dia qualquer, sem ninguem ter mexido em nada.
     dias, ate_quando = calendario_leiloes.dias_ate(
-        pd.Timestamp("2026-12-31"), registros=registros)
+        pd.Timestamp("2026-12-31"), registros=registros,
+        hoje=pd.Timestamp("2026-08-24"))
     assert ate_quando is not None
     assert pd.Timestamp("2026-08-20") <= ate_quando <= pd.Timestamp("2026-10-31")
     # Os dias do publicado entram como estao, mesmo os que a regra nao previa.
@@ -622,7 +627,8 @@ def test_o_calendario_PUBLICADO_tem_precedencia_sobre_o_estimado():
 
 def test_sem_registros_a_lista_e_toda_estimada():
     dias, ate_quando = calendario_leiloes.dias_ate(pd.Timestamp("2026-12-31"),
-                                                   registros=[])
+                                                   registros=[],
+                                                   hoje=pd.Timestamp("2026-08-24"))
     assert ate_quando is None
     assert dias
 ```
@@ -1313,59 +1319,130 @@ git commit -m "A rolagem do estoque, conferida em 24 meses fechados"
 - Produz: `LEILOES_DO_PACE: int`; `pace(quando) -> pd.Series`;
   `projecao(ate, hoje=None, registros=None) -> dict`
 
+- [ ] **Passo 0: consertar `curva._curva` antes de tudo**
+
+Achado por mim ao varrer o brief, e é **bloqueante**: `_curva` casa a data-base por
+igualdade exata, e isso quebra nos dois caminhos que esta tarefa precisa.
+
+**No backtest:** `composicao_dpf.csv` usa o último dia **corrido** do mês e
+`dv_por_papel.csv` usa o último dia **útil**. Em 2024 eles divergem — 30/06/2024 caiu
+num domingo, então o `dv_por_papel` tem 28/06. `curva.selic_implicita(data_base=
+30/06/2024)` levanta `LookupError`.
+
+**No caminho real, que é pior:** a projeção parte da última **liquidação**, que hoje
+é 17/08/2026, e o `dv_por_papel` termina em 30/06/2026. O caminho principal da
+entrega levantaria `LookupError` — e nenhum teste o exercitava.
+
+Mude `_curva(titulo, data_base=None)` para usar a **data mais recente menor ou igual
+a `data_base`**, em vez de igualdade exata:
+
+```python
+def _curva(titulo, data_base=None):
+    """Os papeis COM COTACAO na data-base, ordenados por dias uteis ate o vencimento.
+
+    A DATA-BASE E A MAIS RECENTE MENOR OU IGUAL a pedida, e nao igualdade exata. Dois
+    motivos, e os dois quebravam:
+
+    O composicao_dpf.csv usa o ultimo dia CORRIDO do mes e o dv_por_papel.csv usa o
+    ultimo dia UTIL. Em 30/06/2024 -- um domingo -- eles divergem, e o backtest
+    levantava LookupError num ano que existe nos dois arquivos.
+
+    E a projecao real parte da ultima LIQUIDACAO, que vai alem do ultimo RMD. A curva
+    termina no RMD. Exigir igualdade fazia o caminho principal da entrega levantar.
+
+    Quem chama recebe de volta a data que de fato valeu, porque uma curva de sete
+    semanas atras apresentada como "de hoje" e o tipo de coisa que a pagina inteira
+    existe para nao fazer.
+    """
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                    parse_dates=["data", "vencimento"])
+    pedida = pd.Timestamp(data_base) if data_base is not None else d["data"].max()
+    disponiveis = d.loc[d["data"] <= pedida, "data"]
+    if disponiveis.empty:
+        raise LookupError(
+            f"nao ha curva ate {pedida:%d/%m/%Y} no dv_por_papel.csv. Sem curva nao "
+            f"ha premissa, e projetar com premissa inventada seria pior.")
+    base = disponiveis.max()
+    g = d[(d["data"] == base) & (d["titulo"] == titulo)
+          & d["taxa_pct"].notna()].copy()
+    if g.empty:
+        raise LookupError(
+            f"nenhuma {titulo} com cotacao em {base:%d/%m/%Y}. Sem curva nao ha "
+            f"premissa, e projetar com premissa inventada seria pior.")
+    cal = calendario.padrao()
+    g["du"] = [cal.du(base.date(), v.date()) for v in g["vencimento"]]
+    return base, g.sort_values("du")
+```
+
+E acrescente `data_da_curva(data_base=None) -> pd.Timestamp`, que devolve a data que
+`_curva` de fato usaria — a projeção precisa dela para a página dizer de quando é a
+curva.
+
+Testes que vão junto:
+
+```python
+def test_a_curva_aceita_data_base_que_nao_existe_no_arquivo():
+    # O composicao_dpf usa o ultimo dia CORRIDO e o dv_por_papel o ultimo dia UTIL.
+    # 30/06/2024 caiu num domingo: existe num e nao no outro. E a projecao real parte
+    # da ultima LIQUIDACAO, que vai alem do ultimo RMD -- o caminho principal da
+    # entrega levantava LookupError, e nenhum teste o exercitava.
+    from tesouro import curva
+
+    assert curva.data_da_curva(pd.Timestamp("2024-06-30")) == pd.Timestamp("2024-06-28")
+    assert curva.selic_implicita(pd.Timestamp("2024-12-31"),
+                                 data_base=pd.Timestamp("2024-06-30")) > 0
+
+    # E alem do fim do arquivo: a curva mais recente vale, e quem chama fica sabendo.
+    depois = pd.Timestamp("2026-08-17")
+    usada = curva.data_da_curva(depois)
+    assert usada < depois
+    assert curva.selic_implicita(pd.Timestamp("2026-12-31"), data_base=depois) > 0
+
+
+def test_sem_curva_nenhuma_ate_a_data_ele_LEVANTA():
+    from tesouro import curva
+
+    with pytest.raises(LookupError, match="curva"):
+        curva.data_da_curva(pd.Timestamp("1999-01-01"))
+```
+
+Verifique os dentes: volte `_curva` para igualdade exata e confirme que o primeiro
+teste reprova.
+
 - [ ] **Passo 1: escrever o teste que falha**
 
 ```python
-def test_o_pace_e_medido_em_VINTE_DIAS_DE_LEILAO():
-    # Escolha dela: sao cerca de dez semanas e dez leiloes de cada papel, que e a
-    # unidade em que quem acompanha o Tesouro pensa. O backtest nao distingue as
-    # janelas -- 10, 20 e 60 leiloes e 26 semanas caem todos na mesma faixa de erro
-    # -- entao a escolha e por legibilidade, e nao por ajuste.
-    assert rolagem.LEILOES_DO_PACE == 20
-    p = rolagem.pace(pd.Timestamp("2026-06-30"))
+def test_o_pace_e_por_PAPEL_e_nao_por_dia_de_leilao():
+    # Decisao dela. O metodo anterior media por DIA DE LEILAO contando os zeros --
+    # nos dias de terca o prefixado vale zero -- e so dava certo se a mistura de
+    # tercas e quintas da janela batesse com a do futuro. Batia por sorte: 10 e 10,
+    # contra 18 e 18 no futuro.
+    #
+    # Medir sobre os leiloes DAQUELE papel nao depende de mistura, e rende numero que
+    # se confere de cabeca: 1,09 bi por leilao de NTN-B, e nao 0,21 por dia.
+    assert rolagem.LEILOES_DO_PACE == 10
+    p = rolagem.pace(pd.Timestamp("2026-08-17"))
     for ind in rolagem.INDEXADORES:
         assert p[ind] > 0, ind
+    # A ordem de grandeza medida em 17/08/2026: a LFT coloca 21,91 bi por leilao, o
+    # prefixado 12,32 e a NTN-B 1,09. Se essa relacao inverter, alguem trocou o
+    # denominador -- que e exatamente o defeito que este metodo veio corrigir.
+    assert p["Índice Preços"] * 5 < p["Taxa Flutuante"]
+    assert p["Índice Preços"] * 3 < p["Prefixado"]
 
 
-def test_a_projecao_de_composicao_fica_dentro_do_erro_medido():
-    # Backtest de dez anos, projetando dezembro a partir de 30/06. Erro medido em
-    # pontos percentuais: 1,71 no prefixado, 0,58 no indice de precos, 1,65 na taxa
-    # flutuante. O teste usa 3 pp, que e o dobro do pior -- 2020 estoura e DEVE
-    # estourar: e o ano em que o Tesouro encurtou a divida no meio do caminho.
-    from tesouro import config
+def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
+    # Prefixado na quinta, indexados na terca. Numa janela com 18 de cada, cada papel
+    # tem 18 leiloes -- e nao os 36 dias.
+    from tesouro import calendario_leiloes
 
-    c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
-                    parse_dates=["data"])
-    piv = c.pivot_table(index="data", columns="indexador",
-                        values="valor_milhoes", aggfunc="sum").fillna(0.0)
-    pct = piv.div(piv.sum(axis=1), axis=0) * 100
-
-    fora = []
-    for ano in (2022, 2023, 2024, 2025):
-        t0 = pd.Timestamp(f"{ano}-06-30")
-        t1 = pd.Timestamp(f"{ano}-12-31")
-        if t0 not in piv.index or t1 not in piv.index:
-            continue
-        p = rolagem.projecao(t1, hoje=t0, registros=[])
-        for ind in rolagem.INDEXADORES:
-            erro = abs(p["percentual"][ind] - pct.loc[t1, ind])
-            if erro > 3.0:
-                fora.append((ano, ind, round(erro, 2)))
-    assert not fora, fora
-
-
-def test_o_ESTOQUE_sai_como_FAIXA_e_os_outros_como_numero():
-    # Spec 5.5. O estoque em reais e o unico indicador em que a premissa move quase
-    # a largura da banda: congelar da 9.339 bi e apropriar da 9.850, contra uma
-    # banda de 9.700 a 10.300. Nos percentuais a mesma premissa vale 0,2 pp contra
-    # bandas de 4 pp, e a faixa seria mais larga que a informacao.
-    p = rolagem.projecao(pd.Timestamp("2026-12-31"), registros=[])
-    assert "estoque_faixa" in p
-    baixo, alto = p["estoque_faixa"]
-    assert baixo < alto
-    assert baixo < p["estoque"].sum() <= alto or baixo <= p["estoque"].sum() < alto
-    # A faixa vem de um cenario de Selic mais baixa, e nao de um numero inventado.
-    assert p["selic_do_piso"] == pytest.approx(p["selic"] - rolagem.CENARIO_SELIC)
+    dias = calendario_leiloes.dias_estimados(pd.Timestamp("2026-08-18"),
+                                             pd.Timestamp("2026-12-31"))
+    assert len(dias) == 36
+    for ind in rolagem.INDEXADORES:
+        quantos = rolagem.leiloes_que_faltam(dias, ind)
+        assert 15 <= quantos <= 20, (ind, quantos)
+        assert quantos < len(dias), "contou dia de leilao, e nao leilao do papel"
 
 
 def test_a_projecao_devolve_a_PREMISSA_que_usou():
@@ -1375,6 +1452,9 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
     assert 0.0 < p["inflacao"] < 0.15
     assert p["dias_de_leilao"] > 0
     assert "fronteira_do_calendario" in p
+    # A data da curva viaja junto: ela termina no ultimo RMD e a projecao parte da
+    # ultima liquidacao, semanas depois.
+    assert p["data_da_curva"] <= p["de"]
 ```
 
 - [ ] **Passo 2: rodar e ver falhar**
@@ -1403,33 +1483,64 @@ Esperado: FAIL, `has no attribute 'LEILOES_DO_PACE'`.
 # semanas caem todos na mesma faixa de erro (1,26 a 1,71 pp no prefixado) -- entao a
 # escolha e por ser a unidade em que se pensa, e por lidar sozinha com semana de
 # feriado e com dezembro, que tem menos leilao.
-LEILOES_DO_PACE = 20
+LEILOES_DO_PACE = 10
 
-# De quanto e o cenario alternativo que da o piso da faixa do estoque: dois pontos
-# percentuais abaixo da Selic implicita. Nao e previsao -- e a distancia tipica
-# entre a curva e o que aconteceu, e serve para a pagina mostrar largura em vez de
-# um ponto onde a premissa decide o veredito.
-CENARIO_SELIC = 0.02
-
+# EM QUE DIA DA SEMANA CADA PAPEL VAI A LEILAO. Regra do Tesouro, descrita pela dona
+# do projeto e medida nos ultimos dois anos:
+#
+#     prefixado (LTN e NTN-F)   quinta-feira   91% dos 104 leiloes
+#     NTN-B                     terca-feira    95% dos 101
+#     LFT                       terca-feira    99% dos  98
+#
+# Feriado que antecipa o leilao em um dia util nao muda nada aqui: o que se conta e
+# quantos leiloes DAQUELE PAPEL faltam, e nao em que dia da semana caem.
+DIA_DO_PAPEL = {"Prefixado": 3, "\u00cdndice Pre\u00e7os": 1, "Taxa Flutuante": 1}
 
 def pace(quando):
-    """Financeiro liquido medio POR DIA DE LEILAO, por indexador."""
+    """Financeiro liquido medio por LEILAO DAQUELE PAPEL, por indexador.
+
+    OS ZEROS NAO ENTRAM NA MEDIA. Um dia de terca em que o prefixado nao foi a leilao
+    nao e um leilao de prefixado de valor zero: e um dia em que ele nao foi ofertado.
+    Contar o zero fazia a media depender da mistura de tercas e quintas da janela --
+    batia por sorte (10 e 10, contra 18 e 18 no futuro), e uma janela com 15 tercas e
+    5 quintas subestimaria o prefixado em quase metade, sem nada acusar.
+
+    Medido em 17/08/2026: prefixado 12,32 bi por leilao, indice de precos 1,09, taxa
+    flutuante 21,91.
+    """
     l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                    parse_dates=["data_liquidacao"])
+                    parse_dates=["data_leilao", "data_liquidacao"])
     l = l[l["data_liquidacao"] <= pd.Timestamp(quando)].copy()
     l["indexador"] = [_INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
     l["sinal"] = [_SINAL.get(t, 0) for t in l["tipo_leilao"]]
     l = l[l["indexador"].notna()]
     l["fluxo"] = l["financeiro_milhoes"] * l["sinal"]
 
-    por_dia = l.pivot_table(index="data_liquidacao", columns="indexador",
-                            values="fluxo", aggfunc="sum").fillna(0.0)
-    ultimos = por_dia.tail(LEILOES_DO_PACE)
-    if len(ultimos) < LEILOES_DO_PACE:
-        raise LookupError(
-            f"so ha {len(ultimos)} dias de leilao ate {quando:%d/%m/%Y}, e o pace "
-            f"pede {LEILOES_DO_PACE}.")
-    return ultimos.mean().reindex(list(INDEXADORES)).fillna(0.0)
+    por_leilao = l.pivot_table(index="data_leilao", columns="indexador",
+                               values="fluxo", aggfunc="sum")
+    saida = {}
+    for ind in INDEXADORES:
+        if ind not in por_leilao.columns:
+            raise LookupError(f"nenhum leilao de {ind} ate {quando:%d/%m/%Y}.")
+        dele = por_leilao[ind].dropna()
+        dele = dele[dele != 0].tail(LEILOES_DO_PACE)
+        if len(dele) < LEILOES_DO_PACE:
+            raise LookupError(
+                f"so ha {len(dele)} leiloes de {ind} ate {quando:%d/%m/%Y}, e o "
+                f"pace pede {LEILOES_DO_PACE}.")
+        saida[ind] = dele.mean()
+    return pd.Series(saida)
+
+
+def leiloes_que_faltam(dias, indexador):
+    """Quantos dos dias de leilao levam AQUELE papel.
+
+    O prefixado vai a leilao na quinta e os indexados na terca -- regra do Tesouro,
+    medida em 91% a 99% dos ultimos dois anos. Feriado que antecipa o leilao em um
+    dia util nao muda a conta: o que importa e quantos leiloes daquele papel faltam.
+    """
+    alvo = DIA_DO_PAPEL[indexador]
+    return sum(1 for d in dias if pd.Timestamp(d).dayofweek == alvo)
 
 
 def projecao(ate, hoje=None, registros=None):
@@ -1442,15 +1553,26 @@ def projecao(ate, hoje=None, registros=None):
     from . import calendario_leiloes, curva, fluxos
 
     ate = pd.Timestamp(ate)
-    hoje = pd.Timestamp(hoje) if hoje is not None else None
-    partida = hoje if hoje is not None else base_do_rmd()[0]
-    inicial = estoque_em(partida) if hoje is None else base_do_rmd()[1]
+
+    # A PROJECAO COMECA DE HOJE, e nao da data-base do RMD. Comecando do RMD, o
+    # pace seria aplicado tambem aos dias de leilao que JA ACONTECERAM entre a
+    # data-base e hoje -- trocando seis semanas de leilao medido por estimativa. E
+    # os dois blocos da mesma pagina partiriam de lugares diferentes.
+    #
+    # 'hoje' existe para o BACKTEST, em que quem chama quer comecar numa data de
+    # RMD de proposito, para comparar com o dezembro que de fato aconteceu.
     if hoje is not None:
+        partida = pd.Timestamp(hoje)
         c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
                         parse_dates=["data"])
         piv = c.pivot_table(index="data", columns="indexador",
                             values="valor_milhoes", aggfunc="sum").fillna(0.0)
         inicial = piv.loc[partida]
+    else:
+        l = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+                        parse_dates=["data_liquidacao"])
+        partida = l["data_liquidacao"].max()
+        inicial = estoque_em(partida)
 
     dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,
                                                   hoje=partida)
@@ -1474,36 +1596,21 @@ def projecao(ate, hoje=None, registros=None):
         else:
             taxa = _CARGA_DO_PREFIXADO
         juros = base * ((1 + taxa) ** (du / 252) - 1)
-        projetado[ind] = base + float(ritmo[ind]) * quantos - pago + juros
+        projetado[ind] = (base + float(ritmo[ind])
+                          * leiloes_que_faltam(dias, ind) - pago + juros)
     for ind in PARADOS:
         projetado[ind] = float(inicial[ind])
 
     total = sum(projetado.values())
-    # O ESTOQUE SAI COMO FAIXA, e os outros como numero. Ver spec 5.5: e o unico
-    # indicador em que a premissa vale quase a largura da banda -- 511 bi de
-    # diferenca contra uma banda de 600. Nos percentuais a mesma premissa vale
-    # 0,2 pp contra bandas de 4 pp, e a faixa seria mais larga que a informacao.
-    piso = 0.0
-    for ind in INDEXADORES:
-        base = float(inicial[ind])
-        do_ind = pagou[pagou["indexador"] == ind]
-        pago = do_ind["principal_milhoes"].sum() + do_ind["cupom_milhoes"].sum()
-        if ind == "Taxa Flutuante":
-            taxa = selic - CENARIO_SELIC
-        elif ind == "Índice Preços":
-            taxa = (1 + inflacao) * 1.06 - 1
-        else:
-            taxa = _CARGA_DO_PREFIXADO
-        piso += (base + float(ritmo[ind]) * quantos - pago
-                 + base * ((1 + taxa) ** (du / 252) - 1))
-    piso += sum(float(inicial[i]) for i in PARADOS)
-
     return {"estoque": pd.Series(projetado),
-            "estoque_faixa": (piso, total),
             "percentual": pd.Series({k: 100 * v / total
                                      for k, v in projetado.items()}),
-            "selic": selic, "selic_do_piso": selic - CENARIO_SELIC,
-            "inflacao": inflacao,
+            "selic": selic, "inflacao": inflacao,
+            # DE QUANDO E A CURVA. Ela termina no ultimo RMD e a projecao parte da
+            # ultima liquidacao: sao semanas de diferenca, e apresentar premissa de
+            # sete semanas atras como "de hoje" e o tipo de coisa que esta pagina
+            # existe para nao fazer.
+            "data_da_curva": curva.data_da_curva(partida),
             "dias_de_leilao": quantos,
             "fronteira_do_calendario": fronteira,
             "de": partida, "ate": ate}
@@ -1721,9 +1828,15 @@ def _valores_de_hoje(quando):
             "estoque_bilhoes": total / 1000}
 
 
-def _linhas(valores, ano):
-    """Uma linha por indicador, com a banda do ano e a distancia."""
+def _linhas(valores, ano, quando=None):
+    """Uma linha por indicador, com a banda do ano, a distancia e a data.
+
+    'quando' e a data dos indicadores ROLADOS. Os parados ficam com a
+    data-base do RMD, e a diferenca entre as duas e o que a coluna
+    data_base mostra na tabela.
+    """
     base, no_rmd = _realizado_do_rmd()
+    quando = quando if quando is not None else base
     linhas = []
     for chave, rotulo, unidade in INDICADORES:
         b = paf.bandas(chave)
@@ -1748,7 +1861,7 @@ def _linhas(valores, ano):
 def dados_hoje(hoje=None):
     """A tabela de onde estamos hoje."""
     quando = pd.Timestamp(hoje) if hoje is not None else _ultima_liquidacao()
-    return _linhas(_valores_de_hoje(quando), quando.year)
+    return _linhas(_valores_de_hoje(quando), quando.year, quando)
 
 
 def _ultima_liquidacao():
@@ -1985,36 +2098,11 @@ def _recolhe(conteudo, chave, rotulo, aberta):
             f"<summary>{rotulo}</summary>\n{conteudo}\n</details>")
 
 
-def _rodape_de_hoje():
-    quantos, base, ate = banda.quantos_leiloes_entraram()
-    return (f"Estoque do RMD de {base:%d/%m/%Y}, rolado at\u00e9 "
-            f"{ate:%d/%m/%Y} com <b>{quantos} dias de leil\u00e3o</b> "
-            f"liquidados no meio, mais os fluxos pagos e os juros apropriados. "
-            f"As linhas com * n\u00e3o s\u00e3o roladas: o c\u00e2mbio \u00e9 "
-            f"a d\u00edvida externa, que n\u00e3o passa por leil\u00e3o, e o "
-            f"prazo e o vincendo ficam para a entrega 5.")
-
-
-def _rodape_da_projecao(dados):
-    p = dados.attrs["premissa"]
-    fronteira = p["fronteira_do_calendario"]
-    onde = (f"calend\u00e1rio publicado at\u00e9 {fronteira:%d/%m/%Y} e "
-            f"estimado depois" if fronteira is not None
-            else "calend\u00e1rio inteiramente estimado")
-    piso, teto = p["estoque_faixa"]
-    from .. import rolagem
-
-    return (f"Pace dos <b>{rolagem.LEILOES_DO_PACE} últimos dias de "
-            f"leilão</b>, aplicado a "
-            f"<b>{p['dias_de_leilao']} dias</b> que faltam \u2014 {onde}. "
-            f"Selic impl\u00edcita de {p['selic']*100:.2f}% e infla\u00e7\u00e3o "
-            f"impl\u00edcita de {p['inflacao']*100:.2f}%, tiradas da curva. "
-            f"O <b>estoque sai como faixa</b>, de R$ {piso/1000:,.0f} a "
-            f"R$ {teto/1000:,.0f} bi: \u00e9 o \u00fanico indicador em que a "
-            f"premissa vale quase a largura da banda. "
-            f"A proje\u00e7\u00e3o sup\u00f5e que o pace continua, e falha "
-            f"quando ele n\u00e3o continua \u2014 em 2020 ela errou 6,5 pontos "
-            f"no prefixado.").replace(",", ".")
+# O RODAPE E DA TABELA, e nao desta pagina. A Task 9 fez `tabela()` monta-lo
+# sozinha a partir dos attrs que `dados_hoje` e `dados_projecao` ja carregam -- a
+# data do "hoje", quantos dias de leilao entraram na rolagem, e a premissa inteira
+# da projecao. Um segundo rodape aqui duplicaria a fonte da verdade, e a pagina
+# poderia acabar dizendo uma coisa enquanto a tabela diz outra.
 
 
 def grava(caminho=None, hoje=None):
@@ -2034,10 +2122,8 @@ def grava(caminho=None, hoje=None):
     de_hoje = banda.dados_hoje(hoje)
     projetado = banda.dados_projecao()
     corpo = "\n".join([
-        _recolhe(banda.tabela(de_hoje, "tabela-hoje", _rodape_de_hoje()),
-                 *SECOES[0]),
-        _recolhe(banda.tabela(projetado, "tabela-projecao",
-                              _rodape_da_projecao(projetado)) + _ACHADO,
+        _recolhe(banda.tabela(de_hoje, "tabela-hoje"), *SECOES[0]),
+        _recolhe(banda.tabela(projetado, "tabela-projecao") + _ACHADO,
                  *SECOES[1]),
     ])
     html = html[:inicio] + "\n" + corpo + "\n" + html[fim:]
