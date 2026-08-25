@@ -53,6 +53,12 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     # calendario -- e ha um teste neste arquivo que bloqueia socket de proposito.
     from tesouro.graficos import painel_agenda
     alvos.append((painel_agenda, "grava"))
+    # E a pagina do PAF, que entrou em 24/08/2026. Sem o stub ela geraria as duas
+    # tabelas de verdade a cada teste deste arquivo, e sobrescreveria
+    # data/processed/paf.html. QUE ARGUMENTO ela recebe e assunto do teste logo
+    # abaixo, que poe um stub proprio por cima deste.
+    from tesouro.graficos import painel_paf
+    alvos.append((painel_paf, "grava"))
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
@@ -87,6 +93,32 @@ def test_sem_coleta_nunca_toca_rede(monkeypatch):
 
     codigo = pipeline.main(["--sem-coleta"])
     assert codigo == 0
+
+
+def test_sem_coleta_manda_a_pagina_do_PAF_estimar_o_calendario(monkeypatch):
+    """Com a rede proibida, o pipeline tem de pedir a pagina em modo offline.
+
+    Nao basta o stub de _stub_gravacoes: ele deixa QUALQUER argumento passar, e o
+    teste de rede so pega quem chama socket -- com o gravador stubado, ninguem
+    chama. Entao o pipeline poderia voltar a passar `registros=None` e os dois
+    testes seguiriam verdes, ate alguem rodar --sem-coleta de verdade e a pagina
+    ir a rede. Este aqui olha o argumento.
+    """
+    from tesouro.graficos import painel_paf
+
+    _stub_gravacoes(monkeypatch)
+    recebido = {}
+
+    def espia(*args, **kwargs):
+        recebido.update(kwargs)
+        return []
+
+    monkeypatch.setattr(painel_paf, "grava", espia)
+
+    assert pipeline.main(["--sem-coleta"]) == 0
+    assert recebido.get("registros") == [], (
+        "com --sem-coleta a pagina do PAF tem de receber registros=[], para "
+        "estimar o calendario em vez de baixa-lo")
 
 
 def test_sem_coleta_nao_importa_nenhum_coletor_no_topo_do_modulo():
@@ -127,7 +159,7 @@ def test_sem_coleta_nao_importa_nenhum_coletor_no_topo_do_modulo():
 # por ultimo).
 # ---------------------------------------------------------------------------
 
-def test_pipeline_grava_as_dez_etapas_na_ordem_certa(monkeypatch):
+def test_pipeline_grava_as_etapas_na_ordem_certa(monkeypatch):
     chamadas = []
     _stub_gravacoes(monkeypatch, chamadas)
 
@@ -145,6 +177,7 @@ def test_pipeline_grava_as_dez_etapas_na_ordem_certa(monkeypatch):
         "tesouro.leiloes_dv.gravar",
         "tesouro.graficos.dashboard.grava_o_rmd",
         "tesouro.graficos.painel_emissoes.grava_todas",
+        "tesouro.graficos.painel_paf.grava",
         "tesouro.graficos.painel_agenda.grava",
     ]
 

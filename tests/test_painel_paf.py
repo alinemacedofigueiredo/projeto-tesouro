@@ -114,3 +114,110 @@ def test_o_denominador_do_RMD_e_travado_por_ESTRUTURA_nao_por_valor():
 
     with pytest.raises(ValueError):
         banda._confere_colunas_do_denominador(list(rolagem.INDEXADORES))
+
+
+@pytest.fixture(scope="module")
+def pagina(tmp_path_factory):
+    from tesouro.graficos import painel_paf
+
+    destino = tmp_path_factory.mktemp("paf") / painel_paf.ARQUIVO
+    return painel_paf.grava(destino).read_text(encoding="utf-8")
+
+
+def test_a_pagina_tem_os_DOIS_blocos_recolhiveis(pagina):
+    # Eram tres na primeira versao da spec. O historico saiu por decisao dela: era
+    # analise, e nao monitoramento.
+    import re
+
+    corpo = pagina[pagina.index("</header>"):pagina.rindex("</main>")]
+    assert corpo.count("<details class=\"secao") == 2
+    # ASPAS SIMPLES: quem escreve o id e banda.tabela(), que monta a tabela com
+    # aspas simples. O brief pedia aspas duplas aqui; a producao e que manda.
+    assert "id='tabela-hoje'" in pagina
+    assert "id='tabela-projecao'" in pagina
+    assert re.search(r"<details class=\"secao[^\"]*\" open>", corpo)
+
+
+def test_a_pagina_esta_na_barra_e_aponta_para_as_irmas(pagina):
+    from tesouro.graficos import dashboard, painel_paf
+
+    assert any(a == painel_paf.ARQUIVO for a, _ in dashboard.PAGINAS)
+    assert f'href="{painel_paf.ARQUIVO}"' not in pagina
+    for outra, _ in dashboard.PAGINAS:
+        if outra != painel_paf.ARQUIVO:
+            assert f'href="{outra}"' in pagina
+
+
+def test_a_pagina_nao_tem_referencia_externa(pagina):
+    import re
+
+    externos = [m.group(1) for m in
+                re.finditer(r'(?:src|href|xlink:href)\s*=\s*"([^"]*)"', pagina)
+                if "://" in m.group(1)]
+    assert externos == [], externos[:3]
+
+
+def test_a_pagina_cabe_no_limiar_de_dez_megabytes(tmp_path):
+    from tesouro.graficos import painel_paf
+
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO)
+    tamanho = caminho.stat().st_size
+    # O TETO e o da spec (secao 5): a pagina e autocontida e tem de abrir com duplo
+    # clique. O PISO e MEDIDO, e nao os 20 kB que o brief chutava -- esta pagina nao
+    # tem SVG nenhum (REGISTRO e vazio) e mede 12.519 bytes, assim repartidos:
+    #
+    #     moldura sozinha (estilo, script, barra)   7.914
+    #     tabela de hoje                            1.382
+    #     tabela da projecao                        1.676
+    #     achado, folha desta pagina e as tags      1.547
+    #
+    # Perder a tabela de hoje deixa 11.137; perder a da projecao deixa 10.843; e
+    # perder o corpo inteiro deixa 7.914. O piso de 11.500 fica acima dos tres, e
+    # por isso pega qualquer um dos casos -- que e para o que ele serve.
+    #
+    # Ele encolhe com o tempo, porem: se as tabelas ganharem linhas, perder uma
+    # delas pode passar a caber acima de 11.500. Quem guarda isto de verdade e o
+    # teste dos dois ids, logo acima; este aqui e a rede embaixo dele.
+    assert tamanho > 11_500, "a pagina saiu pequena demais; algo nao entrou"
+    assert tamanho < 10 * 1024 * 1024
+
+
+def test_o_achado_do_historico_ficou_como_TEXTO(pagina):
+    # O bloco dos sete graficos saiu; o numero fica. 70% pela banda original contra
+    # 79% pela vigente, e 14 de 14 inversoes para dentro.
+    assert "70%" in pagina and "79%" in pagina
+
+
+def test_a_pagina_se_grava_com_a_REDE_BLOQUEADA_e_confessa_a_estimativa(
+        tmp_path, monkeypatch):
+    """O modo offline do pipeline, exercitado de ponta a ponta.
+
+    O teste do pipeline confere que --sem-coleta PEDE registros=[]; este confere
+    que pedir isso FUNCIONA -- os dois juntos cobrem o caminho, e nenhum deles
+    sozinho cobre. Sem este, `grava(registros=[])` poderia levantar excecao e o
+    outro teste seguiria verde, porque la o gravador esta stubado.
+
+    O socket e bloqueado de proposito: se algum caminho ainda for a rede buscar o
+    calendario publicado, isto fica vermelho em vez de passar devagar.
+    """
+    import socket
+
+    from tesouro.graficos import painel_paf
+
+    def rede_proibida(*args, **kwargs):
+        raise AssertionError("a pagina do PAF foi a rede em modo offline")
+
+    monkeypatch.setattr(socket, "socket", rede_proibida)
+    monkeypatch.setattr(socket, "getaddrinfo", rede_proibida)
+
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
+    html = caminho.read_text(encoding="utf-8")
+
+    # A CONFISSAO: sem calendario publicado nao ha fronteira, e o rodape troca
+    # "publicado ate <data> e estimado depois" por "inteiramente estimado". A
+    # pagina sai mais fraca, mas sai DIZENDO que esta mais fraca -- numero sem
+    # procedencia nao serve.
+    assert "inteiramente estimado" in html
+    assert "publicado at\u00e9" not in html
+    # E continua sendo a pagina inteira, e nao um esqueleto.
+    assert html.count("id='tabela-") == 2

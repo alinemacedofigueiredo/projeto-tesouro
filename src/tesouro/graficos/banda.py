@@ -274,9 +274,21 @@ def _rodape_automatico(dados):
                 f"rolagem desde a data-base do RMD ({de:%d/%m/%Y}).")
     if "premissa" in dados.attrs:
         p = dados.attrs["premissa"]
+        # DE ONDE VEIO O CALENDARIO. O publicado tem precedencia sobre o
+        # estimado (ver calendario_leiloes.dias_ate), e a diferenca nao e
+        # cosmetica: com o calendario de 24/08/2026 sao 34 dias de leilao
+        # ate 31/12, e estimando o periodo inteiro dao 36. Dois dias a mais
+        # de emissao mexem no percentual projetado de cada indexador. Sem
+        # esta frase, palpite e transcricao apareciam com a mesma cara.
+        fronteira = p.get("fronteira_do_calendario")
+        origem = (f", de calend\u00e1rio publicado at\u00e9 "
+                  f"{fronteira:%d/%m/%Y} e estimado depois"
+                  if fronteira is not None
+                  else ", de calend\u00e1rio inteiramente estimado")
         return (
             f"Projetado para {p['ate']:%d/%m/%Y} a partir de {p['de']:%d/%m/%Y} "
-            f"({p['dias_de_leilao']} dias de leil\u00e3o), com a curva de "
+            f"({p['dias_de_leilao']} dias de leil\u00e3o{origem}), "
+            f"com a curva de "
             f"{p['data_da_curva']:%d/%m/%Y} (Selic impl\u00edcita "
             f"{_numero(100 * p['selic'])}% a.a., infla\u00e7\u00e3o impl\u00edcita "
             f"{_numero(100 * p['inflacao'])}% a.a.). O estoque projetado sai como "

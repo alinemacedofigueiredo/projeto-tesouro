@@ -120,6 +120,21 @@ def main(argumentos=None):
         for _, _, arquivo, rotulo in painel_emissoes.COMBINACOES:
             print(f"pagina de emissoes gravada: {arquivo} ({rotulo})")
 
+        from .graficos import painel_paf
+        # LISTA VAZIA COM --sem-coleta, e nao None: com None a pagina iria a
+        # rede buscar o calendario publicado, e --sem-coleta promete nao ir.
+        # A vazia faz `dias_ate` estimar o calendario inteiro, e o rodape da
+        # projecao passa a dizer "calendario inteiramente estimado" -- a
+        # pagina sai mais fraca, mas sai DIZENDO que esta mais fraca.
+        #
+        # Diferente da agenda logo abaixo, que some quando a rede falha:
+        # aquela pagina E o calendario publicado, e sem ele nao sobra pagina.
+        # Esta aqui sobrevive, porque a projecao so precisa de QUANTOS dias
+        # de leilao faltam, e isso a estimativa sabe dar.
+        registros_do_calendario = [] if opcoes.sem_coleta else None
+        print("pagina do PAF gravada: "
+              f"{painel_paf.grava(registros=registros_do_calendario)}")
+
         # A AGENDA DEPENDE DA REDE, e o pipeline nao. Se a API nao responder, a
         # pagina do que VEM PELA FRENTE deixa de ser regravada e as outras seguem
         # -- a alternativa seria derrubar o dashboard inteiro por causa de um
