@@ -71,17 +71,20 @@ INDEXADOR = {"LTN": "Prefixado", "NTN-F": "Prefixado",
              "NTN-B1 RendA+": "\u00cdndice Pre\u00e7os",
              "LFT": "Taxa Flutuante", "LFT-TD1 Reserva": "Taxa Flutuante"}
 
-# A NTN-C E IGP-M, E ENTRA AQUI COMO IPCA. Este mapa e por INDEXADOR, e a NTN-C
-# cai em "Indice Precos" junto com a NTN-B -- entao o VNA dela sai da serie de
-# IPCA, que nao e a dela. Nao ha serie de IGP-M neste projeto, e inventar uma
-# seria trocar um erro medido por um escondido.
+# A NTN-C E IGP-M, E ENTRA AQUI COMO IPCA -- POR DECISAO DELA, e nao por
+# omissao. Em 25/08/2026: "quando e igp-m, pode usar ipca para projecoes".
 #
-# O TAMANHO DA EXPOSICAO, medido em 30/06/2026: um unico papel vivo, a NTN-C
-# 2031, com R$ 82,5 bi -- 0,93% do estoque e 1,90% do bloco de Indice de Precos.
-# Sobre uma janela de dois meses, uma divergencia de 1 pp entre IGP-M e IPCA
-# move ~R$ 0,8 bi, ou 0,04% daquele bloco.
+# Este mapa e por INDEXADOR, e a NTN-C cai em "Indice Precos" junto com a NTN-B,
+# entao o VNA dela sai da serie de IPCA. Nao ha serie de IGP-M neste projeto.
 #
-# Achado na revisao da branch banda-do-paf. Fica aberto de proposito.
+# O TAMANHO DO QUE ELA ACEITOU, medido em 30/06/2026 antes de perguntar: um
+# unico papel vivo, a NTN-C 2031, com R$ 82,5 bi -- 0,93% do estoque e 1,90% do
+# bloco de Indice de Precos. Sobre uma janela de dois meses, uma divergencia de
+# 1 pp entre IGP-M e IPCA move ~R$ 0,8 bi, ou 0,04% daquele bloco.
+#
+# Vale para PROJECAO, que e o uso deste modulo. Se um dia alguem precisar do
+# valor CONTABIL de uma NTN-C, esta substituicao nao serve -- e ai a pergunta
+# volta para ela com outro enunciado.
 _INDICE_DO_VNA = {"\u00cdndice Pre\u00e7os": "IPCA", "Taxa Flutuante": "SELIC"}
 
 
