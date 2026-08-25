@@ -541,3 +541,25 @@ def _fechamentos_de_dezembro():
     d = d[d.index.month == 12]
     d.index = d.index.year
     return d
+
+def test_as_frases_do_rodape_de_hoje_chegam_INTEIRAS():
+    """Uma frase emendada no meio de outra passa por todo teste de substring.
+
+    Aconteceu: a frase do estoque foi inserida por indice e caiu entre "furou a"
+    e "banda.", produzindo "...concluir que um indicador furou a O estoque nao
+    traz distancia: [...] dentro dela. banda." Os testes que procuravam pedaco
+    de texto no rodape continuaram todos verdes, porque TODOS os pedacos
+    continuavam la -- so a ordem tinha mudado. Quem pegou foi abrir a pagina no
+    navegador.
+
+    Aqui ficam as frases INTEIRAS, com o ponto final, que e o que a emenda
+    quebra.
+    """
+    import re
+
+    texto = re.sub(r"<[^>]+>", "", banda.tabela(banda.dados_hoje(), "t"))
+    for frase in ("antes de concluir que um indicador furou a banda.",
+                  "o prazo m{E}dio e o vincendo ficam para a entrega 5.",
+                  "14 dessas fecharam o ano dentro dela."):
+        esperada = frase.replace("{E}", "\u00e9")
+        assert esperada in texto, f"frase quebrada no rodape: {esperada!r}"

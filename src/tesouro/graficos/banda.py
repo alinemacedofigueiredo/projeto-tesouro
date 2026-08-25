@@ -336,22 +336,22 @@ def _rodape_automatico(dados):
         ate = dados.attrs["leiloes_ate"]
         hoje = dados.attrs.get("hoje", ate)
         return (
-            f"Hoje: {hoje:%d/%m/%Y}. {n} dia(s) de leil\u00e3o entraram na "
-            f"rolagem desde a data-base do RMD ({de:%d/%m/%Y}). Tesouro "
-            "Direto e emiss\u00e3o direta n\u00e3o entram na rolagem: o "
-            "res\u00edduo medido \u00e9 de 0,07% a 0,75% do estoque do "
-            "indexador por m\u00eas, o que sobre esta janela d\u00e1 algo "
-            "da ordem de 0,25 pp \u2014 compare com a coluna de "
-            "dist\u00e2ncia antes de concluir que um indicador furou a "
-            "O estoque n\u00e3o traz dist\u00e2ncia nesta tabela: a banda dele "
-            "\u00e9 alvo de 31/12 e o estoque cresce ao longo do ano. Em 23 "
-            "anos o de agosto caiu fora da banda de dezembro 18 vezes, e "
-            "14 dessas fecharam o ano dentro dela. "
-            "banda. As linhas em it\u00e1lico, com a data entre "
-            "par\u00eanteses, N\u00c3O s\u00e3o roladas e mostram o valor "
-            "do RMD: o c\u00e2mbio \u00e9 a d\u00edvida externa, que "
-            "n\u00e3o passa por leil\u00e3o, e o prazo m\u00e9dio e o "
-            "vincendo ficam para a entrega 5.")
+            f"Hoje: {hoje:%d/%m/%Y}. {n} dia(s) de leil\u00e3o entraram "
+            f"na rolagem desde a data-base do RMD ({de:%d/%m/%Y}). "
+            "Tesouro Direto e emiss\u00e3o direta n\u00e3o entram na "
+            "rolagem: o res\u00edduo medido \u00e9 de 0,07% a 0,75% do "
+            "estoque do indexador por m\u00eas, o que sobre esta janela "
+            "d\u00e1 algo da ordem de 0,25 pp \u2014 compare com a "
+            "coluna de dist\u00e2ncia antes de concluir que um "
+            "indicador furou a banda. As linhas em it\u00e1lico, com a "
+            "data entre par\u00eanteses, N\u00c3O s\u00e3o roladas e "
+            "mostram o valor do RMD: o c\u00e2mbio \u00e9 a d\u00edvida "
+            "externa, que n\u00e3o passa por leil\u00e3o, e o prazo "
+            "m\u00e9dio e o vincendo ficam para a entrega 5. O estoque "
+            "n\u00e3o traz dist\u00e2ncia: a banda dele \u00e9 alvo de "
+            "31/12 e o estoque cresce ao longo do ano. Em 23 anos, o de "
+            "agosto caiu fora da banda de dezembro 18 vezes \u2014 e 14 "
+            "dessas fecharam o ano dentro dela.")
     if "premissa" in dados.attrs:
         p = dados.attrs["premissa"]
         # DE ONDE VEIO O CALENDARIO. O publicado tem precedencia sobre o
