@@ -358,7 +358,16 @@ def _rodape_automatico(dados):
             "n\u00e3o traz dist\u00e2ncia: a banda dele \u00e9 alvo de "
             "31/12 e o estoque cresce ao longo do ano. Em 23 anos, o de "
             "agosto caiu fora da banda de dezembro 18 vezes \u2014 e 14 "
-            "dessas fecharam o ano dentro dela.")
+            "dessas fecharam o ano dentro dela. "
+            "O denominador desta tabela s\u00e3o os quatro indexadores que "
+            "a rolagem move ou segura \u2014 prefixado, \u00edndice de "
+            "pre\u00e7os, taxa flutuante e c\u00e2mbio. O gr\u00e1fico de "
+            "composi\u00e7\u00e3o do dashboard divide pelo total do "
+            "arquivo, que inclui a coluna <i>Demais</i>. As duas contas "
+            "d\u00e3o o mesmo n\u00famero desde 06/2006, quando a "
+            "<i>Demais</i> zerou; antes disso ela chegou a 0,05% do "
+            "estoque.")
+
     if "premissa" in dados.attrs:
         p = dados.attrs["premissa"]
         # DE ONDE VEIO O CALENDARIO. O publicado tem precedencia sobre o

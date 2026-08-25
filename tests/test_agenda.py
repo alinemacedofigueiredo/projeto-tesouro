@@ -15,6 +15,8 @@ import pathlib
 
 import matplotlib
 matplotlib.use("Agg")
+import re
+
 import pandas as pd
 import pytest
 
@@ -512,3 +514,81 @@ def test_a_barra_liga_as_paginas_irmas(pagina):
     for arquivo, _ in dashboard.PAGINAS:
         if arquivo != painel_agenda.ARQUIVO:
             assert f'href="{arquivo}"' in pagina
+
+
+def test_a_pagina_tem_a_secao_da_EXPECTATIVA_de_calendario():
+    """A quarta secao, pedida por ela em 25/08/2026.
+
+    A pagina tinha tres blocos e mostrava so o que o Tesouro publicou. Faltava o
+    lado nosso: quantos dias de leilao ainda estamos contando ate 31/12, para dar
+    para bater um contra o outro assim que ele publicar o calendario novo.
+    """
+    from tesouro.graficos import painel_agenda
+
+    html = painel_agenda.tabela_da_expectativa(
+        hoje=pd.Timestamp("2026-08-26"), registros=[])
+
+    assert 'id="tabela-expectativa"' in html
+    # As tres situacoes tem de aparecer nomeadas, e nao por cor sozinha.
+    assert "estimado" in html
+    assert "n\u00e3o consideramos" in html or "nao consideramos" in html
+
+
+def test_a_expectativa_MOSTRA_os_dias_que_a_regra_descarta():
+    """O ponto da secao: a ausencia tem de estar escrita.
+
+    Mostrar so os dias que a gente conta responderia "o que esperamos". Ela
+    pediu para ver o que NAO esperamos -- se o Tesouro publicar leilao em 29/12,
+    tem de dar para bater o olho e ver que aquela linha estava marcada como fora.
+    """
+    from tesouro import calendario_leiloes
+    from tesouro.graficos import painel_agenda
+
+    hoje = pd.Timestamp("2026-08-26")
+    ate = pd.Timestamp("2026-12-31")
+    html = painel_agenda.tabela_da_expectativa(hoje=hoje, registros=[])
+
+    contados = set(calendario_leiloes.dias_estimados(hoje, ate))
+    possiveis = calendario_leiloes.dias_possiveis(hoje, ate)
+    descartados = [d for d in possiveis if d not in contados]
+    assert descartados, "a janela do teste tem de conter dia descartado"
+
+    for d in descartados:
+        assert f"{d:%d/%m/%Y}" in html, (
+            f"{d:%d/%m/%Y} foi descartado pela regra e nao aparece na pagina; "
+            f"a ausencia tem de ser visivel")
+
+
+def test_a_expectativa_separa_o_PUBLICADO_do_ESTIMADO():
+    """Palpite e transcricao nao podem ter a mesma cara.
+
+    Onde o Tesouro ja disse, a linha e transcricao e os papeis saem do que ele
+    listou. Depois da fronteira e inferencia nossa, pela regra de terca e quinta.
+    """
+    from tesouro.graficos import painel_agenda
+
+    import json
+    import pathlib as _pathlib
+
+    fixtures = _pathlib.Path(__file__).parent / "fixtures" / "api_leiloes"
+    registros = json.loads(
+        (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
+
+    com = painel_agenda.tabela_da_expectativa(
+        hoje=pd.Timestamp("2026-08-26"), registros=registros)
+    sem = painel_agenda.tabela_da_expectativa(
+        hoje=pd.Timestamp("2026-08-26"), registros=[])
+
+    # NAS LINHAS, e nao na pagina inteira: o rodape resume com "0 dia(s)
+    # publicado(s)", e procurar a palavra solta casava com esse resumo. Foi a
+    # primeira versao deste teste, e ela reprovava codigo correto.
+    def linhas_publicadas(html):
+        return len(re.findall(r'<tr class="publicado">', html))
+
+    assert linhas_publicadas(com) > 0, (
+        "com o calendario da amostra tem de haver linha transcrita")
+    assert linhas_publicadas(sem) == 0, (
+        "sem calendario publicado nenhuma linha pode se dizer publicada")
+    # E o total de dias contados nao muda: o publicado SUBSTITUI o estimado
+    # naquele dia, nao se soma a ele.
+    assert com.count("<tr class=") >= linhas_publicadas(com)

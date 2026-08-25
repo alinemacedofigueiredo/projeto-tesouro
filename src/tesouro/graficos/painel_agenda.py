@@ -292,6 +292,127 @@ def tabela(dados=None):
     return "\n".join(linhas)
 
 
+_DIA_DA_SEMANA = {0: "seg", 1: "ter", 2: "qua", 3: "qui", 4: "sex",
+                  5: "s\u00e1b", 6: "dom"}
+
+_PAPEL_DO_INDEXADOR = {"Prefixado": "LTN + NTN-F",
+                       "\u00cdndice Pre\u00e7os": "NTN-B",
+                       "Taxa Flutuante": "LFT"}
+
+# O motivo do descarte sai por extenso na propria linha, e nao numa nota de
+# rodape: quem bate o olho na tabela tem de ler o motivo junto com a data.
+_MOTIVO_DO_DESCARTE = ("n\u00e3o consideramos \u00b7 fim do ano")
+
+_NOTA_DA_EXPECTATIVA = (
+    "Onde o Tesouro j\u00e1 publicou, a linha \u00e9 <b>transcri\u00e7\u00e3o</b> e "
+    "os pap\u00e9is s\u00e3o os que ele listou. Depois disso \u00e9 "
+    "<b>infer\u00eancia nossa</b>: leil\u00e3o de LFT e NTN-B na ter\u00e7a, de "
+    "prefixado na quinta, antecipando um dia \u00fatil quando cai feriado. As "
+    "linhas em cinza s\u00e3o dias que a regra descarta \u2014 supomos que n\u00e3o "
+    "h\u00e1 leil\u00e3o nas \u00faltimas semanas do ano. <b>Se o Tesouro publicar "
+    "leil\u00e3o numa delas, esta tabela mostra na hora o que a proje\u00e7\u00e3o "
+    "deixou de fora.</b>")
+
+
+def tabela_da_expectativa(hoje=None, ate=None, registros=None):
+    """Todo dia de leilao ate o fim do ano, e o que fazemos com cada um.
+
+    PARA QUE ELA EXISTE. A secao de cima transcreve o calendario que o Tesouro
+    publicou -- e ele publica poucas semanas de cada vez. Da fronteira em diante
+    a projecao da pagina do PAF conta com dias que NOS inferimos, e ate
+    25/08/2026 nao havia onde conferir quais eram.
+
+    Ela pediu para dar de bater o nosso contra o dele assim que ele publicar:
+    "em um cenario hipotetico que ele va emitir na ultima semana do ano, consigo
+    ver rapido que nao estamos considerando esse cenario".
+
+    POR ISSO A TABELA MOSTRA TAMBEM O QUE DESCARTAMOS. Listar so os dias que
+    contamos responderia "o que esperamos"; o que ela quer ver e o que NAO
+    esperamos. As linhas descartadas pela regra do fim do ano ficam ali, em
+    cinza, com o motivo escrito -- uma ausencia so e visivel se estiver escrita.
+
+    Tres situacoes, e cada uma com procedencia diferente:
+
+      publicado          o Tesouro ja disse. Os papeis saem do que ELE listou.
+      estimado           inferencia nossa, pela regra de terca e quinta.
+      nao consideramos   cai depois do ultimo dia util de emissao de dezembro.
+    """
+    from .. import calendario_leiloes, rolagem
+
+    hoje = pd.Timestamp(hoje).normalize() if hoje is not None \
+        else pd.Timestamp.today().normalize()
+    ate = pd.Timestamp(ate) if ate is not None \
+        else pd.Timestamp(f"{hoje.year}-12-31")
+
+    contados, fronteira = calendario_leiloes.dias_ate(
+        ate, registros=registros, hoje=hoje)
+    contados = set(contados)
+    possiveis = calendario_leiloes.dias_possiveis(hoje, ate)
+    # Um dia publicado pode cair fora da grade de terca/quinta -- leilao extra,
+    # ou remarcacao. Ele entra na lista mesmo assim: a tabela e sobre o que vai
+    # acontecer, e nao sobre o que a nossa regra previa.
+    todos = sorted(set(possiveis) | contados)
+
+    papeis_publicados = _papeis_por_dia(registros)
+    por_dia_da_semana = {}
+    for indexador, dia in rolagem.DIA_DO_PAPEL.items():
+        por_dia_da_semana.setdefault(dia, []).append(_PAPEL_DO_INDEXADOR[indexador])
+
+    linhas = ['<div id="tabela-expectativa">',
+              "<h2>O que estamos contando daqui at\u00e9 "
+              f"{ate:%d/%m/%Y}</h2>",
+              f'<p class="legenda">{_NOTA_DA_EXPECTATIVA}</p>',
+              "<table>",
+              "<thead><tr><th>data</th><th>dia</th><th>pap\u00e9is</th>"
+              "<th>de onde vem</th></tr></thead><tbody>"]
+
+    quantos = {"publicado": 0, "estimado": 0}
+    for dia in todos:
+        if dia in contados and fronteira is not None and dia <= fronteira:
+            situacao, classe = "publicado", "publicado"
+            papeis = papeis_publicados.get(dia) or "\u2014"
+        elif dia in contados:
+            situacao, classe = "estimado", "estimado"
+            # ORDENADO, como o publicado: o do Tesouro sai da lista dele
+            # ja em ordem, e o estimado saia na ordem do dicionario --
+            # "LFT + NTN-B" numa linha e "NTN-B + LFT" na de baixo, para o
+            # mesmo dia da semana. Nada de errado no numero, mas a tabela e
+            # para bater o olho, e olho tropeca nisso.
+            papeis = " + ".join(
+                sorted(por_dia_da_semana.get(dia.dayofweek, []))) or "\u2014"
+        else:
+            situacao, classe = _MOTIVO_DO_DESCARTE, "fora"
+            papeis = "\u2014"
+        if situacao in quantos:
+            quantos[situacao] += 1
+        linhas.append(
+            f'<tr class="{classe}"><td>{dia:%d/%m/%Y}</td>'
+            f"<td>{_DIA_DA_SEMANA[dia.dayofweek]}</td>"
+            f"<td>{papeis}</td><td>{situacao}</td></tr>")
+
+    linhas += ["</tbody></table>",
+               f'<p class="rodape">{quantos["publicado"]} dia(s) publicado(s) e '
+               f'{quantos["estimado"]} estimado(s) entram na proje\u00e7\u00e3o da '
+               f'p\u00e1gina do PAF \u2014 {quantos["publicado"] + quantos["estimado"]} '
+               f'no total. As linhas em cinza N\u00c3O entram.</p>',
+               "</div>"]
+    return "\n".join(linhas)
+
+
+def _papeis_por_dia(registros):
+    """Os papeis que o Tesouro listou em cada dia do calendario publicado."""
+    if registros is not None and not len(registros):
+        return {}
+    try:
+        d = _dados() if registros is None else parse_api_leiloes.calendario(registros)
+    except Exception:                                    # noqa: BLE001
+        return {}
+    saida = {}
+    for dia, g in d.groupby(d["data_leilao"].dt.normalize()):
+        saida[dia] = " + ".join(sorted(set(g["titulo"].astype(str))))
+    return saida
+
+
 def _dv_do_lote(dv_unitario, quantidade):
     """O DV01 do lote em R$ mil por ponto-base, ou travessao quando falta parte."""
     if pd.isna(dv_unitario) or pd.isna(quantidade):
@@ -307,6 +428,15 @@ def _qtd(valor):
 
 
 _CSS = """
+#tabela-expectativa { margin: 26px auto 40px; max-width: 1180px; }
+#tabela-expectativa table { border-collapse: collapse; width: 100%;
+  font-size: 13.5px; }
+#tabela-expectativa th, #tabela-expectativa td { padding: 5px 10px;
+  text-align: left; border-bottom: 1px solid #eee; }
+#tabela-expectativa th { font-weight: 600; color: var(--fraco);
+  border-bottom: 2px solid #ccc; }
+#tabela-expectativa tr.fora td { color: var(--fraco); font-style: italic; }
+#tabela-expectativa tr.publicado td:last-child { font-weight: 600; }
 #tabela-calendario { margin: 26px auto 40px; max-width: 1180px; }
 #tabela-calendario table { border-collapse: collapse; width: 100%;
                        font-size: 13px; }
@@ -351,7 +481,8 @@ _CSS = """
 SECOES = [
     ("graficos", "Os gr\u00e1ficos", True),
     ("ultimos", "Os \u00faltimos leil\u00f5es \u00b7 hist\u00f3rico", False),
-    ("calendario", "O calend\u00e1rio \u00b7 o que vem pela frente", False),
+    ("calendario", "Calend\u00e1rio emiss\u00f5es Tesouro", False),
+    ("expectativa", "Expectativa de calend\u00e1rio", False),
 ]
 
 
@@ -399,6 +530,8 @@ def grava(caminho=None, hoje=None):
         _recolhe(graficos, *SECOES[0][:1] + SECOES[0][1:]),
         _recolhe(tabela_dos_ultimos(), *SECOES[1][:1] + SECOES[1][1:]),
         _recolhe(tabela(), *SECOES[2][:1] + SECOES[2][1:]),
+        _recolhe(tabela_da_expectativa(hoje=hoje),
+                 *SECOES[3][:1] + SECOES[3][1:]),
     ])
     html = html[:inicio] + "\n" + corpo + "\n" + html[fim:]
     html = html.replace("</style>", _CSS + "</style>", 1)

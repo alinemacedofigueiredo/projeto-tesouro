@@ -38,12 +38,19 @@ def _anterior_util(cal, d):
     return d
 
 
-def dias_estimados(de, ate):
-    """Os dias de leilao entre 'de' e 'ate', pelas regras do cabecalho.
+def dias_possiveis(de, ate):
+    """Os dias de leilao pelas regras de SEMANA e FERIADO, sem a de dezembro.
 
-    Devolve datas normalizadas e sem repeticao, em ordem. Terca e quinta caem no
-    mesmo conjunto porque o que interessa a projecao e o DIA DE LEILAO, e nao qual
-    papel foi ofertado nele -- o pace ja e medido por papel.
+    SEPARADO DE dias_estimados DE PROPOSITO. A regra do fim do ano -- nada depois
+    de _ULTIMO_DIA_DE_DEZEMBRO -- e a suposicao mais forte que este modulo faz, e
+    ate 25/08/2026 ela vivia como um `continue` no meio do laco: aplicada, e
+    invisivel. Quem olhasse a pagina via os dias que contamos, nunca os que
+    DESCARTAMOS.
+
+    Ela pediu o contrario: "em um cenario hipotetico que ele va emitir na ultima
+    semana do ano, consigo ver rapido que nao estamos considerando esse cenario".
+    Uma ausencia so e visivel se for dado, e nao filtro -- entao a diferenca entre
+    esta funcao e dias_estimados E a suposicao, e a pagina mostra as duas.
     """
     cal = calendario.padrao()
     de, ate = pd.Timestamp(de).normalize(), pd.Timestamp(ate).normalize()
@@ -57,10 +64,28 @@ def dias_estimados(de, ate):
             # pedido; esse leilao pertence a janela anterior, entao fica de
             # fora daqui em vez de ser reatribuido.
             continue
-        if dia.month == 12 and dia.day > _ULTIMO_DIA_DE_DEZEMBRO:
-            continue
         dias.add(dia)
     return sorted(dias)
+
+
+def fora_pela_regra_do_fim_do_ano(dia):
+    """Este dia de leilao cai depois do ultimo dia util de emissao de dezembro?"""
+    dia = pd.Timestamp(dia)
+    return dia.month == 12 and dia.day > _ULTIMO_DIA_DE_DEZEMBRO
+
+
+def dias_estimados(de, ate):
+    """Os dias de leilao entre 'de' e 'ate', pelas regras do cabecalho.
+
+    Devolve datas normalizadas e sem repeticao, em ordem. Terca e quinta caem no
+    mesmo conjunto porque o que interessa a projecao e o DIA DE LEILAO, e nao qual
+    papel foi ofertado nele -- o pace ja e medido por papel.
+
+    E os possiveis MENOS o fim do ano. Ver dias_possiveis para por que as duas
+    coisas sao funcoes separadas.
+    """
+    return [d for d in dias_possiveis(de, ate)
+            if not fora_pela_regra_do_fim_do_ano(d)]
 
 
 def dias_ate(ate, registros=None, hoje=None):
