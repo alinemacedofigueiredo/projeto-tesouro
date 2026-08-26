@@ -183,6 +183,13 @@ def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
 
 def test_a_projecao_devolve_a_PREMISSA_que_usou():
     # Numero projetado sem a premissa ao lado e opiniao com cara de medida.
+    #
+    # ESTE TESTE E' A UNICA TESTEMUNHA da premissa de juros (ver o docstring
+    # de rolagem._taxa_do_indexador). NAO troque as contas abaixo por uma
+    # comparacao direta contra _taxa_do_indexador ou curva.selic_implicita/
+    # curva.inflacao_implicita -- isso a tornaria tautologica (a mesma conta
+    # contra ela mesma) e removeria a unica cobertura real, com a suite
+    # inteira continuando verde.
     p = rolagem.projecao(pd.Timestamp("2026-12-31"), registros=[])
     assert 0.05 < p["selic"] < 0.30
     assert 0.0 < p["inflacao"] < 0.15

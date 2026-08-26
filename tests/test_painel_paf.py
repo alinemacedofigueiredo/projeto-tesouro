@@ -668,6 +668,34 @@ def test_o_bloco_da_simulacao_tem_as_TRES_tabelas(pagina):
         assert f'id="simulacao-{chave}"' in pagina, chave
 
 
+def test_o_bloco_da_simulacao_confessa_o_CALENDARIO_ESTIMADO(tmp_path):
+    """C2, achado da revis\u00e3o: gerando a p\u00e1gina com o calend\u00e1rio
+    vazio (tudo estimado), a se\u00e7\u00e3o da simula\u00e7\u00e3o saia byte a byte
+    id\u00eantica \u00e0 com calend\u00e1rio publicado -- enquanto o bloco da
+    proje\u00e7\u00e3o, logo acima na MESMA p\u00e1gina, dizia "inteiramente
+    estimado" num caso e "publicado at\u00e9 DD/MM" no outro. Regress\u00e3o do
+    pr\u00f3prio padr\u00e3o da p\u00e1gina: o bloco irm\u00e3o confessa, este n\u00e3o
+    confessava.
+
+    A CONFISS\u00c3O TEM DE ESTAR DENTRO DO RODAP\u00c9 DA SIMULA\u00c7\u00c3O -- e
+    n\u00e3o em qualquer lugar do HTML. "estimado" j\u00e1 aparecia na p\u00e1gina
+    antes da corre\u00e7\u00e3o, porque o bloco da proje\u00e7\u00e3o confessa a dele; um
+    assert "estimado" in pagina inteira passaria mesmo sem a simula\u00e7\u00e3o
+    dizer nada, e foi exatamente isso que a revis\u00e3o mediu.
+    """
+    from tesouro.graficos import painel_paf
+
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
+    html = caminho.read_text(encoding="utf-8")
+
+    inicio = html.index('id="simulacao-prefixado-pct"')
+    fim = html.index("</div>", inicio)
+    bloco = html[inicio:fim]
+
+    rodape = bloco[bloco.index('class="rodape"'):]
+    assert "estimado" in rodape
+
+
 def test_a_pagina_e_reprodutivel_entre_processos(tmp_path):
     """Spec 8, teste 6. Duas geracoes, o mesmo HTML.
 

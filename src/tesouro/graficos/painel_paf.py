@@ -54,6 +54,7 @@ p.rodape, p.achado { font-size: 12.5px; color: var(--fraco); max-width: 1180px;
 .secao > summary:hover { background: #fafafa; }
 .secao-hoje > summary { border-left-color: #3d7ab8; }
 .secao-projecao > summary { border-left-color: #b08968; }
+.secao-simulacao > summary { border-left-color: #5a8f5a; }
 """
 
 

@@ -273,8 +273,19 @@ def test_os_leiloes_batem_com_leiloes_que_faltam(tabelas):
         assert d.attrs["leiloes"] == esperado, chave
 
 
-def test_busca_calendario_uma_unica_vez_por_pagina(monkeypatch):
-    """A corre\u00e7\u00e3o resolveu registros UMA VEZ no topo e repassou.
+def test_busca_calendario_uma_unica_vez_por_TABELA(monkeypatch):
+    """A corre\u00e7\u00e3o resolveu registros UMA VEZ por chamada de dados_simulacao
+    e repassou -- e' isso, e s\u00f3 isso, que este teste trava.
+
+    NOME ANTERIOR PROMETIA MAIS DO QUE ENTREGAVA (achado da revis\u00e3o): dizia
+    "por_pagina", mas s\u00f3 chama dados_simulacao UMA vez -- uma TABELA, e n\u00e3o
+    a p\u00e1gina inteira. Medido: painel_paf.grava(registros=None) faz QUATRO
+    buscas por p\u00e1gina -- uma de banda.dados_projecao (o bloco da proje\u00e7\u00e3o)
+    e uma por TABELA da simula\u00e7\u00e3o (tr\u00eas: prefixado, \u00edndice de pre\u00e7os,
+    taxa flutuante), porque cada tabela resolve o calend\u00e1rio por conta
+    pr\u00f3pria dentro de dados_simulacao. Quatro e' \u00f3timo -- eram cem+ antes
+    desta otimiza\u00e7\u00e3o -- mas n\u00e3o e' UMA, e um teste chamado "_por_pagina"
+    que s\u00f3 exercita uma tabela n\u00e3o prova a p\u00e1gina inteira.
 
     dados_simulacao com registros=None e' o caminho de produ\u00e7\u00e3o. Antes,
     cada c\u00e9lula chamava emissao_necessaria -> dias_ate -> buscar("calendario")
@@ -299,10 +310,19 @@ def test_busca_calendario_uma_unica_vez_por_pagina(monkeypatch):
 
 
 def test_a_tabela_marca_a_celula_do_projetado():
+    """I3: a celula marcada nao pode perder o alinhamento numerico.
+
+    'class=\"n\"' e' quem carrega text-align:right e tabular-nums; a unica
+    celula que o bloco existe para apontar nao pode ser a unica desalinhada
+    da grade. A marca tem de vir JUNTO com 'n', nao no lugar dela.
+    """
     d = simulacao.dados_simulacao("prefixado_pct", registros=[])
     html = simulacao.tabela(d)
-    assert html.count('class="marca"') == 1, (
-        "exatamente uma celula e a do projetado")
+    assert html.count('class="n marca"') == 1, (
+        "exatamente uma celula, alinhada E marcada, e' a do projetado")
+    # Nenhuma celula leva 'marca' sozinha, sem o alinhamento numerico -- essa
+    # grafia so aparece dentro de 'class=\"n marca\"', contada acima.
+    assert html.count('class="marca"') == 0
 
 
 def test_a_tabela_pinta_o_negativo_de_vermelho_com_o_sinal():
@@ -356,4 +376,75 @@ def test_o_rodape_separa_o_RITMO_ATUAL_da_celula_marcada():
     html = simulacao.tabela(d)
     assert "ritmo de hoje" in html
     assert simulacao._numero_br(d.attrs["ritmo_atual"]) in html
-    assert "para c\u00e1 leva" in html or "leva o ritmo" in html
+
+
+def test_o_rodape_amarra_o_VALOR_da_celula_as_COORDENADAS_DELA(tabelas):
+    """C1, achado da revisao: o rodape amarrava o valor da celula as
+    coordenadas ERRADAS.
+
+    Medido: a celula estava em 22% de R$ 9.900 bi e valia 0,30, mas o texto
+    dizia "...(22,18% de R$ 9.947 bi) -- e nao o que se emite hoje, que e de
+    R$ 2,04 bi..." -- lido ao pe da letra, afirmava que 0,30 e' "22,18% de
+    9.947", que e' falso: aquele parentese descreve o PONTO PROJETADO exato,
+    que cai fora da grade, e nao a celula destacada.
+
+    Este teste exige as duas coisas juntas: as coordenadas que aparecem tem
+    de ser as DA CELULA (marca_linha, marca_coluna), e o valor da celula tem
+    de vir a poucos caracteres delas -- nao solto em qualquer parte do
+    rodape, onde bateria por acidente contra qualquer numero parecido.
+    """
+    for chave, d in tabelas.items():
+        html = simulacao.tabela(d)
+        marca_linha, marca_coluna = d.attrs["marca"]
+        valor_marca = d.at[marca_linha, marca_coluna]
+
+        coord = (f"{simulacao._numero_br(marca_linha, 0)}% de R$ "
+                 f"{simulacao._numero_br(marca_coluna, 0)} bi")
+        assert coord in html, (
+            f"{chave}: as coordenadas DA CELULA marcada tem de aparecer no "
+            f"rodape, e nao so as do ponto projetado exato")
+
+        pos = html.index(coord)
+        janela = html[pos:pos + 160]
+        valor = simulacao._numero_br(valor_marca)
+        assert valor in janela, (
+            f"{chave}: o valor da celula ({valor}) tem de estar junto das "
+            f"coordenadas dela ({coord}), e nao solto no rodape")
+
+        # E as coordenadas do ponto PROJETADO exato continuam presentes,
+        # separadas -- so nao podem ser as que acompanham o valor da celula.
+        proj = (f"{simulacao._numero_br(d.attrs['projetado_pct'])}% de R$ "
+                f"{simulacao._numero_br(d.attrs['projetado_total'], 0)} bi")
+        assert proj in html, f"{chave}: o ponto projetado exato tem de constar"
+
+
+def test_o_rodape_declara_a_PREMISSA_de_juros():
+    """I1: toda celula usa uma taxa de juros (Selic implicita, inflacao
+    implicita + cupom real, ou a carga do prefixado) -- rolagem.py trava a
+    regra: numero projetado sem a premissa ao lado e opiniao com cara de
+    medida. O bloco irmao (a projecao) ja declara a dele; este bloco, por
+    ser recolhivel INDEPENDENTE -- da para abrir so a simulacao -- tinha de
+    declarar a dele tambem.
+    """
+    d = simulacao.dados_simulacao("taxa_flutuante_pct", registros=[])
+    html = simulacao.tabela(d)
+    assert "selic" in d.attrs and "inflacao" in d.attrs
+    assert "data_da_curva" in d.attrs
+    assert simulacao._numero_br(100 * d.attrs["selic"]) in html
+    assert simulacao._numero_br(100 * d.attrs["inflacao"]) in html
+    assert f"{d.attrs['data_da_curva']:%d/%m/%Y}" in html
+
+
+def test_o_rodape_diz_se_o_CALENDARIO_e_publicado_ou_estimado():
+    """C2, achado da revisao: com o calendario vazio (tudo estimado) a
+    secao da simulacao saia byte a byte identica a com calendario publicado
+    -- enquanto o bloco irmao (a projecao), na mesma pagina, confessa "de
+    calendario publicado ate DD/MM" ou "inteiramente estimado". Regressao do
+    proprio padrao da pagina: o bloco irmao confessa, este nao confessava.
+    """
+    d = simulacao.dados_simulacao("prefixado_pct", registros=[])
+    assert d.attrs["fronteira_do_calendario"] is None, (
+        "com registros=[] nao ha calendario publicado")
+    html = simulacao.tabela(d)
+    rodape = html[html.index('class="rodape"'):]
+    assert "estimado" in rodape

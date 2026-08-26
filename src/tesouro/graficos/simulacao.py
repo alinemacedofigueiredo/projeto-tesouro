@@ -121,8 +121,20 @@ def dados_simulacao(chave, hoje=None, ate=None, registros=None):
     matriz.attrs["ritmo_atual"] = float(rolagem.pace(hoje)[indexador]) / 1000
     matriz.attrs["projetado_pct"] = projetado_pct
     matriz.attrs["projetado_total"] = projetado_total
-    dias, _ = calendario_leiloes.dias_ate(ate, registros=registros, hoje=hoje)
+    dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,
+                                                   hoje=hoje)
     matriz.attrs["leiloes"] = rolagem.leiloes_que_faltam(dias, indexador)
+    # DE ONDE VEIO O CALENDARIO, e a PREMISSA DE JUROS -- as duas ja vem
+    # calculadas dentro de 'p', porque projecao() precisa delas para o mesmo
+    # alvo. Sem levar as duas para ca, o bloco irmao (banda.py, na projecao)
+    # confessa a origem do calendario e declara a premissa de juros, e este
+    # bloco -- recolhivel INDEPENDENTE, que da para abrir sozinho -- ficava
+    # mudo nas duas. Achado da revisao: com registros=[] a secao da simulacao
+    # saia byte a byte igual a com calendario publicado.
+    matriz.attrs["fronteira_do_calendario"] = fronteira
+    matriz.attrs["selic"] = float(p["selic"])
+    matriz.attrs["inflacao"] = float(p["inflacao"])
+    matriz.attrs["data_da_curva"] = p["data_da_curva"]
     matriz.attrs["hoje"] = hoje
     matriz.attrs["ate"] = ate
     return matriz
@@ -138,21 +150,34 @@ def _numero_br(valor, casas=2):
 def tabela(dados):
     """Uma tabela da simulacao, em HTML.
 
-    Tres decisoes dela, escritas aqui:
+    Quatro decisoes dela, escritas aqui:
     1. A celula negativa e so o numero em vermelho, com o sinal de menos na
        frente -- sem icone, sem hachura, sem palavra.
-    2. A celula do projetado (a "marca") sai colorida, nas tres tabelas.
+    2. A celula do projetado (a "marca") sai colorida, nas tres tabelas, e
+       NAO perde o alinhamento numerico das outras -- ela carrega as duas
+       classes, "n" e "marca".
     3. O rodape traz o ritmo atual em numero, separado da celula marcada --
        que NAO e o ritmo atual, e sim quanto emitir para cair no ponto
-       arredondado da grade.
+       arredondado da grade. As coordenadas que acompanham o VALOR da celula
+       sao as DELA -- as do ponto projetado exato, que cai fora da grade,
+       vem antes e separadas, so para dizer para onde o ritmo de hoje leva.
+    4. O rodape tambem confessa a origem do calendario (publicado ou
+       estimado) e a premissa de juros -- o mesmo padrao que o bloco irmao
+       (a projecao, em banda.py) ja segue, e que este bloco, por ser
+       recolhivel INDEPENDENTE, precisa repetir sozinho.
     """
     lo, hi = dados.attrs["banda"]
     marca_linha, marca_coluna = dados.attrs["marca"]
+    valor_marca = dados.at[marca_linha, marca_coluna]
 
-    cabecalho = ("<tr><th>% do papel</th>"
-                 + "".join(f'<th class="n">{_numero_br(c, 0)}</th>'
-                           for c in dados.columns)
-                 + "</tr>")
+    cabecalho = (
+        '<tr><th></th>'
+        f'<th colspan="{len(dados.columns)}" class="n">Total da d\u00edvida, '
+        f'R$ bi</th></tr>'
+        '<tr><th>% do papel</th>'
+        + "".join(f'<th class="n">{_numero_br(c, 0)}</th>'
+                  for c in dados.columns)
+        + "</tr>")
 
     linhas = []
     for pct in dados.index:
@@ -164,27 +189,40 @@ def tabela(dados):
             texto = _numero_br(v)
             if v < 0:
                 texto = f'<span class="negativo">{texto}</span>'
-            # A marca fica na classe DO TD -- o CSS aplica o contorno na
-            # celula inteira. O negativo fica num span DENTRO do TD -- so o
-            # numero fica vermelho. As duas nao dividem um atributo: cada
-            # teste conta a classe dele sozinha, e um "class='n negativo'"
-            # combinado nunca bateria com a contagem exata que os testes
-            # pedem.
-            classe_td = "marca" if e_marca else "n"
+            # O negativo fica num span DENTRO do TD -- so o numero fica
+            # vermelho. A marca fica na classe DO TD, JUNTO com "n" -- sem
+            # "n" a unica celula que o bloco existe para apontar seria a
+            # unica desalinhada da grade (achado da revisao).
+            classe_td = "n marca" if e_marca else "n"
             celulas.append(f'<td class="{classe_td}">{texto}</td>')
         linhas.append(
             f'<tr{classe_tr}><th class="pct">{_numero_br(pct, 0)}%</th>'
             + "".join(celulas) + "</tr>")
 
+    fronteira = dados.attrs.get("fronteira_do_calendario")
+    origem = (f", de calend\u00e1rio publicado at\u00e9 "
+              f"{fronteira:%d/%m/%Y} e estimado depois"
+              if fronteira is not None
+              else ", de calend\u00e1rio inteiramente estimado")
+
+    coord_marca = (f"{_numero_br(marca_linha, 0)}% de R$ "
+                   f"{_numero_br(marca_coluna, 0)} bi")
+
     rodape = (
         f"{dados.attrs['rotulo']}: banda de {_numero_br(lo, 0)} a "
-        f"{_numero_br(hi, 0)}%, {dados.attrs['leiloes']} leil\u00e3o(oes) "
-        f"at\u00e9 {dados.attrs['ate']:%d/%m/%Y}. "
-        f"A c\u00e9lula destacada \u00e9 <b>para c\u00e1 leva o ritmo de "
-        f"hoje</b> ({_numero_br(dados.attrs['projetado_pct'])}% de R$ "
-        f"{_numero_br(dados.attrs['projetado_total'], 0)} bi) \u2014 e "
-        f"<b>n\u00e3o</b> o que se emite hoje, que \u00e9 de R$ "
-        f"{_numero_br(dados.attrs['ritmo_atual'])} bi por leil\u00e3o. Os "
+        f"{_numero_br(hi, 0)}%, {dados.attrs['leiloes']} leil\u00e3o(\u00f5es) "
+        f"at\u00e9 {dados.attrs['ate']:%d/%m/%Y}{origem}. "
+        f"Premissa de juros: curva de "
+        f"{dados.attrs['data_da_curva']:%d/%m/%Y} (Selic impl\u00edcita "
+        f"{_numero_br(100 * dados.attrs['selic'])}% a.a., infla\u00e7\u00e3o "
+        f"impl\u00edcita {_numero_br(100 * dados.attrs['inflacao'])}% a.a.). "
+        f"A c\u00e9lula destacada \u00e9 a mais pr\u00f3xima do ponto para "
+        f"onde o ritmo de hoje leva "
+        f"({_numero_br(dados.attrs['projetado_pct'])}% de R$ "
+        f"{_numero_br(dados.attrs['projetado_total'], 0)} bi). Ela responde "
+        f"por <b>{coord_marca}</b>: R$ {_numero_br(valor_marca)} bi por "
+        f"leil\u00e3o \u2014 e <b>n\u00e3o</b> o que se emite hoje, que \u00e9 "
+        f"R$ {_numero_br(dados.attrs['ritmo_atual'])} bi por leil\u00e3o. Os "
         f"dois diferem porque a grade arredonda os dois eixos. "
         f"N\u00famero negativo quer dizer que nem parando de emitir se "
         f"chega ao alvo: faltaria resgatar. "
@@ -194,7 +232,7 @@ def tabela(dados):
 
     ident = "simulacao-" + dados.attrs["chave"].replace("_", "-")
     return (f'<div class="simulacao" id="{ident}">'
-            f"<h3>{dados.attrs['rotulo']}</h3>"
+            f"<h3>{dados.attrs['rotulo']} (R$ bi por leil\u00e3o)</h3>"
             f"<table>{cabecalho}{''.join(linhas)}</table>"
             f'<p class="rodape">{rodape}</p></div>')
 
@@ -209,6 +247,6 @@ _CSS = """
 .simulacao td.n, .simulacao th.n { text-align: right;
   font-variant-numeric: tabular-nums; }
 .simulacao tr.na-banda { background: #f6f8fb; }
-.simulacao td.negativo, .simulacao span.negativo { color: #b03030; }
+.simulacao span.negativo { color: #b03030; }
 .simulacao td.marca { outline: 2px solid #2b6cb0; font-weight: 600; }
 """

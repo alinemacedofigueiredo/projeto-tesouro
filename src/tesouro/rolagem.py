@@ -496,6 +496,16 @@ def _taxa_do_indexador(indexador, ate, data_base=None):
     Nao ha premissa nova nesta entrega: se a projecao estiver certa, esta conta
     esta; se estiver errada, as duas erram juntas. E isso que o teste de
     identidade trava.
+
+    A UNICA TESTEMUNHA desta premissa (Selic e inflacao implicitas, e a carga
+    do prefixado) e' test_a_projecao_devolve_a_PREMISSA_que_usou, em
+    test_rolagem.py -- ele recalcula o estoque projetado por fora, com as
+    mesmas pecas publicas que projecao() usa por dentro, sem ler o resultado
+    de _taxa_do_indexador direto do dict devolvido. Quem "simplificar" aquele
+    teste comparando p['selic']/p['inflacao'] contra uma chamada direta a
+    _taxa_do_indexador (ou a curva.selic_implicita/curva.inflacao_implicita)
+    o torna tautologico -- a mesma conta contra ela mesma -- e remove a unica
+    cobertura real da premissa, com a suite inteira continuando verde.
     """
     if indexador == "Taxa Flutuante":
         return curva.selic_implicita(ate, data_base=data_base)
@@ -508,8 +518,14 @@ def _taxa_do_indexador(indexador, ate, data_base=None):
 # hoje, ate e registros. 'quantos' ja vem sem cheirar problema: ver a guarda em
 # termos_da_simulacao, que levanta antes de devolver um valor que dividiria por
 # zero.
+#
+# 'hoje' e 'ate' NAO ENTRAM AQUI. emissao_a_partir_dos_termos so le partida,
+# juros, vence e quantos -- quem chama termos_da_simulacao ja tem os proprios
+# 'hoje'/'ate' normalizados (dados_simulacao guarda os dela nos attrs da
+# matriz). Achado da revisao: a versao anterior carregava os dois campos e o
+# docstring justificava por uma necessidade que o codigo nunca teve.
 TermosDaSimulacao = collections.namedtuple(
-    "TermosDaSimulacao", ["hoje", "ate", "partida", "juros", "vence", "quantos"])
+    "TermosDaSimulacao", ["partida", "juros", "vence", "quantos"])
 
 
 def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
@@ -520,10 +536,6 @@ def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
     fluxos.pagos e a contagem de leiloes refeitos do zero 42 vezes, quando so
     o alvo varia de celula para celula. Medido: gerar paf.html caiu de 338 s
     para cerca de 24 s calculando estes termos uma vez por tabela.
-
-    Devolvido junto com 'hoje' e 'ate' normalizados -- para emissao_a_partir_
-    dos_termos nao precisar adivinhar em que unidade a chamada original
-    resolveu o default de cada um.
     """
     from . import calendario_leiloes, fluxos
 
@@ -550,8 +562,8 @@ def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
     taxa = _taxa_do_indexador(indexador, ate, data_base=hoje)
     juros = partida * ((1 + taxa) ** (du / 252) - 1)
 
-    return TermosDaSimulacao(hoje=hoje, ate=ate, partida=partida, juros=juros,
-                             vence=vence, quantos=quantos)
+    return TermosDaSimulacao(partida=partida, juros=juros, vence=vence,
+                             quantos=quantos)
 
 
 def emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total):
