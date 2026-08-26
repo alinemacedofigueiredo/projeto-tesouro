@@ -207,7 +207,12 @@ def pagina(tmp_path_factory):
     from tesouro.graficos import painel_paf
 
     destino = tmp_path_factory.mktemp("paf") / painel_paf.ARQUIVO
-    return painel_paf.grava(destino).read_text(encoding="utf-8")
+    # registros=[] PARA NAO TOCAR A REDE. Sem isto a fixture busca o
+    # calendario na API do Tesouro quatro vezes -- uma da projecao e uma por
+    # tabela da simulacao -- e este projeto tem um teste dedicado a garantir
+    # que a rede nao seja tocada sem necessidade. Nenhum teste que usa esta
+    # fixture depende de dado real do calendario (conferido na re-revisao).
+    return painel_paf.grava(destino, registros=[]).read_text(encoding="utf-8")
 
 
 def test_a_pagina_tem_os_TRES_blocos_recolhiveis(pagina):
@@ -247,7 +252,7 @@ def test_a_pagina_nao_tem_referencia_externa(pagina):
 def test_a_pagina_cabe_no_limiar_de_dez_megabytes(tmp_path):
     from tesouro.graficos import painel_paf
 
-    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO)
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
     tamanho = caminho.stat().st_size
     # O TETO e o da spec (secao 5): a pagina e autocontida e tem de abrir com duplo
     # clique. O PISO e MEDIDO, e nao os 20 kB que o brief chutava -- esta pagina nao
