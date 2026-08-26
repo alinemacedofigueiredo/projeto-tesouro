@@ -474,6 +474,14 @@ def test_emissao_necessaria_e_a_projecao_ao_contrario():
 
     Se as duas discordarem, uma esta errada, e este teste nao diz qual. Mas
     impede que a pagina publique as duas lado a lado dizendo coisas diferentes.
+
+    A IDENTIDADE SOZINHA E GAMEAVEL (achado da revisao): uma funcao que ignore
+    alvo_pct, alvo_total, vence e juros, e simplesmente devolva
+    pace(hoje)[indexador], bate com a assercao acima por construcao -- o
+    teste chama com hoje=p["de"] e compara com pace(p["de"]), entao os dois
+    lados sao a mesma chamada disfarcada. Por isso este teste tambem exige que
+    um alvo DESLOCADO mude a resposta, e na direcao certa: alvo maior tem de
+    pedir emissao maior. So assim a identidade deixa de ser tautologica.
     """
     ate = pd.Timestamp("2026-12-31")
     p = rolagem.projecao(ate, registros=[])
@@ -487,6 +495,16 @@ def test_emissao_necessaria_e_a_projecao_ao_contrario():
         assert obtido == pytest.approx(float(ritmo[ind]), rel=1e-6), (
             f"{ind}: a emissao necessaria para o proprio resultado da projecao "
             f"tem de ser o pace atual")
+
+        # A PROVA DE QUE NAO E TAUTOLOGIA: pedir um alvo_pct maior, com o
+        # mesmo hoje/ate/total, tem de pedir MAIS emissao. Uma funcao que
+        # ignore alvo_pct (o stub acima) devolveria o mesmo numero aqui, e
+        # esta assercao cairia sozinha.
+        maior = rolagem.emissao_necessaria(ind, pct + 1, total, hoje=p["de"],
+                                           ate=ate, registros=[])
+        assert maior > obtido, (
+            f"{ind}: emissao_necessaria tem de reagir ao alvo_pct, e nao so "
+            f"repetir o pace atual")
 
 
 def test_emissao_necessaria_cresce_com_o_alvo():
@@ -523,3 +541,23 @@ def test_emissao_necessaria_fica_NEGATIVA_quando_o_alvo_esta_abaixo():
     hoje = banda_ultima_liquidacao()
     assert rolagem.emissao_necessaria("Taxa Flutuante", 46, 9700, hoje=hoje,
                                       ate=ate, registros=[]) < 0
+
+
+def test_emissao_necessaria_LEVANTA_quando_nao_ha_leilao_do_papel_na_janela():
+    """Caminho nunca exercitado: a guarda contra dividir por zero.
+
+    Classe de defeito que ja mordeu este projeto duas vezes -- um 'raise' novo
+    sem cobertura e divida na hora em que nasce. Pedindo 'ate' igual a 'hoje'
+    nao sobra dia nenhum de leilao no meio, para nenhum dos tres indexadores;
+    entao a guarda tem de levantar, nomeando o indexador e as duas datas, e
+    nao dividir 'quantos' zerado em silencio.
+    """
+    hoje = banda_ultima_liquidacao()
+    with pytest.raises(LookupError) as excinfo:
+        rolagem.emissao_necessaria("Prefixado", 20, 10000, hoje=hoje,
+                                   ate=hoje, registros=[])
+
+    mensagem = str(excinfo.value)
+    data = hoje.strftime("%d/%m/%Y")
+    assert f"'Prefixado' entre {data} e {data}" in mensagem, (
+        "a mensagem tem de nomear o indexador e as DUAS datas da janela")

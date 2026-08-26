@@ -444,12 +444,13 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
         base = float(inicial[ind])
         do_ind = pagou[pagou["indexador"] == ind]
         pago = do_ind["principal_milhoes"].sum() + do_ind["cupom_milhoes"].sum()
-        if ind == "Taxa Flutuante":
-            taxa = selic
-        elif ind == "\u00cdndice Pre\u00e7os":
-            taxa = (1 + inflacao) * 1.06 - 1
-        else:
-            taxa = _CARGA_DO_PREFIXADO
+        # A premissa de juros vem de _taxa_do_indexador, e nao de um if/elif/else
+        # duplicado aqui. Ate 25/08/2026 as duas copias existiam separadas, e a
+        # afirmacao de que "nao ha premissa nova" na entrega 5 era verdadeira so
+        # por coincidencia de copia -- mudar a premissa aqui e esquecer a outra
+        # quebraria a identidade de emissao_necessaria em silencio (achado da
+        # revisao da entrega 5).
+        taxa = _taxa_do_indexador(ind, ate, data_base=partida)
         juros = base * ((1 + taxa) ** (du / 252) - 1)
         projetado[ind] = (base + float(ritmo[ind])
                           * leiloes_que_faltam(dias, ind) - pago + juros)
