@@ -49,13 +49,34 @@ Decisão dela, duas escolhas separadas:
   contagem. Por leilão é o que o Tesouro executa, e casa com o `pace` que a página já
   usa.
 
-### 2.2 Os eixos: a banda mais uma margem fora
+### 2.2 Os eixos contêm sempre a banda e o ponto projetado
 
-Linhas: a banda do indicador **mais 1 pp para cada lado**. Colunas: total da dívida
-de **9.500 a 10.500**, de 200 em 200 — a banda de estoque de 2026 é 9.700 a 10.300.
+Decisão dela: *"garante sempre que o projetado com o pace de hj está dentro da banda
+apresentada, e o intervalo da paf também"*.
+
+Os eixos não são fixos. Cada um é calculado para conter **as duas coisas**:
+
+```
+linhas   de  min(banda_min − 1 pp,  piso(projetado_pct))
+         a   max(banda_max + 1 pp,  teto(projetado_pct))          passo: 1 pp
+
+colunas  de  min(banda_estoque_min − 200,  arredonda_p_baixo(projetado_total))
+         a   max(banda_estoque_max + 200,  arredonda_p_cima(projetado_total))
+                                                                   passo: 200
+```
+
+Com o dado de 26/08/2026, isso dá colunas de 9.500 a 10.500 nas três tabelas, e
+linhas de 20 a 26 no prefixado, 22 a 28 no índice de preços, e **45 a 54 na taxa
+flutuante** — que se estende porque a projeção dela (53,24%) está bem acima da banda.
+
+**Por que a regra existe.** A versão anterior desta spec fixava os eixos e dizia que,
+se a projeção caísse fora, nenhuma célula seria marcada. Isso deixaria a tabela da
+taxa flutuante — justamente a que está fora da banda, e portanto a mais interessante
+— sem a marca do ritmo atual. A tabela existe para comparar onde estamos com onde
+queremos chegar; sem os dois pontos na mesma grade, não há comparação.
 
 As linhas dentro da banda ficam marcadas. As de fora existem para mostrar o custo de
-furar, e para o caso de o ritmo atual cair fora — que é o caso da taxa flutuante hoje.
+furar, e para acomodar o ritmo atual quando ele está fora — que é o caso hoje.
 
 ---
 
@@ -125,7 +146,12 @@ bi/leilão contra 2,04 hoje** — mais de três vezes. A projeção da entrega 4
   46  |   -34,9   -29,1   -23,4   -17,6   -11,9    -6,1   <- banda
   48  |   -23,0   -17,0   -11,0    -5,0     1,0     7,0   <- banda
   50  |   -11,1    -4,9     1,4     7,6    13,9    20,1   <- banda
+  ...
+  53  |     6,7    13,3   20,0*    26,6    33,2    39,8   <- para ca leva o ritmo
 ```
+
+`*` marca a celula do projetado. A tabela vai ate 54% pela regra de §2.2 — a
+projecao (53,24%) tem de caber na grade.
 
 **20 das 30 células da banda são negativas — 67%.** A LFT está em 53,00% e só volta
 para dentro pelo canto de baixo à direita: total alto e percentual no teto da banda.
@@ -141,9 +167,10 @@ Isto é o achado da entrega, e a página não o dizia: para a taxa flutuante, a 
 Negativo quer dizer: **nem parando de emitir você chega lá** — o estoque cresce
 sozinho pelos juros, e o alvo está abaixo de onde ele vai parar.
 
-A célula mostra **o número, com marca visual**, e não uma palavra genérica como
-"impossível". A magnitude é a informação: −4,8 e −40,8 são situações diferentes, e a
-segunda diz que o alvo está fora de alcance por qualquer meio ordinário.
+Decisão dela: **o número em vermelho, com o sinal de menos na frente.** Nada de
+ícone, hachura ou palavra. A magnitude é a informação — −4,8 e −40,8 são situações
+diferentes, e a segunda diz que o alvo está fora de alcance por qualquer meio
+ordinário.
 
 O rodapé explica o sinal em uma frase. Sem isso, um número negativo numa tabela
 chamada "quanto emitir" parece defeito.
@@ -152,10 +179,10 @@ chamada "quanto emitir" parece defeito.
 
 ## 6. Onde o ritmo atual cai
 
-A célula mais próxima do resultado da projeção da entrega 4 fica **marcada na grade**.
+Decisão dela: **a célula do projetado sai colorida, nas três tabelas.**
 
 É a ponte entre os dois blocos: o de cima diz onde o ano fecha se nada mudar, este
-diz o que fazer diferente. Sem a marca, o leitor tem de procurar na tabela o que a
+diz o que fazer diferente. Sem a marca, o leitor teria de procurar na tabela o que a
 seção anterior já calculou.
 
 Como a projeção cai entre células (prefixado 21,10%, total 9.947), a marca vai na
@@ -164,10 +191,28 @@ independentemente do outro**: 21,10% vai para a linha 21, e 9.947 para a coluna
 9.900. Não é a menor distância no plano, que dependeria de comparar pontos
 percentuais com bilhões de reais e exigiria uma escala inventada.
 
-Se a projeção cair fora da grade — percentual além da banda mais 1 pp, ou total fora
-de 9.500 a 10.500 — **nenhuma célula é marcada**, e o rodapé diz que o ritmo atual
-leva para fora da tabela. Marcar a célula da borda faria o leitor crer que o ritmo
-atual cabe ali dentro.
+Pela regra de §2.2, a projeção **sempre** cabe na grade. O caso "cai fora" não existe
+mais, e com ele sai a regra de "não marcar nada" que a versão anterior previa.
+
+### 6.1 A célula marcada NÃO é o ritmo atual, e o rodapé precisa dizer isso
+
+Este é o ponto onde esta página pode mentir sem errar uma conta.
+
+A célula marcada mostra **quanto emitir para cair exatamente naquele ponto
+arredondado da grade** — não o que se emite hoje. O arredondamento move as duas
+coordenadas, e a sensibilidade é alta. Medido em 26/08/2026:
+
+| indicador | célula marcada | ritmo de hoje |
+|---|---|---|
+| Prefixado | 14,1 | 14,43 |
+| Índice de preços | **0,3** | **2,04** |
+| Taxa flutuante | 20,0 | 23,02 |
+
+No índice de preços a diferença é de **sete vezes**. Quem ler a célula marcada como
+"o que emitimos hoje" sai com um número muito errado.
+
+Por isso: a marca significa **"é para cá que o ritmo de hoje leva"**, e o rodapé traz
+o ritmo atual em número, separado, com essas palavras. Um teste trava a distinção.
 
 ---
 
