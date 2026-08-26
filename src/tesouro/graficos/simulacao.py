@@ -14,9 +14,6 @@ se le de uma vez.
 """
 import math
 
-import pandas as pd
-
-from .. import rolagem
 from . import paf
 
 # Passo das colunas, em R$ bilhoes, e margem das linhas, em pontos percentuais.

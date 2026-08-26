@@ -1,8 +1,4 @@
 """A simulacao: quanto emitir por leilao para chegar a cada alvo."""
-import pandas as pd
-import pytest
-
-from tesouro import rolagem
 from tesouro.graficos import simulacao
 
 
@@ -49,3 +45,37 @@ def test_os_eixos_contem_PROJETADO_abaixo_da_banda():
     linhas, _ = simulacao.eixos("prefixado_pct", 18.5, 9947, 2026)
     assert min(linhas) <= 18, f"18,5% tem de caber; linhas foram {linhas}"
     assert max(linhas) >= 21, "a banda 21-25 continua tendo de caber"
+
+
+def test_os_eixos_contem_TOTAL_abaixo_da_banda():
+    """Caso sintetico: total bem abaixo da banda de estoque.
+
+    Nenhum cenario de hoje projeta o total de estoque tao abaixo da sua banda.
+    Por isso usamos valores sinteticos em vez de esperar que o dado real produza
+    este ramo -- deixar essa logica sem teste e descobrir que falha quando
+    importar e ja for tarde.
+
+    Banda de estoque 9.700-10.300 bilhoes, total sintetico 8000. O piso da grade
+    com margem e 9700 - 200 = 9500. O floor(8000/200)*200 = 8000. O
+    min(9500, 8000) deve ser 8000, e as colunas devem comecar ali.
+    """
+    _, colunas = simulacao.eixos("prefixado_pct", 21.10, 8000, 2026)
+    assert min(colunas) <= 8000, f"8000 tem de caber; colunas foram {colunas}"
+    assert max(colunas) >= 9700, "a banda 9.700-10.300 continua tendo de caber"
+
+
+def test_os_eixos_contem_TOTAL_acima_da_banda():
+    """Caso sintetico: total bem acima da banda de estoque.
+
+    Nenhum cenario de hoje projeta o total de estoque tao acima da sua banda.
+    Por isso usamos valores sinteticos em vez de esperar que o dado real produza
+    este ramo -- deixar essa logica sem teste e descobrir que falha quando
+    importar e ja for tarde.
+
+    Banda de estoque 9.700-10.300 bilhoes, total sintetico 12100. O teto da
+    grade com margem e 10300 + 200 = 10500. O ceil(12100/200)*200 = 12200. O
+    max(10500, 12200) deve ser 12200, e as colunas devem chegar ali.
+    """
+    _, colunas = simulacao.eixos("prefixado_pct", 21.10, 12100, 2026)
+    assert max(colunas) >= 12100, f"12100 tem de caber; colunas foram {colunas}"
+    assert min(colunas) <= 10300, "a banda 9.700-10.300 continua tendo de caber"
