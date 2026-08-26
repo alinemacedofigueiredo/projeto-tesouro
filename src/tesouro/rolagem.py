@@ -483,7 +483,7 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
 # zero em silencio (ruling 4 da entrega 4).
 INDEXADOR_DA_CHAVE = {
     "prefixado_pct": "Prefixado",
-    "indice_precos_pct": "Índice Preços",
+    "indice_precos_pct": "\u00cdndice Pre\u00e7os",
     "taxa_flutuante_pct": "Taxa Flutuante",
 }
 
@@ -497,7 +497,7 @@ def _taxa_do_indexador(indexador, ate, data_base=None):
     """
     if indexador == "Taxa Flutuante":
         return curva.selic_implicita(ate, data_base=data_base)
-    if indexador == "Índice Preços":
+    if indexador == "\u00cdndice Pre\u00e7os":
         return (1 + curva.inflacao_implicita(ate, data_base=data_base)) * 1.06 - 1
     return _CARGA_DO_PREFIXADO
 
