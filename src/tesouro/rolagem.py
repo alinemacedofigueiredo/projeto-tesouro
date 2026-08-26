@@ -471,3 +471,78 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
             "dias_de_leilao": quantos,
             "fronteira_do_calendario": fronteira,
             "de": partida, "ate": ate}
+
+
+# A chave do indicador (como banda.INDICADORES a escreve) para o nome do
+# indexador (como INDEXADORES o escreve). Os dois vocabularios ja existiam
+# separados; este mapa e o unico lugar que os liga.
+#
+# OS VALORES FICAM ACENTUADOS. Eles sao DADO -- casam com a coluna do
+# composicao_dpf.csv. Desacentuar aqui faria o filtro nao casar e o termo ir a
+# zero em silencio (ruling 4 da entrega 4).
+INDEXADOR_DA_CHAVE = {
+    "prefixado_pct": "Prefixado",
+    "indice_precos_pct": "Índice Preços",
+    "taxa_flutuante_pct": "Taxa Flutuante",
+}
+
+
+def _taxa_do_indexador(indexador, ate, data_base=None):
+    """A premissa de juros de cada indexador, a MESMA que projecao usa.
+
+    Nao ha premissa nova nesta entrega: se a projecao estiver certa, esta conta
+    esta; se estiver errada, as duas erram juntas. E isso que o teste de
+    identidade trava.
+    """
+    if indexador == "Taxa Flutuante":
+        return curva.selic_implicita(ate, data_base=data_base)
+    if indexador == "Índice Preços":
+        return (1 + curva.inflacao_implicita(ate, data_base=data_base)) * 1.06 - 1
+    return _CARGA_DO_PREFIXADO
+
+
+def emissao_necessaria(indexador, alvo_pct, alvo_total, hoje=None, ate=None,
+                       registros=None):
+    """Quanto emitir POR LEILAO daquele papel para o alvo sair em 'ate'.
+
+    'alvo_pct' em pontos percentuais (22 e 22%), 'alvo_total' em R$ BILHOES, e o
+    retorno em R$ MILHOES por leilao -- a mesma unidade de pace(), para os dois
+    poderem ser comparados sem conversao no meio do caminho.
+
+    A conta:
+
+        alvo       = alvo_total x alvo_pct
+        emissao    = alvo - estoque_hoje - juros + vencimentos_e_cupons
+        por_leilao = emissao / leiloes_que_faltam
+
+    PODE SER NEGATIVA, e negativa e resposta: o estoque cresce sozinho pelos
+    juros, e quando o alvo esta abaixo de onde ele vai parar, nem parando de
+    emitir se chega la. O numero diz o tamanho do resgate que faltaria.
+    """
+    from . import calendario_leiloes, fluxos
+
+    hoje = pd.Timestamp(hoje) if hoje is not None \
+        else leiloes()["data_liquidacao"].max()
+    ate = pd.Timestamp(ate) if ate is not None \
+        else pd.Timestamp(f"{hoje.year}-12-31")
+
+    partida = float(estoque_em(hoje)[indexador])
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=registros, hoje=hoje)
+    quantos = leiloes_que_faltam(dias, indexador)
+    if quantos <= 0:
+        raise LookupError(
+            f"nao ha leilao de {indexador!r} entre {hoje:%d/%m/%Y} e "
+            f"{ate:%d/%m/%Y}; nao ha como dividir a emissao por leilao.")
+
+    pagou = fluxos.pagos(hoje, ate)
+    do_ind = pagou[pagou["indexador"] == indexador]
+    vence = float(do_ind["principal_milhoes"].sum()
+                  + do_ind["cupom_milhoes"].sum())
+
+    cal = calendario.padrao()
+    du = cal.du(hoje.date(), ate.date())
+    taxa = _taxa_do_indexador(indexador, ate, data_base=hoje)
+    juros = partida * ((1 + taxa) ** (du / 252) - 1)
+
+    alvo = alvo_total * alvo_pct / 100 * 1000
+    return (alvo - partida - juros + vence) / quantos
