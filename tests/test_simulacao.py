@@ -169,13 +169,43 @@ def test_a_celula_sai_em_BILHOES_como_o_resto_da_tabela():
 def tabelas():
     """As tres tabelas, uma vez cada, para os testes de ancora abaixo.
 
-    Montar uma matriz e' caro -- uma emissao_necessaria por celula -- e nao
-    faz sentido pagar esse custo tres vezes por atributo conferido quando os
-    tres papeis cabem numa unica rodada, reaproveitada por teste.
+    Montar as tres tabelas nao faz sentido tres vezes por atributo conferido
+    quando os tres papeis cabem numa unica rodada, reaproveitada por teste --
+    mesmo depois de dados_simulacao ter parado de chamar emissao_necessaria
+    por celula (ver termos_da_simulacao em rolagem.py).
     """
     return {chave: simulacao.dados_simulacao(chave, registros=[])
             for chave in ("prefixado_pct", "indice_precos_pct",
                           "taxa_flutuante_pct")}
+
+
+def test_dados_simulacao_bate_CELULA_A_CELULA_com_emissao_necessaria(tabelas):
+    """A TRAVA desta otimizacao: os numeros nao podem mudar.
+
+    dados_simulacao agora calcula os termos que nao dependem do alvo (estoque
+    de hoje, juros ate 'ate', vencimentos e a contagem de leiloes) UMA VEZ por
+    tabela, e reusa nas ~42 celulas -- em vez de chamar emissao_necessaria do
+    zero em cada uma. emissao_necessaria continua existindo com a MESMA
+    assinatura, e por baixo refaz esses termos sozinha, celula a celula --
+    exatamente o caminho caro de antes da otimizacao.
+
+    Comparar as duas, para TODAS as celulas das TRES tabelas, prova que
+    reusar os termos nao mudou nenhum numero: se dados_simulacao vazasse um
+    termo de uma tabela para outra, ou parasse de repassar 'hoje'/'ate'
+    corretamente, alguma celula divergiria aqui. A igualdade e EXATA -- as
+    duas contas fazem os MESMOS floats na MESMA ordem de operacoes -- e nao
+    aproximada, porque uma tolerancia esconderia justamente o tipo de desvio
+    minusculo que uma reordenacao de operacoes de ponto flutuante produziria.
+    """
+    for chave, d in tabelas.items():
+        indexador = d.attrs["indexador"]
+        hoje, ate = d.attrs["hoje"], d.attrs["ate"]
+        for pct in d.index:
+            for total in d.columns:
+                esperado = rolagem.emissao_necessaria(
+                    indexador, pct, total, hoje=hoje, ate=ate,
+                    registros=[]) / 1000
+                assert d.at[pct, total] == esperado, (chave, pct, total)
 
 
 def test_o_indexador_bate_com_a_chave_pedida(tabelas):

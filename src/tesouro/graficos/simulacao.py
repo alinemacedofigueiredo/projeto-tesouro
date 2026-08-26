@@ -90,9 +90,19 @@ def dados_simulacao(chave, hoje=None, ate=None, registros=None):
     projetado_total = float(p["estoque"].sum()) / 1000
 
     linhas, colunas = eixos(chave, projetado_pct, projetado_total, ate.year)
+
+    # OS TERMOS QUE NAO MUDAM POR CELULA, calculados UMA VEZ para a tabela
+    # inteira. Antes, cada uma das ~42 celulas chamava emissao_necessaria, que
+    # refazia estoque_em (quatro CSVs por baixo), fluxos.pagos e a contagem de
+    # leiloes do zero -- so o alvo varia de celula para celula. Medido: 338 s
+    # para gerar paf.html (126 chamadas, tres tabelas) contra cerca de 24 s
+    # depois. A formula da celula mora so em rolagem.emissao_a_partir_dos_
+    # termos -- a mesma que emissao_necessaria chama -- para nao duplicar a
+    # conta aqui (ver o docstring dela sobre o defeito da premissa copiada).
+    termos = rolagem.termos_da_simulacao(indexador, hoje=hoje, ate=ate,
+                                         registros=registros)
     matriz = pd.DataFrame(
-        [[rolagem.emissao_necessaria(indexador, pct, total, hoje=hoje,
-                                     ate=ate, registros=registros) / 1000
+        [[rolagem.emissao_a_partir_dos_termos(termos, pct, total) / 1000
           for total in colunas]
          for pct in linhas],
         index=linhas, columns=colunas)

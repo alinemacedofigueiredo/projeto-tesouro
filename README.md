@@ -84,7 +84,7 @@ porque não são do RMD — elas mudam em ritmos próprios:
 
 | arquivo | tamanho | o que leva | muda quando |
 |---|---|---|---|
-| `data/processed/paf.html` | 0,01 MB | onde a dívida está hoje contra a banda do PAF, e onde o ano fecha no ritmo atual | a cada leilão liquidado |
+| `data/processed/paf.html` | 0,02 MB | onde a dívida está hoje contra a banda do PAF, onde o ano fecha no ritmo atual, e o que fazer para chegar lá | a cada leilão liquidado |
 | `data/processed/calendario.html` | 0,19 MB | a agenda do que o Tesouro planeja ofertar | a cada publicação do calendário |
 | `data/processed/emissoes.html` | 6,78 MB | o que já foi emitido (só venda, com 2ª volta) | a cada leilão |
 | `data/processed/emissoes-1a-volta.html` | 6,79 MB | idem, só 1ª volta | a cada leilão |

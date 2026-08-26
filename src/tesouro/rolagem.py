@@ -24,6 +24,8 @@ mes seguinte -- casar por data de leilao erra exatamente as viradas de mes, que 
 onde o RMD corta.
 """
 
+import collections
+
 import pandas as pd
 
 from . import calendario, config, curva, leiloes_dv
@@ -502,23 +504,26 @@ def _taxa_do_indexador(indexador, ate, data_base=None):
     return _CARGA_DO_PREFIXADO
 
 
-def emissao_necessaria(indexador, alvo_pct, alvo_total, hoje=None, ate=None,
-                       registros=None):
-    """Quanto emitir POR LEILAO daquele papel para o alvo sair em 'ate'.
+# Os termos de emissao_necessaria QUE NAO DEPENDEM DO ALVO -- so de indexador,
+# hoje, ate e registros. 'quantos' ja vem sem cheirar problema: ver a guarda em
+# termos_da_simulacao, que levanta antes de devolver um valor que dividiria por
+# zero.
+TermosDaSimulacao = collections.namedtuple(
+    "TermosDaSimulacao", ["hoje", "ate", "partida", "juros", "vence", "quantos"])
 
-    'alvo_pct' em pontos percentuais (22 e 22%), 'alvo_total' em R$ BILHOES, e o
-    retorno em R$ MILHOES por leilao -- a mesma unidade de pace(), para os dois
-    poderem ser comparados sem conversao no meio do caminho.
 
-    A conta:
+def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
+    """Os termos de emissao_necessaria que NAO MUDAM com o alvo.
 
-        alvo       = alvo_total x alvo_pct
-        emissao    = alvo - estoque_hoje - juros + vencimentos_e_cupons
-        por_leilao = emissao / leiloes_que_faltam
+    Uma tabela da simulacao tem ~42 celulas, e cada uma pedia a
+    emissao_necessaria inteira: estoque_em (que le quatro CSVs por baixo),
+    fluxos.pagos e a contagem de leiloes refeitos do zero 42 vezes, quando so
+    o alvo varia de celula para celula. Medido: gerar paf.html caiu de 338 s
+    para cerca de 24 s calculando estes termos uma vez por tabela.
 
-    PODE SER NEGATIVA, e negativa e resposta: o estoque cresce sozinho pelos
-    juros, e quando o alvo esta abaixo de onde ele vai parar, nem parando de
-    emitir se chega la. O numero diz o tamanho do resgate que faltaria.
+    Devolvido junto com 'hoje' e 'ate' normalizados -- para emissao_a_partir_
+    dos_termos nao precisar adivinhar em que unidade a chamada original
+    resolveu o default de cada um.
     """
     from . import calendario_leiloes, fluxos
 
@@ -545,5 +550,46 @@ def emissao_necessaria(indexador, alvo_pct, alvo_total, hoje=None, ate=None,
     taxa = _taxa_do_indexador(indexador, ate, data_base=hoje)
     juros = partida * ((1 + taxa) ** (du / 252) - 1)
 
+    return TermosDaSimulacao(hoje=hoje, ate=ate, partida=partida, juros=juros,
+                             vence=vence, quantos=quantos)
+
+
+def emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total):
+    """A aritmetica de UMA celula, dados os termos que a tabela inteira reusa.
+
+    A UNICA formula de emissao_necessaria: ela tambem chama esta funcao, e nao
+    duplica a conta. Este projeto ja teve um defeito exatamente desse formato
+    -- a premissa de juros copiada entre projecao e emissao_necessaria -- que
+    so fechou unificando numa fonte so (_taxa_do_indexador). Duplicar aqui a
+    conta de 'alvo' e a divisao final repetiria o mesmo risco: uma mudanca de
+    formula feita num lugar e esquecida no outro.
+    """
     alvo = alvo_total * alvo_pct / 100 * 1000
-    return (alvo - partida - juros + vence) / quantos
+    return (alvo - termos.partida - termos.juros + termos.vence) / termos.quantos
+
+
+def emissao_necessaria(indexador, alvo_pct, alvo_total, hoje=None, ate=None,
+                       registros=None):
+    """Quanto emitir POR LEILAO daquele papel para o alvo sair em 'ate'.
+
+    'alvo_pct' em pontos percentuais (22 e 22%), 'alvo_total' em R$ BILHOES, e o
+    retorno em R$ MILHOES por leilao -- a mesma unidade de pace(), para os dois
+    poderem ser comparados sem conversao no meio do caminho.
+
+    A conta:
+
+        alvo       = alvo_total x alvo_pct
+        emissao    = alvo - estoque_hoje - juros + vencimentos_e_cupons
+        por_leilao = emissao / leiloes_que_faltam
+
+    PODE SER NEGATIVA, e negativa e resposta: o estoque cresce sozinho pelos
+    juros, e quando o alvo esta abaixo de onde ele vai parar, nem parando de
+    emitir se chega la. O numero diz o tamanho do resgate que faltaria.
+
+    Chama termos_da_simulacao e emissao_a_partir_dos_termos por dentro -- quem
+    precisa da tabela inteira (dados_simulacao) chama os dois separados, uma
+    vez so, em vez de pagar de novo os termos que nao mudam por celula.
+    """
+    termos = termos_da_simulacao(indexador, hoje=hoje, ate=ate,
+                                 registros=registros)
+    return emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total)
