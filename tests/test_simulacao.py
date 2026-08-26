@@ -1,8 +1,8 @@
-"""A simulacao: quanto emitir por leilao para chegar a cada alvo."""
+﻿"""A simulacao: quanto emitir por leilao para chegar a cada alvo."""
 import pandas as pd
 import pytest
 
-from tesouro import calendario_leiloes, rolagem
+from tesouro import api_leiloes, calendario_leiloes, rolagem
 from tesouro.graficos import paf, simulacao
 
 
@@ -241,3 +241,28 @@ def test_os_leiloes_batem_com_leiloes_que_faltam(tabelas):
             d.attrs["ate"], registros=[], hoje=d.attrs["hoje"])
         esperado = rolagem.leiloes_que_faltam(dias, d.attrs["indexador"])
         assert d.attrs["leiloes"] == esperado, chave
+
+
+def test_busca_calendario_uma_unica_vez_por_pagina(monkeypatch):
+    """A corre\u00e7\u00e3o resolveu registros UMA VEZ no topo e repassou.
+
+    dados_simulacao com registros=None e' o caminho de produ\u00e7\u00e3o. Antes,
+    cada c\u00e9lula chamava emissao_necessaria -> dias_ate -> buscar("calendario")
+    na API do Tesouro. Com ~40 c\u00e9lulas x 3 tabelas, eram cem+ buscas
+    id\u00eanticas para uma p\u00e1gina.
+
+    A corre\u00e7\u00e3o mudou o CUSTO, n\u00e3o o resultado: a mesma lista que cada
+    um buscaria sozinho. Logo nenhum teste de VALOR a protege. Sem este teste
+    de contagem, um refactor futuro volta a buscar por c\u00e9lula em sil\u00eancio.
+    """
+    chamadas = []
+
+    def mock_buscar(nome, timeout=None):
+        chamadas.append(nome)
+        return [], b""
+
+    monkeypatch.setattr(api_leiloes, "buscar", mock_buscar)
+    simulacao.dados_simulacao("prefixado_pct")
+    assert len(chamadas) <= 1, (
+        f"registros=None deve buscar no m\u00e1ximo uma vez; "
+        f"foram {len(chamadas)} chamadas")
