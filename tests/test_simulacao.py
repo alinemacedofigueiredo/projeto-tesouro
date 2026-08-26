@@ -1,4 +1,4 @@
-﻿"""A simulacao: quanto emitir por leilao para chegar a cada alvo."""
+"""A simulacao: quanto emitir por leilao para chegar a cada alvo."""
 import pandas as pd
 import pytest
 
@@ -266,3 +266,64 @@ def test_busca_calendario_uma_unica_vez_por_pagina(monkeypatch):
     assert len(chamadas) <= 1, (
         f"registros=None deve buscar no m\u00e1ximo uma vez; "
         f"foram {len(chamadas)} chamadas")
+
+
+def test_a_tabela_marca_a_celula_do_projetado():
+    d = simulacao.dados_simulacao("prefixado_pct", registros=[])
+    html = simulacao.tabela(d)
+    assert html.count('class="marca"') == 1, (
+        "exatamente uma celula e a do projetado")
+
+
+def test_a_tabela_pinta_o_negativo_de_vermelho_com_o_sinal():
+    """Decisao dela: so o numero em vermelho, com o menos na frente.
+
+    Sem icone, sem hachura, sem palavra. A magnitude e a informacao.
+    """
+    d = simulacao.dados_simulacao("taxa_flutuante_pct", registros=[])
+    html = simulacao.tabela(d)
+    negativas = (d < 0).sum().sum()
+    assert negativas > 0, "a taxa flutuante tem de ter celula negativa hoje"
+    assert html.count('class="negativo"') == negativas
+    assert "-" in html
+    # E nada de palavra no lugar do numero.
+    assert "impossivel" not in html.lower()
+
+
+def test_o_rodape_avisa_que_as_TRES_TABELAS_sao_independentes():
+    """Spec 2: o custo da escolha dela precisa estar escrito.
+
+    Tres tabelas independentes e a forma mais legivel, e ela escolheu sabendo
+    do preco: elas nao sao necessariamente compativeis entre si. Ler "prefixado
+    22% pede X" e "indice de precos 25% pede Y" e fazer as duas coisas pode nao
+    dar o total escolhido.
+
+    Isso nao aparece em nenhum numero da tela -- so no texto. Se sair do texto,
+    some.
+    """
+    d = simulacao.dados_simulacao("prefixado_pct", registros=[])
+    html = simulacao.tabela(d)
+    assert "independentes" in html
+    assert "total escolhido" in html
+
+
+def test_a_tabela_marca_as_linhas_da_BANDA():
+    d = simulacao.dados_simulacao("prefixado_pct", registros=[])
+    html = simulacao.tabela(d)
+    lo, hi = d.attrs["banda"]
+    dentro = [x for x in d.index if lo <= x <= hi]
+    assert html.count('class="na-banda"') == len(dentro)
+
+
+def test_o_rodape_separa_o_RITMO_ATUAL_da_celula_marcada():
+    """A armadilha de \u00a76.1 da spec, travada no texto.
+
+    A celula marcada nao e o ritmo atual, e no indice de precos a diferenca e de
+    sete vezes. O rodape tem de trazer o ritmo em numero, separado, com essas
+    palavras -- senao a pagina mente sem errar uma conta.
+    """
+    d = simulacao.dados_simulacao("indice_precos_pct", registros=[])
+    html = simulacao.tabela(d)
+    assert "ritmo de hoje" in html
+    assert simulacao._numero_br(d.attrs["ritmo_atual"]) in html
+    assert "para c\u00e1 leva" in html or "leva o ritmo" in html

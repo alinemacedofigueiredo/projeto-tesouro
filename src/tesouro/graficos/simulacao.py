@@ -116,3 +116,89 @@ def dados_simulacao(chave, hoje=None, ate=None, registros=None):
     matriz.attrs["hoje"] = hoje
     matriz.attrs["ate"] = ate
     return matriz
+
+
+def _numero_br(valor, casas=2):
+    """O numero em pt-BR. Delegado a banda._numero, para as duas tabelas da
+    pagina escreverem numero do mesmo jeito."""
+    from . import banda
+    return banda._numero(valor, casas)
+
+
+def tabela(dados):
+    """Uma tabela da simulacao, em HTML.
+
+    Tres decisoes dela, escritas aqui:
+    1. A celula negativa e so o numero em vermelho, com o sinal de menos na
+       frente -- sem icone, sem hachura, sem palavra.
+    2. A celula do projetado (a "marca") sai colorida, nas tres tabelas.
+    3. O rodape traz o ritmo atual em numero, separado da celula marcada --
+       que NAO e o ritmo atual, e sim quanto emitir para cair no ponto
+       arredondado da grade.
+    """
+    lo, hi = dados.attrs["banda"]
+    marca_linha, marca_coluna = dados.attrs["marca"]
+
+    cabecalho = ("<tr><th>% do papel</th>"
+                 + "".join(f'<th class="n">{_numero_br(c, 0)}</th>'
+                           for c in dados.columns)
+                 + "</tr>")
+
+    linhas = []
+    for pct in dados.index:
+        classe_tr = ' class="na-banda"' if lo <= pct <= hi else ""
+        celulas = []
+        for total in dados.columns:
+            v = dados.at[pct, total]
+            e_marca = pct == marca_linha and total == marca_coluna
+            texto = _numero_br(v)
+            if v < 0:
+                texto = f'<span class="negativo">{texto}</span>'
+            # A marca fica na classe DO TD -- o CSS aplica o contorno na
+            # celula inteira. O negativo fica num span DENTRO do TD -- so o
+            # numero fica vermelho. As duas nao dividem um atributo: cada
+            # teste conta a classe dele sozinha, e um "class='n negativo'"
+            # combinado nunca bateria com a contagem exata que os testes
+            # pedem.
+            classe_td = "marca" if e_marca else "n"
+            celulas.append(f'<td class="{classe_td}">{texto}</td>')
+        linhas.append(
+            f'<tr{classe_tr}><th class="pct">{_numero_br(pct, 0)}%</th>'
+            + "".join(celulas) + "</tr>")
+
+    rodape = (
+        f"{dados.attrs['rotulo']}: banda de {_numero_br(lo, 0)} a "
+        f"{_numero_br(hi, 0)}%, {dados.attrs['leiloes']} leil\u00e3o(oes) "
+        f"at\u00e9 {dados.attrs['ate']:%d/%m/%Y}. "
+        f"A c\u00e9lula destacada \u00e9 <b>para c\u00e1 leva o ritmo de "
+        f"hoje</b> ({_numero_br(dados.attrs['projetado_pct'])}% de R$ "
+        f"{_numero_br(dados.attrs['projetado_total'], 0)} bi) \u2014 e "
+        f"<b>n\u00e3o</b> o que se emite hoje, que \u00e9 de R$ "
+        f"{_numero_br(dados.attrs['ritmo_atual'])} bi por leil\u00e3o. Os "
+        f"dois diferem porque a grade arredonda os dois eixos. "
+        f"N\u00famero negativo quer dizer que nem parando de emitir se "
+        f"chega ao alvo: faltaria resgatar. "
+        f"<b>As tr\u00eas tabelas s\u00e3o independentes:</b> cada uma "
+        f"responde \u00e0 sua pergunta sozinha, e fazer o que duas delas "
+        f"pedem ao mesmo tempo pode n\u00e3o produzir o total escolhido.")
+
+    ident = "simulacao-" + dados.attrs["chave"].replace("_", "-")
+    return (f'<div class="simulacao" id="{ident}">'
+            f"<h3>{dados.attrs['rotulo']}</h3>"
+            f"<table>{cabecalho}{''.join(linhas)}</table>"
+            f'<p class="rodape">{rodape}</p></div>')
+
+
+_CSS = """
+.simulacao { margin: 22px auto 34px; max-width: 1180px; }
+.simulacao h3 { font-size: 15px; margin: 0 0 8px; }
+.simulacao table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.simulacao th, .simulacao td { padding: 5px 9px; text-align: left;
+  border-bottom: 1px solid #eee; }
+.simulacao th.pct { font-weight: 600; }
+.simulacao td.n, .simulacao th.n { text-align: right;
+  font-variant-numeric: tabular-nums; }
+.simulacao tr.na-banda { background: #f6f8fb; }
+.simulacao td.negativo, .simulacao span.negativo { color: #b03030; }
+.simulacao td.marca { outline: 2px solid #2b6cb0; font-weight: 600; }
+"""
