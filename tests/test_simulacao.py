@@ -2,8 +2,8 @@
 import pandas as pd
 import pytest
 
-from tesouro import rolagem
-from tesouro.graficos import simulacao
+from tesouro import calendario_leiloes, rolagem
+from tesouro.graficos import paf, simulacao
 
 
 def test_os_eixos_contem_a_BANDA_inteira():
@@ -132,13 +132,19 @@ def test_a_celula_marcada_NAO_e_o_ritmo_atual():
     assert d.attrs["ritmo_atual"] == pytest.approx(esperado, rel=1e-9)
 
 
-def test_a_matriz_cresce_nos_dois_eixos():
-    d = simulacao.dados_simulacao("prefixado_pct", registros=[])
+def test_a_matriz_cresce_nos_dois_eixos(tabelas):
+    """CRESCE, e nao 'nao decresce'.
+
+    is_monotonic_increasing do pandas aceita [5,5,5,5] como crescente. O
+    revisor congelou 'total' no primeiro valor do laco interno -- a matriz
+    inteira fica constante por coluna -- e as duas metades deste teste
+    passavam do jeito antigo. Crescimento ESTRITO e' diff() > 0.
+    """
+    d = tabelas["prefixado_pct"]
     for coluna in d.columns:
-        serie = d[coluna]
-        assert serie.is_monotonic_increasing, f"coluna {coluna}"
+        assert (d[coluna].diff().dropna() > 0).all(), f"coluna {coluna}"
     for linha in d.index:
-        assert d.loc[linha].is_monotonic_increasing, f"linha {linha}"
+        assert (d.loc[linha].diff().dropna() > 0).all(), f"linha {linha}"
 
 
 def test_a_celula_sai_em_BILHOES_como_o_resto_da_tabela():
@@ -157,3 +163,81 @@ def test_a_celula_sai_em_BILHOES_como_o_resto_da_tabela():
     # E a ordem de grandeza bate com o ritmo, que tambem esta em bilhoes.
     assert abs(d.at[linha, coluna]) < 100, (
         "celula em bilhoes nao passa de dois digitos com o dado de hoje")
+
+
+@pytest.fixture(scope="module")
+def tabelas():
+    """As tres tabelas, uma vez cada, para os testes de ancora abaixo.
+
+    Montar uma matriz e' caro -- uma emissao_necessaria por celula -- e nao
+    faz sentido pagar esse custo tres vezes por atributo conferido quando os
+    tres papeis cabem numa unica rodada, reaproveitada por teste.
+    """
+    return {chave: simulacao.dados_simulacao(chave, registros=[])
+            for chave in ("prefixado_pct", "indice_precos_pct",
+                          "taxa_flutuante_pct")}
+
+
+def test_o_indexador_bate_com_a_chave_pedida(tabelas):
+    """O vinculo chave -> indexador, ancorado em valor concreto.
+
+    Achado da revisao da rodada 1: o revisor forcou 'indexador' a ser sempre
+    "Prefixado" e chamou dados_simulacao("indice_precos_pct", ...). Saiu uma
+    tabela inteira com os numeros do prefixado, rotulada "indice de precos"
+    -- porque rotulo e banda sao indexados por CHAVE e nao por indexador, e
+    nada conferia que os dois concordam. Os cinco testes daquela rodada
+    passaram todos.
+
+    Comparar contra rolagem.INDEXADOR_DA_CHAVE seria tautologico: e' a mesma
+    linha que dados_simulacao roda por dentro. Por isso os valores abaixo sao
+    literais, escritos a mao -- feito para os TRES indexadores, nao so um.
+    """
+    esperado = {
+        "prefixado_pct": "Prefixado",
+        "indice_precos_pct": "\u00cdndice Pre\u00e7os",
+        "taxa_flutuante_pct": "Taxa Flutuante",
+    }
+    for chave, indexador in esperado.items():
+        assert tabelas[chave].attrs["indexador"] == indexador, chave
+
+
+def test_a_chave_e_o_rotulo_batem_com_o_pedido(tabelas):
+    """attrs['chave'] e attrs['rotulo'], contra o que foi PEDIDO.
+
+    Nao contra o dicionario interno de simulacao (_ROTULO): se ele estivesse
+    errado, ler dele para afirmar e' o mesmo bug se confirmando sozinho. Os
+    valores abaixo sao literais.
+    """
+    esperado = {
+        "prefixado_pct": "Prefixado",
+        "indice_precos_pct": "\u00cdndice de pre\u00e7os",
+        "taxa_flutuante_pct": "Taxa flutuante",
+    }
+    for chave, rotulo in esperado.items():
+        assert tabelas[chave].attrs["chave"] == chave
+        assert tabelas[chave].attrs["rotulo"] == rotulo, chave
+
+
+def test_a_banda_bate_com_paf_bandas(tabelas):
+    """A banda de cada tabela, conferida contra paf.bandas -- por fora.
+
+    Uma banda com minimo e maximo invertidos, ou lida do ano errado, nao muda
+    nenhuma celula da matriz: sem esta conferencia passaria batida.
+    """
+    for chave, d in tabelas.items():
+        b = paf.bandas(chave).loc[d.attrs["ate"].year]
+        assert d.attrs["banda"] == (float(b["minimo"]), float(b["maximo"])), chave
+
+
+def test_os_leiloes_batem_com_leiloes_que_faltam(tabelas):
+    """attrs['leiloes'], recontado por fora com o mesmo par (dias, indexador).
+
+    A Task 4 usa este numero na contagem do rodape. Um leiloes_que_faltam
+    chamado com o indexador errado, ou com um recorte de dias diferente do
+    que a tabela usou, muda este numero sem mudar nenhuma celula da matriz.
+    """
+    for chave, d in tabelas.items():
+        dias, _ = calendario_leiloes.dias_ate(
+            d.attrs["ate"], registros=[], hoje=d.attrs["hoje"])
+        esperado = rolagem.leiloes_que_faltam(dias, d.attrs["indexador"])
+        assert d.attrs["leiloes"] == esperado, chave

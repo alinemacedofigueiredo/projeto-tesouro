@@ -73,6 +73,18 @@ def dados_simulacao(chave, hoje=None, ate=None, registros=None):
     ate = pd.Timestamp(ate) if ate is not None \
         else pd.Timestamp(f"{hoje.year}-12-31")
 
+    # BUSCA UMA VEZ SO. Com registros=None -- o default de producao -- cada
+    # celula da grade chamava emissao_necessaria, que chamava dias_ate, que
+    # buscava o calendario NA API do Tesouro de novo: umas quarenta celulas
+    # vezes tres tabelas, mais de cem buscas identicas para montar UMA pagina.
+    # Os testes sempre passam registros=[] e por isso nunca passaram por aqui
+    # -- achado da revisao da rodada 1. Resolver aqui, uma vez, e repassar a
+    # lista concreta para projecao/emissao_necessaria/dias_ate muda o CUSTO,
+    # nao o resultado: e a mesma lista que cada um buscaria sozinho.
+    if registros is None:
+        from .. import api_leiloes
+        registros, _ = api_leiloes.buscar("calendario")
+
     p = rolagem.projecao(ate, registros=registros, hoje=hoje)
     projetado_pct = float(p["percentual"][indexador])
     projetado_total = float(p["estoque"].sum()) / 1000
