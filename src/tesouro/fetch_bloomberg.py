@@ -375,12 +375,25 @@ def baixar(destino=None):
     cobertos_preco = _meses_cobertos(destino, "bbg_precos_ANDE_*.csv", _PADRAO_ARQ_PRECO)
 
     datas = datas_do_painel()
-    novas_datas = [
-        d for d in datas
-        if (d.year, d.month) not in cobertos_taxa
-        or (d.year, d.month) not in cobertos_vna
-        or (d.year, d.month) not in cobertos_preco
-    ]
+
+    # POR TIPO, E NAO "OU" ENTRE OS TRES. Ate 25/08/2026 um mes entrava na
+    # coleta se faltasse em QUALQUER um dos tres tipos, e os tres eram pedidos
+    # e gravados juntos, com o mesmo nome de periodo.
+    #
+    # Isso quebrava no caso mais natural que existe: taxa e vna coletados em
+    # 17/08/2026, preco NUNCA coletado. Todos os meses "faltavam" (por causa do
+    # preco), baixar() montava o nome do periodo inteiro para os tres, e batia
+    # no FileExistsError que guarda a imutabilidade de data/raw/.
+    #
+    # O invariante fez o trabalho dele -- parou antes de sobrescrever. Mas nao
+    # havia como coletar so o preco, e recoletar os tres triplicaria a consulta
+    # a Bloomberg, que e cara e que ela autoriza caso a caso.
+    faltando = {
+        "taxa": [d for d in datas if (d.year, d.month) not in cobertos_taxa],
+        "vna": [d for d in datas if (d.year, d.month) not in cobertos_vna],
+        "preco": [d for d in datas if (d.year, d.month) not in cobertos_preco],
+    }
+    novas_datas = sorted(set().union(*faltando.values()))
 
     if not novas_datas:
         if not (cobertos_taxa or cobertos_vna or cobertos_preco):
@@ -396,12 +409,24 @@ def baixar(destino=None):
             f"camada de dados (RMD) antes da Bloomberg."
         )
 
-    marca = f"{novas_datas[0]:%Y-%m}_{novas_datas[-1]:%Y-%m}"
-    alvo_taxa = destino / f"bbg_taxas_ANDE_{marca}.csv"
-    alvo_vna = destino / f"bbg_vna_{marca}.csv"
-    alvo_preco = destino / f"bbg_precos_ANDE_{marca}.csv"
-    for alvo in (alvo_taxa, alvo_vna, alvo_preco):
-        if alvo.exists():
+    # CADA TIPO COM O SEU PROPRIO PERIODO. O que ja esta coberto nao ganha
+    # arquivo nem consulta -- alvo None quer dizer "nada a coletar deste tipo".
+    def _alvo(tipo, prefixo):
+        if not faltando[tipo]:
+            return None
+        marca = f"{faltando[tipo][0]:%Y-%m}_{faltando[tipo][-1]:%Y-%m}"
+        return destino / f"{prefixo}{marca}.csv"
+
+    alvo_taxa = _alvo("taxa", "bbg_taxas_ANDE_")
+    alvo_vna = _alvo("vna", "bbg_vna_")
+    alvo_preco = _alvo("preco", "bbg_precos_ANDE_")
+
+    for tipo, alvo in (("taxa", alvo_taxa), ("vna", alvo_vna),
+                       ("preco", alvo_preco)):
+        if alvo is not None and alvo.exists():
+            # O nome computado ja existe sem que _meses_cobertos o tenha lido
+            # -- arquivo de coleta interrompida, ou nome fora do padrao ISO.
+            # Continua parando: a coleta por tipo nao afrouxa a imutabilidade.
             raise FileExistsError(
                 f"{alvo} ja existe; data/raw/ e imutavel por invariante do "
                 f"projeto e este coletor nunca sobrescreve. Se a intencao e "
@@ -409,13 +434,22 @@ def baixar(destino=None):
                 f"mao antes de rodar de novo."
             )
 
-    limite = novas_datas[0]
     papeis = papeis_do_estoque()
-    papeis_novos = papeis[papeis["ultima"] >= limite].reset_index(drop=True)
+
+    def _papeis_de(tipo):
+        """Os papeis vivos a partir do primeiro mes que falta DAQUELE tipo."""
+        if not faltando[tipo]:
+            return None
+        return papeis[papeis["ultima"] >= faltando[tipo][0]].reset_index(
+            drop=True)
+
+    papeis_novos = _papeis_de("taxa")
     # A serie de preco da LFT na Bloomberg e inutilizavel (ver
     # docs/convencoes-dv.md e o docstring de _conteudo_precos) -- nunca
     # pedida.
-    papeis_novos_preco = papeis_novos[papeis_novos["titulo"] != "LFT"]
+    de_preco = _papeis_de("preco")
+    papeis_novos_preco = (None if de_preco is None
+                          else de_preco[de_preco["titulo"] != "LFT"])
 
     # So cria o diretorio de destino depois de confirmar que ha algo
     # para gravar ali -- um destino digitado errado (ou um estoque sem
@@ -425,9 +459,15 @@ def baixar(destino=None):
     blpapi, sessao = _sessao()
     servico = sessao.getService("//blp/refdata")
     try:
-        conteudo_taxa = _conteudo_taxas(papeis_novos, limite, blpapi, sessao, servico)
-        conteudo_vna = _conteudo_vna(novas_datas, blpapi, sessao, servico)
-        conteudo_preco = _conteudo_precos(papeis_novos_preco, limite, blpapi, sessao, servico)
+        # SO SE PEDE O QUE FALTA. Puxar os tres e jogar dois fora nao deixaria
+        # arquivo para tras, mas a consulta -- que e o que custa -- teria sido
+        # feita do mesmo jeito.
+        conteudo_taxa = (None if alvo_taxa is None else _conteudo_taxas(
+            papeis_novos, faltando["taxa"][0], blpapi, sessao, servico))
+        conteudo_vna = (None if alvo_vna is None else _conteudo_vna(
+            faltando["vna"], blpapi, sessao, servico))
+        conteudo_preco = (None if alvo_preco is None else _conteudo_precos(
+            papeis_novos_preco, faltando["preco"][0], blpapi, sessao, servico))
     finally:
         sessao.stop()
 
@@ -437,12 +477,13 @@ def baixar(destino=None):
     # A janela de corrida residual (entre este ponto e a ultima
     # gravacao) esta registrada no docstring do modulo -- deliberadamente
     # nao fechada, ver ali o motivo.
-    gravar_atomico(conteudo_taxa, alvo_taxa)
-    print(f"gravado: {alvo_taxa}")
-    gravar_atomico(conteudo_vna, alvo_vna)
-    print(f"gravado: {alvo_vna}")
-    gravar_atomico(conteudo_preco, alvo_preco)
-    print(f"gravado: {alvo_preco}")
+    for conteudo, alvo in ((conteudo_taxa, alvo_taxa),
+                           (conteudo_vna, alvo_vna),
+                           (conteudo_preco, alvo_preco)):
+        if alvo is None:
+            continue
+        gravar_atomico(conteudo, alvo)
+        print(f"gravado: {alvo}")
 
     return alvo_taxa, alvo_vna, alvo_preco
 

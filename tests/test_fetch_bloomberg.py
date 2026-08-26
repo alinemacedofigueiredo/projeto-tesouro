@@ -503,3 +503,59 @@ def test_baixar_grava_csv_que_parse_bloomberg_le_sem_alteracao(tmp_path, monkeyp
     selic = vna[vna["indice"] == "SELIC"].iloc[0]
     assert ipca["vna"] == pytest.approx(_FATOR_POR_CAMPO["IDX_RATIO"] * 1000, rel=1e-9)
     assert selic["vna"] == pytest.approx(_FATOR_POR_CAMPO["ACCUMULATED_SELIC"] * 1000, rel=1e-9)
+
+def test_baixar_coleta_SO_O_TIPO_que_falta(tmp_path, monkeypatch):
+    """O caso real de 25/08/2026: taxa e vna em disco, preco nunca coletado.
+
+    A conta de "meses faltando" usava OU entre os tres tipos. Com o preco
+    inteiramente ausente, TODOS os meses entravam -- e baixar() tentava
+    regravar tambem a taxa e o vna, batendo no FileExistsError que guarda a
+    imutabilidade de data/raw/.
+
+    O invariante fez o trabalho dele: parou antes de sobrescrever. Mas o efeito
+    era que nao havia como coletar so o preco, e coletar os tres de novo
+    triplicaria a consulta a Bloomberg que ela autorizou.
+
+    Agora a conta e por tipo. Aqui, so o preco e pedido.
+    """
+    chamadas = []
+    _aplicar_dubles(monkeypatch, chamadas_historico=chamadas)
+
+    # Taxa e vna ja cobrem o painel inteiro; preco, nada.
+    _criar_marcador(tmp_path, "bbg_taxas_ANDE_", M1, M3)
+    _criar_marcador(tmp_path, "bbg_vna_", M1, M3)
+
+    alvo_taxa, alvo_vna, alvo_preco = fetch_bloomberg.baixar(destino=tmp_path)
+
+    assert alvo_taxa is None, "a taxa ja esta coberta e nao pode ser repuxada"
+    assert alvo_vna is None, "o vna ja esta coberto e nao pode ser repuxado"
+    assert alvo_preco is not None and alvo_preco.exists()
+    assert alvo_preco.name == "bbg_precos_ANDE_2023-01_2023-03.csv"
+
+    # E A CONSULTA A BLOOMBERG SO PEDIU PRECO. Sem isto o teste passaria com
+    # um baixar() que puxa os tres e joga dois fora -- o arquivo nao apareceria,
+    # mas a consulta teria sido feita, que e o que custa.
+    campos = {campo for _, campo, _, _ in chamadas}
+    assert fetch_bloomberg.CAMPO_TAXA not in campos, (
+        "pediu taxa a Bloomberg mesmo com o periodo ja coberto")
+
+
+def test_baixar_ainda_recusa_sobrescrever_o_tipo_que_ja_existe(tmp_path,
+                                                               monkeypatch):
+    """A coleta por tipo nao pode ter afrouxado o invariante de data/raw/.
+
+    Se o arquivo do tipo que falta ja existir com o nome computado -- uma
+    coleta anterior interrompida, por exemplo -- baixar() continua parando em
+    vez de sobrescrever.
+    """
+    _aplicar_dubles(monkeypatch)
+    _criar_marcador(tmp_path, "bbg_taxas_ANDE_", M1, M3)
+    _criar_marcador(tmp_path, "bbg_vna_", M1, M3)
+    # O nome que o preco receberia, ja ocupado por um arquivo que NAO
+    # reivindica cobrir o periodo (nome fora do padrao lido por
+    # _meses_cobertos seria ignorado, entao usa-se o proprio nome-alvo).
+    (tmp_path / "bbg_precos_ANDE_2023-01_2023-03.csv").write_text(
+        "cabecalho\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="nada novo"):
+        fetch_bloomberg.baixar(destino=tmp_path)
