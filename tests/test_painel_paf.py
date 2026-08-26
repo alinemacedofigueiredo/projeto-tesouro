@@ -1,4 +1,5 @@
 """A pagina contra o PAF: distancia, projecao e o arquivo."""
+import os
 import pathlib
 
 import re
@@ -209,13 +210,14 @@ def pagina(tmp_path_factory):
     return painel_paf.grava(destino).read_text(encoding="utf-8")
 
 
-def test_a_pagina_tem_os_DOIS_blocos_recolhiveis(pagina):
-    # Eram tres na primeira versao da spec. O historico saiu por decisao dela: era
-    # analise, e nao monitoramento.
+def test_a_pagina_tem_os_TRES_blocos_recolhiveis(pagina):
+    # Eram tres na primeira versao da spec, cairam para dois quando o historico
+    # saiu por decisao dela -- era analise, e nao monitoramento -- e voltaram a
+    # tres com a Task 5, que acrescentou o bloco da simulacao.
     import re
 
     corpo = pagina[pagina.index("</header>"):pagina.rindex("</main>")]
-    assert corpo.count("<details class=\"secao") == 2
+    assert corpo.count("<details class=\"secao") == 3
     # ASPAS SIMPLES: quem escreve o id e banda.tabela(), que monta a tabela com
     # aspas simples. O brief pedia aspas duplas aqui; a producao e que manda.
     assert "id='tabela-hoje'" in pagina
@@ -654,3 +656,55 @@ def test_a_pagina_aceita_um_HOJE_que_nao_e_data_de_RMD(tmp_path):
     assert projetado.attrs["premissa"]["de"] == hoje, (
         "a projecao tem de partir do 'hoje' que recebeu, e nao da ultima "
         "liquidacao")
+
+
+def test_a_pagina_tem_TRES_blocos_recolhiveis(pagina):
+    corpo = pagina[pagina.index("</header>"):pagina.rindex("</main>")]
+    assert corpo.count('<details class="secao') == 3
+
+
+def test_o_bloco_da_simulacao_tem_as_TRES_tabelas(pagina):
+    for chave in ("prefixado-pct", "indice-precos-pct", "taxa-flutuante-pct"):
+        assert f'id="simulacao-{chave}"' in pagina, chave
+
+
+def test_a_pagina_e_reprodutivel_entre_processos(tmp_path):
+    """Spec 8, teste 6. Duas geracoes, o mesmo HTML.
+
+    Ja quebrou neste projeto: iterar um `set` de ISINs produzia ordem diferente
+    a cada processo (PYTHONHASHSEED), e os SVGs saiam diferentes sem nada ter
+    mudado no dado. A simulacao itera INDEXADOR_DA_CHAVE, que e dict -- ordem de
+    insercao, estavel -- mas isso e propriedade que se perde sem aviso.
+
+    EM DOIS PROCESSOS, e nao duas chamadas no mesmo: o embaralhamento por
+    hash so muda entre processos.
+    """
+    import subprocess
+    import sys
+
+    codigo = (
+        "from tesouro.graficos import painel_paf;"
+        "import hashlib, pathlib;"
+        "c = painel_paf.grava(pathlib.Path(r'%s') / 'p.html', registros=[]);"
+        "print(hashlib.sha256(c.read_bytes()).hexdigest())")
+
+    saidas = []
+    for k in range(2):
+        destino = tmp_path / str(k)
+        destino.mkdir()
+        r = subprocess.run([sys.executable, "-c", codigo % destino],
+                           capture_output=True, text=True,
+                           env={**os.environ, "PYTHONPATH": "src"})
+        assert r.returncode == 0, r.stderr[-600:]
+        saidas.append(r.stdout.strip())
+
+    assert saidas[0] == saidas[1], "a pagina saiu diferente em dois processos"
+
+
+def test_a_pagina_continua_cabendo_no_limiar(tmp_path):
+    from tesouro.graficos import painel_paf
+
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
+    tamanho = caminho.stat().st_size
+    assert tamanho > 20_000, "a pagina com tres blocos nao pode encolher"
+    assert tamanho < 10 * 1024 * 1024
