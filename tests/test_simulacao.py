@@ -32,3 +32,20 @@ def test_os_eixos_tem_passo_regular():
     assert all(b - a == 1 for a, b in zip(linhas, linhas[1:]))
     assert all(b - a == simulacao.PASSO_TOTAL
                for a, b in zip(colunas, colunas[1:]))
+
+
+def test_os_eixos_contem_PROJETADO_abaixo_da_banda():
+    """Caso sintetico: projetado bem abaixo da banda.
+
+    Nenhum indicador real de hoje projeta tao abaixo da sua banda. Por isso
+    usamos valores sinteticos em vez de esperar que o dado real produza este
+    ramo -- deixar essa logica sem teste e descobrir que falha quando importar e
+    ja for tarde.
+
+    Banda prefixado 21-25, projetado sintetico 18,5. O piso da grade com margem
+    e 21 - 1 = 20. O floor do projetado e 18. O min(20, 18) deve ser 18, e as
+    linhas devem comecar ali.
+    """
+    linhas, _ = simulacao.eixos("prefixado_pct", 18.5, 9947, 2026)
+    assert min(linhas) <= 18, f"18,5% tem de caber; linhas foram {linhas}"
+    assert max(linhas) >= 21, "a banda 21-25 continua tendo de caber"
