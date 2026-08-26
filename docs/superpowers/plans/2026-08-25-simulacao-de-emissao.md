@@ -12,7 +12,8 @@
 
 ## Restrições globais
 
-- **Nada de acento em código-fonte, comentário ou docstring.** Texto que vai para a tela usa escape `\uXXXX`. **NÃO desacentue strings usadas como dado** — rótulo de indexador desacentuado vira filtro que não casa e o termo vai a zero em silêncio (ruling 4 da entrega 4).
+- **Nada de acento LITERAL em código-fonte, comentário ou docstring** — há um teste que trava isso (`test_todo_o_projeto_e_ascii`). Onde o texto precisa sair acentuado, use escape `\uXXXX`: o fonte fica ASCII **e** o valor sai acentuado em execução. As duas coisas ao mesmo tempo, sem escolher.
+- **Isso vale também para strings usadas como DADO** — rótulo de indexador, chave de filtro. O VALOR delas tem de bater com a coluna do CSV, então continua acentuado; o que muda é só como se escreve no fonte. Desacentuar o valor faz o filtro não casar e o termo ir a zero em silêncio (ruling 4 da entrega 4); escrever com acento literal quebra o teste de estilo. O escape resolve os dois.
 - **Gravar arquivo:** `caminho.write_bytes(texto.encode("utf-8"))`. `write_text` deste ambiente trunca antes de codificar e já zerou três arquivos.
 - **Testes com dentes:** antes de dar um teste por pronto, quebre a linha que ele protege e confirme o vermelho.
 - **Determinismo:** nada de iterar `set`, nada de `pd.Timestamp.today()` em teste.

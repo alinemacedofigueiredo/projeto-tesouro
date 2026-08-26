@@ -116,15 +116,31 @@ caber. A tabela da página traz a banda inteira mais 1 pp de cada lado.
 
 ```
    %  |   9.500   9.700   9.900  10.100  10.300  10.500
-  20  |     3,6     6,0     8,3    10,7    13,0    15,4
-  21  |     9,2    11,7    14,1    16,6    19,1    21,6   <- banda
-  22  |    14,8    17,4    20,0    22,6    25,1    27,7   <- banda
-  23  |    20,4    23,1    25,8    28,5    31,2    33,9   <- banda
+  20  |     2,7     5,1     7,4     9,8    12,1    14,5
+  21  |     8,3    10,8    13,3    15,7    18,2    20,7   <- banda
+  22  |    13,9    16,5    19,1    21,7    24,3    26,9   <- banda
+  23  |    19,5    22,2    24,9    27,6    30,3    33,0   <- banda
 ```
 
 **Nenhuma das 30 células da banda é negativa.** O prefixado está a um passo: manter o
-ritmo de hoje leva a 21,10% (projeção da entrega 4), e 21% de 9.900 pede 14,1 contra
-os 14,43 atuais. Entrar na banda custa quase nada; subir dentro dela custa caro.
+ritmo de hoje leva a 21,10% (projeção da entrega 4), e 21% de 9.900 pede **13,3**
+contra os 14,43 atuais — dá para chegar lá emitindo um pouco **menos** do que já se
+emite. Entrar na banda custa quase nada; subir dentro dela custa caro.
+
+> **Correção de 26/08/2026.** A primeira versão desta tabela publicava valores
+> ~0,87 bi mais altos em toda linha (13,3 aparecia como 14,1). A causa: o termo de
+> juros saiu de um rascunho com 67,3 bi, calculado a partir da data-base do RMD, em
+> vez dos 82,2 bi que o código usa, calculados da última liquidação. As tabelas de
+> §4.2 e §4.3 foram recalculadas e batem célula a célula com o código; esta não
+> tinha sido.
+>
+> O número certo — 13,266846 — chegou a ser medido durante a implementação e
+> registrado no ledger, sem que ninguém voltasse para corrigir aqui. Uma spec que
+> abre dizendo "escrita depois de medir cada número que ela afirma" carregou por um
+> dia um número com cara de medido que o código contradizia em 6%.
+>
+> A conclusão não muda: entrar na banda continua custando quase nada, e agora custa
+> ainda menos do que a spec dizia.
 
 ### 4.2 Índice de preços — banda 23 a 27%, ritmo 2,04 bi/leilão
 
@@ -204,7 +220,7 @@ coordenadas, e a sensibilidade é alta. Medido em 26/08/2026:
 
 | indicador | célula marcada | ritmo de hoje |
 |---|---|---|
-| Prefixado | 14,1 | 14,43 |
+| Prefixado | 13,3 | 14,43 |
 | Índice de preços | **0,3** | **2,04** |
 | Taxa flutuante | 20,0 | 23,02 |
 

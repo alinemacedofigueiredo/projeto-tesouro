@@ -24,6 +24,8 @@ mes seguinte -- casar por data de leilao erra exatamente as viradas de mes, que 
 onde o RMD corta.
 """
 
+import collections
+
 import pandas as pd
 
 from . import calendario, config, curva, leiloes_dv
@@ -444,12 +446,13 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
         base = float(inicial[ind])
         do_ind = pagou[pagou["indexador"] == ind]
         pago = do_ind["principal_milhoes"].sum() + do_ind["cupom_milhoes"].sum()
-        if ind == "Taxa Flutuante":
-            taxa = selic
-        elif ind == "\u00cdndice Pre\u00e7os":
-            taxa = (1 + inflacao) * 1.06 - 1
-        else:
-            taxa = _CARGA_DO_PREFIXADO
+        # A premissa de juros vem de _taxa_do_indexador, e nao de um if/elif/else
+        # duplicado aqui. Ate 25/08/2026 as duas copias existiam separadas, e a
+        # afirmacao de que "nao ha premissa nova" na entrega 5 era verdadeira so
+        # por coincidencia de copia -- mudar a premissa aqui e esquecer a outra
+        # quebraria a identidade de emissao_necessaria em silencio (achado da
+        # revisao da entrega 5).
+        taxa = _taxa_do_indexador(ind, ate, data_base=partida)
         juros = base * ((1 + taxa) ** (du / 252) - 1)
         projetado[ind] = (base + float(ritmo[ind])
                           * leiloes_que_faltam(dias, ind) - pago + juros)
@@ -471,3 +474,134 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
             "dias_de_leilao": quantos,
             "fronteira_do_calendario": fronteira,
             "de": partida, "ate": ate}
+
+
+# A chave do indicador (como banda.INDICADORES a escreve) para o nome do
+# indexador (como INDEXADORES o escreve). Os dois vocabularios ja existiam
+# separados; este mapa e o unico lugar que os liga.
+#
+# OS VALORES FICAM ACENTUADOS. Eles sao DADO -- casam com a coluna do
+# composicao_dpf.csv. Desacentuar aqui faria o filtro nao casar e o termo ir a
+# zero em silencio (ruling 4 da entrega 4).
+INDEXADOR_DA_CHAVE = {
+    "prefixado_pct": "Prefixado",
+    "indice_precos_pct": "\u00cdndice Pre\u00e7os",
+    "taxa_flutuante_pct": "Taxa Flutuante",
+}
+
+
+def _taxa_do_indexador(indexador, ate, data_base=None):
+    """A premissa de juros de cada indexador, a MESMA que projecao usa.
+
+    Nao ha premissa nova nesta entrega: se a projecao estiver certa, esta conta
+    esta; se estiver errada, as duas erram juntas. E isso que o teste de
+    identidade trava.
+
+    A UNICA TESTEMUNHA desta premissa (Selic e inflacao implicitas, e a carga
+    do prefixado) e' test_a_projecao_devolve_a_PREMISSA_que_usou, em
+    test_rolagem.py -- ele recalcula o estoque projetado por fora, com as
+    mesmas pecas publicas que projecao() usa por dentro, sem ler o resultado
+    de _taxa_do_indexador direto do dict devolvido. Quem "simplificar" aquele
+    teste comparando p['selic']/p['inflacao'] contra uma chamada direta a
+    _taxa_do_indexador (ou a curva.selic_implicita/curva.inflacao_implicita)
+    o torna tautologico -- a mesma conta contra ela mesma -- e remove a unica
+    cobertura real da premissa, com a suite inteira continuando verde.
+    """
+    if indexador == "Taxa Flutuante":
+        return curva.selic_implicita(ate, data_base=data_base)
+    if indexador == "\u00cdndice Pre\u00e7os":
+        return (1 + curva.inflacao_implicita(ate, data_base=data_base)) * 1.06 - 1
+    return _CARGA_DO_PREFIXADO
+
+
+# Os termos de emissao_necessaria QUE NAO DEPENDEM DO ALVO -- so de indexador,
+# hoje, ate e registros. 'quantos' ja vem sem cheirar problema: ver a guarda em
+# termos_da_simulacao, que levanta antes de devolver um valor que dividiria por
+# zero.
+#
+# 'hoje' e 'ate' NAO ENTRAM AQUI. emissao_a_partir_dos_termos so le partida,
+# juros, vence e quantos -- quem chama termos_da_simulacao ja tem os proprios
+# 'hoje'/'ate' normalizados (dados_simulacao guarda os dela nos attrs da
+# matriz). Achado da revisao: a versao anterior carregava os dois campos e o
+# docstring justificava por uma necessidade que o codigo nunca teve.
+TermosDaSimulacao = collections.namedtuple(
+    "TermosDaSimulacao", ["partida", "juros", "vence", "quantos"])
+
+
+def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
+    """Os termos de emissao_necessaria que NAO MUDAM com o alvo.
+
+    Uma tabela da simulacao tem ~42 celulas, e cada uma pedia a
+    emissao_necessaria inteira: estoque_em (que le quatro CSVs por baixo),
+    fluxos.pagos e a contagem de leiloes refeitos do zero 42 vezes, quando so
+    o alvo varia de celula para celula. Medido: gerar paf.html caiu de 338 s
+    para cerca de 24 s calculando estes termos uma vez por tabela.
+    """
+    from . import calendario_leiloes, fluxos
+
+    hoje = pd.Timestamp(hoje) if hoje is not None \
+        else leiloes()["data_liquidacao"].max()
+    ate = pd.Timestamp(ate) if ate is not None \
+        else pd.Timestamp(f"{hoje.year}-12-31")
+
+    partida = float(estoque_em(hoje)[indexador])
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=registros, hoje=hoje)
+    quantos = leiloes_que_faltam(dias, indexador)
+    if quantos <= 0:
+        raise LookupError(
+            f"nao ha leilao de {indexador!r} entre {hoje:%d/%m/%Y} e "
+            f"{ate:%d/%m/%Y}; nao ha como dividir a emissao por leilao.")
+
+    pagou = fluxos.pagos(hoje, ate)
+    do_ind = pagou[pagou["indexador"] == indexador]
+    vence = float(do_ind["principal_milhoes"].sum()
+                  + do_ind["cupom_milhoes"].sum())
+
+    cal = calendario.padrao()
+    du = cal.du(hoje.date(), ate.date())
+    taxa = _taxa_do_indexador(indexador, ate, data_base=hoje)
+    juros = partida * ((1 + taxa) ** (du / 252) - 1)
+
+    return TermosDaSimulacao(partida=partida, juros=juros, vence=vence,
+                             quantos=quantos)
+
+
+def emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total):
+    """A aritmetica de UMA celula, dados os termos que a tabela inteira reusa.
+
+    A UNICA formula de emissao_necessaria: ela tambem chama esta funcao, e nao
+    duplica a conta. Este projeto ja teve um defeito exatamente desse formato
+    -- a premissa de juros copiada entre projecao e emissao_necessaria -- que
+    so fechou unificando numa fonte so (_taxa_do_indexador). Duplicar aqui a
+    conta de 'alvo' e a divisao final repetiria o mesmo risco: uma mudanca de
+    formula feita num lugar e esquecida no outro.
+    """
+    alvo = alvo_total * alvo_pct / 100 * 1000
+    return (alvo - termos.partida - termos.juros + termos.vence) / termos.quantos
+
+
+def emissao_necessaria(indexador, alvo_pct, alvo_total, hoje=None, ate=None,
+                       registros=None):
+    """Quanto emitir POR LEILAO daquele papel para o alvo sair em 'ate'.
+
+    'alvo_pct' em pontos percentuais (22 e 22%), 'alvo_total' em R$ BILHOES, e o
+    retorno em R$ MILHOES por leilao -- a mesma unidade de pace(), para os dois
+    poderem ser comparados sem conversao no meio do caminho.
+
+    A conta:
+
+        alvo       = alvo_total x alvo_pct
+        emissao    = alvo - estoque_hoje - juros + vencimentos_e_cupons
+        por_leilao = emissao / leiloes_que_faltam
+
+    PODE SER NEGATIVA, e negativa e resposta: o estoque cresce sozinho pelos
+    juros, e quando o alvo esta abaixo de onde ele vai parar, nem parando de
+    emitir se chega la. O numero diz o tamanho do resgate que faltaria.
+
+    Chama termos_da_simulacao e emissao_a_partir_dos_termos por dentro -- quem
+    precisa da tabela inteira (dados_simulacao) chama os dois separados, uma
+    vez so, em vez de pagar de novo os termos que nao mudam por celula.
+    """
+    termos = termos_da_simulacao(indexador, hoje=hoje, ate=ate,
+                                 registros=registros)
+    return emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total)

@@ -5,6 +5,11 @@ import pytest
 from tesouro import config, rolagem
 
 
+def banda_ultima_liquidacao():
+    from tesouro.graficos import banda
+    return banda._ultima_liquidacao()
+
+
 def test_o_VNA_recuperado_do_leilao_bate_com_o_conhecido():
     # ESTE E O TESTE QUE DISPENSA A BLOOMBERG. O vna.csv termina exatamente na
     # data-base do RMD, e os leiloes vao alem dela. Sem VNA nesses dias nao ha termo
@@ -178,6 +183,13 @@ def test_a_contagem_de_leiloes_futuros_e_por_PAPEL():
 
 def test_a_projecao_devolve_a_PREMISSA_que_usou():
     # Numero projetado sem a premissa ao lado e opiniao com cara de medida.
+    #
+    # ESTE TESTE E' A UNICA TESTEMUNHA da premissa de juros (ver o docstring
+    # de rolagem._taxa_do_indexador). NAO troque as contas abaixo por uma
+    # comparacao direta contra _taxa_do_indexador ou curva.selic_implicita/
+    # curva.inflacao_implicita -- isso a tornaria tautologica (a mesma conta
+    # contra ela mesma) e removeria a unica cobertura real, com a suite
+    # inteira continuando verde.
     p = rolagem.projecao(pd.Timestamp("2026-12-31"), registros=[])
     assert 0.05 < p["selic"] < 0.30
     assert 0.0 < p["inflacao"] < 0.15
@@ -452,3 +464,107 @@ def test_a_fronteira_BARRA_o_provisorio_que_a_planilha_ja_tem(tmp_path,
         "so a linha DEPOIS da fronteira pode entrar; a que a planilha ja tem "
         "nao pode ser contada de novo")
     assert tudo["data_liquidacao"].max() == fronteira + pd.Timedelta(days=1)
+
+
+# ---------------------------------------------------------------------------
+# Entrega 5: a emissao necessaria e a projecao lida ao contrario.
+# ---------------------------------------------------------------------------
+
+
+def test_emissao_necessaria_e_a_projecao_ao_contrario():
+    """A IDENTIDADE QUE SUSTENTA A ENTREGA 5 INTEIRA.
+
+    A projecao responde "neste ritmo, chego onde?". Esta funcao responde "para
+    chegar ali, que ritmo preciso?". Sao a mesma conta lida ao contrario, entao
+    pedir a emissao necessaria para o resultado da PROPRIA projecao tem de
+    devolver o pace atual -- para os tres indexadores.
+
+    Se as duas discordarem, uma esta errada, e este teste nao diz qual. Mas
+    impede que a pagina publique as duas lado a lado dizendo coisas diferentes.
+
+    A IDENTIDADE SOZINHA E GAMEAVEL (achado da revisao): uma funcao que ignore
+    alvo_pct, alvo_total, vence e juros, e simplesmente devolva
+    pace(hoje)[indexador], bate com a assercao acima por construcao -- o
+    teste chama com hoje=p["de"] e compara com pace(p["de"]), entao os dois
+    lados sao a mesma chamada disfarcada. Por isso este teste tambem exige que
+    um alvo DESLOCADO mude a resposta, e na direcao certa: alvo maior tem de
+    pedir emissao maior. So assim a identidade deixa de ser tautologica.
+    """
+    ate = pd.Timestamp("2026-12-31")
+    p = rolagem.projecao(ate, registros=[])
+    total = float(p["estoque"].sum()) / 1000
+    ritmo = rolagem.pace(p["de"])
+
+    for ind in rolagem.INDEXADORES:
+        pct = float(p["percentual"][ind])
+        obtido = rolagem.emissao_necessaria(ind, pct, total, hoje=p["de"],
+                                            ate=ate, registros=[])
+        assert obtido == pytest.approx(float(ritmo[ind]), rel=1e-6), (
+            f"{ind}: a emissao necessaria para o proprio resultado da projecao "
+            f"tem de ser o pace atual")
+
+        # A PROVA DE QUE NAO E TAUTOLOGIA: pedir um alvo_pct maior, com o
+        # mesmo hoje/ate/total, tem de pedir MAIS emissao. Uma funcao que
+        # ignore alvo_pct (o stub acima) devolveria o mesmo numero aqui, e
+        # esta assercao cairia sozinha.
+        maior = rolagem.emissao_necessaria(ind, pct + 1, total, hoje=p["de"],
+                                           ate=ate, registros=[])
+        assert maior > obtido, (
+            f"{ind}: emissao_necessaria tem de reagir ao alvo_pct, e nao so "
+            f"repetir o pace atual")
+
+
+def test_emissao_necessaria_cresce_com_o_alvo():
+    """Monotonicidade nos dois eixos.
+
+    Uma troca de sinal na formula -- alvo menos estoque virando estoque menos
+    alvo -- daria numeros plausiveis e inverteria a leitura inteira. Nenhum
+    teste de valor isolado pega isso; a ordem pega.
+    """
+    ate = pd.Timestamp("2026-12-31")
+    hoje = banda_ultima_liquidacao()
+
+    def pede(pct, total):
+        return rolagem.emissao_necessaria("Prefixado", pct, total, hoje=hoje,
+                                          ate=ate, registros=[])
+
+    # Mesmo total, percentual maior -> emitir mais.
+    assert pede(22, 9900) > pede(21, 9900)
+    # Mesmo percentual, total maior -> emitir mais.
+    assert pede(21, 10100) > pede(21, 9900)
+
+
+def test_emissao_necessaria_fica_NEGATIVA_quando_o_alvo_esta_abaixo():
+    """Negativo e resposta, e nao erro.
+
+    O estoque cresce sozinho pelos juros. Quando o alvo esta abaixo de onde ele
+    vai parar, nem parando de emitir se chega la -- e o numero diz o tamanho do
+    resgate que faltaria.
+
+    Medido em 26/08/2026: a taxa flutuante esta em 53,00% com banda de 46 a 50,
+    e 20 das 30 celulas da banda dela sao negativas.
+    """
+    ate = pd.Timestamp("2026-12-31")
+    hoje = banda_ultima_liquidacao()
+    assert rolagem.emissao_necessaria("Taxa Flutuante", 46, 9700, hoje=hoje,
+                                      ate=ate, registros=[]) < 0
+
+
+def test_emissao_necessaria_LEVANTA_quando_nao_ha_leilao_do_papel_na_janela():
+    """Caminho nunca exercitado: a guarda contra dividir por zero.
+
+    Classe de defeito que ja mordeu este projeto duas vezes -- um 'raise' novo
+    sem cobertura e divida na hora em que nasce. Pedindo 'ate' igual a 'hoje'
+    nao sobra dia nenhum de leilao no meio, para nenhum dos tres indexadores;
+    entao a guarda tem de levantar, nomeando o indexador e as duas datas, e
+    nao dividir 'quantos' zerado em silencio.
+    """
+    hoje = banda_ultima_liquidacao()
+    with pytest.raises(LookupError) as excinfo:
+        rolagem.emissao_necessaria("Prefixado", 20, 10000, hoje=hoje,
+                                   ate=hoje, registros=[])
+
+    mensagem = str(excinfo.value)
+    data = hoje.strftime("%d/%m/%Y")
+    assert f"'Prefixado' entre {data} e {data}" in mensagem, (
+        "a mensagem tem de nomear o indexador e as DUAS datas da janela")

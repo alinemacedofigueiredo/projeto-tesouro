@@ -9,8 +9,8 @@ muda uma vez por mes. Enterrar uma tabela que muda toda semana num arquivo de 4 
 reescrever 4 MB para mudar uma linha.
 """
 
-from .. import config
-from . import banda, dashboard
+from .. import config, rolagem
+from . import banda, dashboard, simulacao
 
 ARQUIVO = "paf.html"
 GRUPOS = ["Contra o PAF"]
@@ -19,6 +19,7 @@ REGISTRO = []
 SECOES = [
     ("hoje", "Onde estamos hoje", True),
     ("projecao", "Onde fechamos o ano", False),
+    ("simulacao", "O que fazer para chegar l\u00e1", False),
 ]
 
 # O achado do historico, que perdeu os sete graficos e ficou como texto. Ver spec
@@ -53,6 +54,7 @@ p.rodape, p.achado { font-size: 12.5px; color: var(--fraco); max-width: 1180px;
 .secao > summary:hover { background: #fafafa; }
 .secao-hoje > summary { border-left-color: #3d7ab8; }
 .secao-projecao > summary { border-left-color: #b08968; }
+.secao-simulacao > summary { border-left-color: #5a8f5a; }
 """
 
 
@@ -73,6 +75,19 @@ def _recolhe(conteudo, chave, rotulo, aberta):
 # data do "hoje", quantos dias de leilao entraram na rolagem, e a premissa inteira
 # da projecao. Um segundo rodape aqui duplicaria a fonte da verdade, e a pagina
 # poderia acabar dizendo uma coisa enquanto a tabela diz outra.
+
+
+def _as_tres_tabelas(hoje, registros):
+    """As tres tabelas da simulacao, uma por indexador, em ordem.
+
+    A ORDEM E A DE rolagem.INDEXADOR_DA_CHAVE, que e a mesma de
+    banda.INDICADORES -- a pagina inteira le prefixado, indice de precos e taxa
+    flutuante nessa ordem, e trocar aqui faria o leitor procurar.
+    """
+    return "\n".join(
+        simulacao.tabela(simulacao.dados_simulacao(chave, hoje=hoje,
+                                                   registros=registros))
+        for chave in rolagem.INDEXADOR_DA_CHAVE)
 
 
 def grava(caminho=None, hoje=None, registros=None):
@@ -110,8 +125,9 @@ def grava(caminho=None, hoje=None, registros=None):
         _recolhe(banda.tabela(de_hoje, "tabela-hoje") + _ACHADO, *SECOES[0]),
         _recolhe(banda.tabela(projetado, "tabela-projecao") + _ACHADO,
                  *SECOES[1]),
+        _recolhe(_as_tres_tabelas(hoje, registros), *SECOES[2]),
     ])
     html = html[:inicio] + "\n" + corpo + "\n" + html[fim:]
-    html = html.replace("</style>", _CSS + "</style>", 1)
+    html = html.replace("</style>", _CSS + simulacao._CSS + "</style>", 1)
     escrito.write_text(html, encoding="utf-8")
     return escrito

@@ -1,4 +1,5 @@
 """A pagina contra o PAF: distancia, projecao e o arquivo."""
+import os
 import pathlib
 
 import re
@@ -206,16 +207,22 @@ def pagina(tmp_path_factory):
     from tesouro.graficos import painel_paf
 
     destino = tmp_path_factory.mktemp("paf") / painel_paf.ARQUIVO
-    return painel_paf.grava(destino).read_text(encoding="utf-8")
+    # registros=[] PARA NAO TOCAR A REDE. Sem isto a fixture busca o
+    # calendario na API do Tesouro quatro vezes -- uma da projecao e uma por
+    # tabela da simulacao -- e este projeto tem um teste dedicado a garantir
+    # que a rede nao seja tocada sem necessidade. Nenhum teste que usa esta
+    # fixture depende de dado real do calendario (conferido na re-revisao).
+    return painel_paf.grava(destino, registros=[]).read_text(encoding="utf-8")
 
 
-def test_a_pagina_tem_os_DOIS_blocos_recolhiveis(pagina):
-    # Eram tres na primeira versao da spec. O historico saiu por decisao dela: era
-    # analise, e nao monitoramento.
+def test_a_pagina_tem_os_TRES_blocos_recolhiveis(pagina):
+    # Eram tres na primeira versao da spec, cairam para dois quando o historico
+    # saiu por decisao dela -- era analise, e nao monitoramento -- e voltaram a
+    # tres com a Task 5, que acrescentou o bloco da simulacao.
     import re
 
     corpo = pagina[pagina.index("</header>"):pagina.rindex("</main>")]
-    assert corpo.count("<details class=\"secao") == 2
+    assert corpo.count("<details class=\"secao") == 3
     # ASPAS SIMPLES: quem escreve o id e banda.tabela(), que monta a tabela com
     # aspas simples. O brief pedia aspas duplas aqui; a producao e que manda.
     assert "id='tabela-hoje'" in pagina
@@ -245,7 +252,7 @@ def test_a_pagina_nao_tem_referencia_externa(pagina):
 def test_a_pagina_cabe_no_limiar_de_dez_megabytes(tmp_path):
     from tesouro.graficos import painel_paf
 
-    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO)
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
     tamanho = caminho.stat().st_size
     # O TETO e o da spec (secao 5): a pagina e autocontida e tem de abrir com duplo
     # clique. O PISO e MEDIDO, e nao os 20 kB que o brief chutava -- esta pagina nao
@@ -654,3 +661,83 @@ def test_a_pagina_aceita_um_HOJE_que_nao_e_data_de_RMD(tmp_path):
     assert projetado.attrs["premissa"]["de"] == hoje, (
         "a projecao tem de partir do 'hoje' que recebeu, e nao da ultima "
         "liquidacao")
+
+
+def test_a_pagina_tem_TRES_blocos_recolhiveis(pagina):
+    corpo = pagina[pagina.index("</header>"):pagina.rindex("</main>")]
+    assert corpo.count('<details class="secao') == 3
+
+
+def test_o_bloco_da_simulacao_tem_as_TRES_tabelas(pagina):
+    for chave in ("prefixado-pct", "indice-precos-pct", "taxa-flutuante-pct"):
+        assert f'id="simulacao-{chave}"' in pagina, chave
+
+
+def test_o_bloco_da_simulacao_confessa_o_CALENDARIO_ESTIMADO(tmp_path):
+    """C2, achado da revis\u00e3o: gerando a p\u00e1gina com o calend\u00e1rio
+    vazio (tudo estimado), a se\u00e7\u00e3o da simula\u00e7\u00e3o saia byte a byte
+    id\u00eantica \u00e0 com calend\u00e1rio publicado -- enquanto o bloco da
+    proje\u00e7\u00e3o, logo acima na MESMA p\u00e1gina, dizia "inteiramente
+    estimado" num caso e "publicado at\u00e9 DD/MM" no outro. Regress\u00e3o do
+    pr\u00f3prio padr\u00e3o da p\u00e1gina: o bloco irm\u00e3o confessa, este n\u00e3o
+    confessava.
+
+    A CONFISS\u00c3O TEM DE ESTAR DENTRO DO RODAP\u00c9 DA SIMULA\u00c7\u00c3O -- e
+    n\u00e3o em qualquer lugar do HTML. "estimado" j\u00e1 aparecia na p\u00e1gina
+    antes da corre\u00e7\u00e3o, porque o bloco da proje\u00e7\u00e3o confessa a dele; um
+    assert "estimado" in pagina inteira passaria mesmo sem a simula\u00e7\u00e3o
+    dizer nada, e foi exatamente isso que a revis\u00e3o mediu.
+    """
+    from tesouro.graficos import painel_paf
+
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
+    html = caminho.read_text(encoding="utf-8")
+
+    inicio = html.index('id="simulacao-prefixado-pct"')
+    fim = html.index("</div>", inicio)
+    bloco = html[inicio:fim]
+
+    rodape = bloco[bloco.index('class="rodape"'):]
+    assert "estimado" in rodape
+
+
+def test_a_pagina_e_reprodutivel_entre_processos(tmp_path):
+    """Spec 8, teste 6. Duas geracoes, o mesmo HTML.
+
+    Ja quebrou neste projeto: iterar um `set` de ISINs produzia ordem diferente
+    a cada processo (PYTHONHASHSEED), e os SVGs saiam diferentes sem nada ter
+    mudado no dado. A simulacao itera INDEXADOR_DA_CHAVE, que e dict -- ordem de
+    insercao, estavel -- mas isso e propriedade que se perde sem aviso.
+
+    EM DOIS PROCESSOS, e nao duas chamadas no mesmo: o embaralhamento por
+    hash so muda entre processos.
+    """
+    import subprocess
+    import sys
+
+    codigo = (
+        "from tesouro.graficos import painel_paf;"
+        "import hashlib, pathlib;"
+        "c = painel_paf.grava(pathlib.Path(r'%s') / 'p.html', registros=[]);"
+        "print(hashlib.sha256(c.read_bytes()).hexdigest())")
+
+    saidas = []
+    for k in range(2):
+        destino = tmp_path / str(k)
+        destino.mkdir()
+        r = subprocess.run([sys.executable, "-c", codigo % destino],
+                           capture_output=True, text=True,
+                           env={**os.environ, "PYTHONPATH": "src"})
+        assert r.returncode == 0, r.stderr[-600:]
+        saidas.append(r.stdout.strip())
+
+    assert saidas[0] == saidas[1], "a pagina saiu diferente em dois processos"
+
+
+def test_a_pagina_continua_cabendo_no_limiar(tmp_path):
+    from tesouro.graficos import painel_paf
+
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO, registros=[])
+    tamanho = caminho.stat().st_size
+    assert tamanho > 20_000, "a pagina com tres blocos nao pode encolher"
+    assert tamanho < 10 * 1024 * 1024
