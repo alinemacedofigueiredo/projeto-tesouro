@@ -14,11 +14,22 @@ se le de uma vez.
 """
 import math
 
+import pandas as pd
+
 from . import paf
+from .. import calendario_leiloes, rolagem
 
 # Passo das colunas, em R$ bilhoes, e margem das linhas, em pontos percentuais.
 PASSO_TOTAL = 200
 MARGEM_PCT = 1
+
+# O rotulo de cada tabela na tela. Sai do vocabulario dela: e "indice de
+# precos", e nao "IPCA" -- o indexador do PAF inclui a NTN-C, que e IGP-M.
+_ROTULO = {
+    "prefixado_pct": "Prefixado",
+    "indice_precos_pct": "\u00cdndice de pre\u00e7os",
+    "taxa_flutuante_pct": "Taxa flutuante",
+}
 
 
 def eixos(chave, projetado_pct, projetado_total, ano):
@@ -46,3 +57,50 @@ def eixos(chave, projetado_pct, projetado_total, ano):
                 math.ceil(projetado_total / PASSO_TOTAL) * PASSO_TOTAL)) + 1,
         PASSO_TOTAL))
     return linhas, colunas
+
+
+def dados_simulacao(chave, hoje=None, ate=None, registros=None):
+    """A matriz de uma tabela: linhas em %, colunas em R$ bi, celulas em R$ bi.
+
+    A CELULA SAI EM BILHOES, e nao nos milhoes que rolagem devolve: a tabela
+    inteira e lida em bilhoes -- os eixos, o rodape e a pagina toda -- e deixar
+    uma unidade diferente no miolo e o tipo de detalhe que produz erro de mil
+    vezes numa leitura rapida.
+    """
+    indexador = rolagem.INDEXADOR_DA_CHAVE[chave]
+    hoje = pd.Timestamp(hoje) if hoje is not None \
+        else rolagem.leiloes()["data_liquidacao"].max()
+    ate = pd.Timestamp(ate) if ate is not None \
+        else pd.Timestamp(f"{hoje.year}-12-31")
+
+    p = rolagem.projecao(ate, registros=registros, hoje=hoje)
+    projetado_pct = float(p["percentual"][indexador])
+    projetado_total = float(p["estoque"].sum()) / 1000
+
+    linhas, colunas = eixos(chave, projetado_pct, projetado_total, ate.year)
+    matriz = pd.DataFrame(
+        [[rolagem.emissao_necessaria(indexador, pct, total, hoje=hoje,
+                                     ate=ate, registros=registros) / 1000
+          for total in colunas]
+         for pct in linhas],
+        index=linhas, columns=colunas)
+
+    b = paf.bandas(chave).loc[ate.year]
+    matriz.attrs["chave"] = chave
+    matriz.attrs["indexador"] = indexador
+    matriz.attrs["rotulo"] = _ROTULO[chave]
+    matriz.attrs["banda"] = (float(b["minimo"]), float(b["maximo"]))
+    # CADA EIXO ARREDONDA SOZINHO, ao ponto mais proximo da sua propria grade.
+    # A menor distancia no plano exigiria comparar pontos percentuais com
+    # bilhoes de reais, e portanto uma escala inventada.
+    matriz.attrs["marca"] = (
+        min(linhas, key=lambda x: abs(x - projetado_pct)),
+        min(colunas, key=lambda x: abs(x - projetado_total)))
+    matriz.attrs["ritmo_atual"] = float(rolagem.pace(hoje)[indexador]) / 1000
+    matriz.attrs["projetado_pct"] = projetado_pct
+    matriz.attrs["projetado_total"] = projetado_total
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=registros, hoje=hoje)
+    matriz.attrs["leiloes"] = rolagem.leiloes_que_faltam(dias, indexador)
+    matriz.attrs["hoje"] = hoje
+    matriz.attrs["ate"] = ate
+    return matriz
