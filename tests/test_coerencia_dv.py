@@ -262,6 +262,38 @@ def test_pu_reproduz_o_preco_da_bloomberg_com_deslocamento_de_d1(cal):
     # diferenca MAXIMA de 0,0083 bp (ruido de ponto flutuante) nos 438
     # pares, com D+1 aplicado. 0,05 bp deixa ~6x de folga sobre esse maximo
     # -- nao as 60x que um limiar de 0,5 bp deixaria passar.
+    # A NTN-B NAO DA PARA CONFERIR AQUI, e isto e achado e nao contorno.
+    #
+    # Este teste rodou pela primeira vez em 25/08/2026, quando a coleta de
+    # preco passou a ser possivel. LTN e NTN-F passaram. A NTN-B saiu com ZERO
+    # pares, e a causa e do proprio teste: ele desloca a data para D+1 -- a
+    # Bloomberg cota para liquidacao em D+1 -- e busca o VNA nessa data nova.
+    # As duas series de VNA que este projeto tem, vna.csv e bbg_vna, sao
+    # MENSAIS, em fim de mes. D+1 de um fim de mes e dia 1o do mes seguinte,
+    # que nao esta em nenhuma das duas. O `continue` la em cima descarta todas
+    # as linhas de NTN-B.
+    #
+    # Foi escrito no escuro e nunca executado, supondo uma serie DIARIA de VNA
+    # que nao existe aqui.
+    #
+    # DECISAO DELA, ainda pendente, entre:
+    #   (a) o teste apropriar o VNA de fim de mes ate D+1 pro rata -- poe um
+    #       pedaco da conta DENTRO do teste, e o enfraquece como testemunha
+    #       independente;
+    #   (b) a NTN-B sair desta comparacao e ficar conferida so contra a API do
+    #       Tesouro, onde ja esta com erro maximo de 0,0005% em 434 pares.
+    #
+    # Ate ela decidir, o que DA para conferir fica conferido: LTN e NTN-F
+    # seguem travadas contra a Bloomberg, com o mesmo limiar apertado. Deixar o
+    # teste inteiro vermelho treinaria a ignorar vermelho, e apagar o teste
+    # perderia a validacao que funciona.
+    sem_amostra = [t for t, e in erros_por_titulo.items() if len(e) == 0]
+    if sem_amostra:
+        assert sem_amostra == ["NTN-B"], (
+            f"so a NTN-B e conhecidamente inconferivel aqui (falta VNA em "
+            f"D+1); ficaram sem amostra: {sem_amostra}")
+        erros_por_titulo = {t: e for t, e in erros_por_titulo.items() if e}
+
     for titulo, erros in erros_por_titulo.items():
         assert len(erros) > 20, (
             f"{titulo}: amostra pos-filtro pequena demais para valer "
