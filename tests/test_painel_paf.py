@@ -614,3 +614,43 @@ def test_nenhuma_frase_do_rodape_COLA_na_seguinte():
 
     from tesouro.graficos import painel_paf
     assert not cola(painel_paf._ACHADO), "o achado tem frase colada"
+
+
+def test_a_pagina_aceita_um_HOJE_que_nao_e_data_de_RMD(tmp_path):
+    """O caminho que eu quebrei ao atender o item 6.6 da revisao.
+
+    'hoje' queria dizer duas coisas neste projeto. Em dados_hoje e "role o
+    estoque ate esta data"; em rolagem.projecao era "parta do snapshot do RMD
+    desta data", um parametro que o proprio docstring dizia existir para o
+    BACKTEST. Ligar um no outro fez painel_paf.grava(hoje=X) levantar
+    LookupError para qualquer X que nao fosse fim de mes de RMD -- e o unico
+    X que os testes passavam era None, entao ninguem viu.
+
+    Classe: caminho nunca exercitado, com um empurrao de nome enganoso.
+
+    A DATA E DE PROPOSITO ANTERIOR A ULTIMA LIQUIDACAO. A primeira versao
+    deste teste usava a propria ultima liquidacao, e com ela uma projecao que
+    IGNORASSE o parametro daria exatamente o mesmo resultado -- passava contra
+    codigo quebrado (medido). So uma data que nao coincide separa "usou o que
+    recebeu" de "usou o padrao".
+    """
+    import pandas as pd
+
+    from tesouro.graficos import banda, painel_paf
+
+    ultima = banda._ultima_liquidacao()
+    hoje = ultima - pd.Timedelta(days=14)
+    assert hoje != ultima
+
+    # 1) o que quebrava: a pagina inteira, com um hoje que nao e data de RMD.
+    caminho = painel_paf.grava(tmp_path / painel_paf.ARQUIVO,
+                               hoje=hoje, registros=[])
+    assert caminho.exists()
+
+    # 2) e os DOIS blocos partem da data pedida, que e o ponto do item 6.6.
+    de_hoje = banda.dados_hoje(hoje=hoje)
+    projetado = banda.dados_projecao(hoje=hoje, registros=[])
+    assert de_hoje.attrs["hoje"] == hoje
+    assert projetado.attrs["premissa"]["de"] == hoje, (
+        "a projecao tem de partir do 'hoje' que recebeu, e nao da ultima "
+        "liquidacao")
