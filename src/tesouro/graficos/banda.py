@@ -264,7 +264,7 @@ def dados_projecao(ate=None, registros=None, hoje=None):
     referencia = pd.Timestamp(hoje) if hoje is not None else _ultima_liquidacao()
     ate = pd.Timestamp(ate) if ate is not None else pd.Timestamp(
         f"{referencia.year}-12-31")
-    p = rolagem.projecao(ate, hoje=hoje, registros=registros)
+    p = rolagem.projecao(ate, registros=registros, hoje=hoje)
     valores = {"prefixado_pct": p["percentual"]["Prefixado"],
                "indice_precos_pct": p["percentual"]["\u00cdndice Pre\u00e7os"],
                "taxa_flutuante_pct": p["percentual"]["Taxa Flutuante"],

@@ -365,7 +365,7 @@ def leiloes_que_faltam(dias, indexador):
     return sum(1 for d in dias if pd.Timestamp(d).dayofweek == alvo)
 
 
-def projecao(ate, hoje=None, registros=None):
+def projecao(ate, de_snapshot=None, registros=None, hoje=None):
     """O estoque projetado para 'ate', com a premissa que usou ao lado.
 
     A PREMISSA VIAJA JUNTO de proposito: um numero projetado sem a Selic e a
@@ -390,14 +390,28 @@ def projecao(ate, hoje=None, registros=None):
     #
     # 'hoje' existe para o BACKTEST, em que quem chama quer comecar numa data de
     # RMD de proposito, para comparar com o dezembro que de fato aconteceu.
-    if hoje is not None:
-        partida = pd.Timestamp(hoje)
+    # DOIS JEITOS DE DIZER DE ONDE PARTIR, e eles nao sao o mesmo:
+    #
+    #   de_snapshot   parta do snapshot do RMD nesta data. E o do BACKTEST: quem
+    #                 chama quer uma data de fim de mes de RMD de proposito, para
+    #                 comparar com o dezembro que de fato aconteceu.
+    #   hoje          role o estoque ate esta data e parta dai. E o que a pagina
+    #                 usa, e o que 'hoje' quer dizer em dados_hoje e em
+    #                 estoque_em.
+    #
+    # ATE 25/08/2026 OS DOIS SE CHAMAVAM 'hoje', e o daqui era o do snapshot.
+    # Ao ligar o 'hoje' da pagina neste parametro, painel_paf.grava(hoje=X)
+    # passou a levantar LookupError para qualquer X que nao fosse fim de mes de
+    # RMD -- e o unico X que os testes passavam era None. Nome enganoso mais
+    # caminho nunca exercitado.
+    if de_snapshot is not None:
+        partida = pd.Timestamp(de_snapshot)
         c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
                         parse_dates=["data"])
         piv = c.pivot_table(index="data", columns="indexador",
                             values="valor_milhoes", aggfunc="sum").fillna(0.0)
         if partida not in piv.index:
-            # 'hoje' e para o BACKTEST: quem chama passa uma data de RMD de
+            # 'de_snapshot' e para o BACKTEST: quem chama passa uma data de RMD de
             # proposito. piv.loc[partida] sem guarda levantava um KeyError cru
             # do pandas -- nao diz qual data faltou nem quais existem por
             # perto, e quem chama fica sem saber se digitou a data errada ou
@@ -411,7 +425,8 @@ def projecao(ate, hoje=None, registros=None):
                 f"por perto: {texto}.")
         inicial = piv.loc[partida]
     else:
-        partida = leiloes()["data_liquidacao"].max()
+        partida = (pd.Timestamp(hoje) if hoje is not None
+                   else leiloes()["data_liquidacao"].max())
         inicial = estoque_em(partida)
 
     dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,

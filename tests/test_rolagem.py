@@ -252,16 +252,17 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
 
 
 def test_a_projecao_no_ramo_do_BACKTEST_usa_a_data_pedida():
-    # 'hoje' existe para o backtest: comecar de uma data de RMD de proposito, e
-    # nao da ultima liquidacao, para comparar com o dezembro que de fato
-    # aconteceu. Nenhum teste exercitava este ramo ate aqui.
+    # 'de_snapshot' existe para o backtest: comecar de uma data de RMD de
+    # proposito, e nao da ultima liquidacao, para comparar com o dezembro que de
+    # fato aconteceu. Chamava-se 'hoje' ate 25/08/2026, e o nome enganava --
+    # 'hoje' em todo o resto do projeto quer dizer "role ate aqui".
     c = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv",
                     parse_dates=["data"])
     datas = sorted(c["data"].unique())
     hoje = pd.Timestamp(datas[-2])
     ate = pd.Timestamp(datas[-1])
 
-    p = rolagem.projecao(ate, hoje=hoje, registros=[])
+    p = rolagem.projecao(ate, de_snapshot=hoje, registros=[])
     assert p["de"] == hoje
     assert p["ate"] == ate
     assert p["estoque"].sum() > 0
@@ -273,7 +274,7 @@ def test_a_projecao_no_ramo_do_BACKTEST_levanta_LookupError_diagnosavel():
     # as duas informacoes.
     with pytest.raises(LookupError, match="composicao_dpf"):
         rolagem.projecao(pd.Timestamp("2026-12-31"),
-                         hoje=pd.Timestamp("1999-01-01"), registros=[])
+                         de_snapshot=pd.Timestamp("1999-01-01"), registros=[])
 
 # ---------------------------------------------------------------------------
 # Decisao dela, 25/08/2026: "tudo que teve de leilao que ainda nao esta na
