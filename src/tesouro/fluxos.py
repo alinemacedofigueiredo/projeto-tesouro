@@ -71,20 +71,47 @@ INDEXADOR = {"LTN": "Prefixado", "NTN-F": "Prefixado",
              "NTN-B1 RendA+": "\u00cdndice Pre\u00e7os",
              "LFT": "Taxa Flutuante", "LFT-TD1 Reserva": "Taxa Flutuante"}
 
-# A NTN-C E IGP-M, E ENTRA AQUI COMO IPCA -- POR DECISAO DELA, e nao por
-# omissao. Em 25/08/2026: "quando e igp-m, pode usar ipca para projecoes".
+# A NTN-C E IGP-M, E ENTRA AQUI COM O VNA DE IPCA. Isto e uma APROXIMACAO
+# CONHECIDA, e o comentario anterior media o erro errado -- fica registrado aqui
+# para ninguem repetir a conta.
 #
 # Este mapa e por INDEXADOR, e a NTN-C cai em "Indice Precos" junto com a NTN-B,
-# entao o VNA dela sai da serie de IPCA. Nao ha serie de IGP-M neste projeto.
+# entao o VNA dela sai da serie de IPCA. Nao ha serie de IGP-M neste projeto:
+# em 27/08/2026, a NTN-C nao aparece nas taxas nem nos precos da Bloomberg, e a
+# pasta da ANBIMA so tem feriados.
 #
-# O TAMANHO DO QUE ELA ACEITOU, medido em 30/06/2026 antes de perguntar: um
-# unico papel vivo, a NTN-C 2031, com R$ 82,5 bi -- 0,93% do estoque e 1,90% do
-# bloco de Indice de Precos. Sobre uma janela de dois meses, uma divergencia de
-# 1 pp entre IGP-M e IPCA move ~R$ 0,8 bi, ou 0,04% daquele bloco.
+# O QUE SE SUBSTITUI E O NIVEL, E NAO A VARIACAO -- e ai esta o problema. Os dois
+# VNAs partem de julho/2000, mas com 26 anos de inflacoes acumuladas diferentes,
+# entao nao sao o mesmo numero. Medido em 31/07/2026:
 #
-# Vale para PROJECAO, que e o uso deste modulo. Se um dia alguem precisar do
-# valor CONTABIL de uma NTN-C, esta substituicao nao serve -- e ai a pergunta
-# volta para ela com outro enunciado.
+#     VNA de IPCA                              4.740,66
+#     PU implicito da NTN-C (financeiro/qtd)    7.065,30
+#
+# O PU ainda embute a cotacao, entao o VNA verdadeiro esta abaixo de 7.065 -- mas
+# acima de 4.740. A base do cupom sai subestimada em algo entre um quarto e a
+# metade. Nao da para cravar sem o VNA de IGP-M, que o projeto nao tem.
+#
+# O COMENTARIO ANTERIOR dizia "1 pp de divergencia entre IGP-M e IPCA move R$ 0,8
+# bi, 0,04% do bloco". Essa conta vale para um modelo DIFERENTE deste, sugerido
+# por ela em 27/08/2026: ancorar no VNA de IGP-M verdadeiro e carregar pela
+# VARIACAO do IPCA --
+#
+#     vna_igpm(hoje) = vna_igpm(julho) * vna_ipca(hoje) / vna_ipca(julho)
+#
+# Naquele modelo o erro e so a divergencia de variacao na janela, e e mesmo
+# pequeno. Neste, e a diferenca de nivel. Implementar o modelo dela depende de
+# obter um unico numero, o VNA de IGP-M na data-base, que hoje nao temos.
+#
+# O TAMANHO DA POSICAO, para calibrar quanto isso merece: um unico papel vivo, a
+# NTN-C 2031, com R$ 78,0 bi em 31/07/2026 -- 0,85% do estoque. O cupom sai a
+# R$ 3,05 bi por pagamento com o VNA de IPCA; com a base correta, algo perto de
+# R$ 4 a 4,5 bi. Sao dois pagamentos por ano, em janeiro e julho.
+#
+# NAO AFETA A PROJECAO CORRENTE: a janela vai de 31/07 a 31/12 e nao contem
+# nenhum cupom de NTN-C. O primeiro afetado e o de janeiro de 2027.
+#
+# Se um dia alguem precisar do valor CONTABIL de uma NTN-C, esta substituicao
+# nao serve de jeito nenhum.
 _INDICE_DO_VNA = {"\u00cdndice Pre\u00e7os": "IPCA", "Taxa Flutuante": "SELIC"}
 
 
