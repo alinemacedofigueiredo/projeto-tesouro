@@ -742,6 +742,51 @@ PAGINAS = [(arquivo, rotulo) for arquivo, rotulo, _, _ in PAGINAS_DO_RMD] + [
 ]
 
 
+# As duas paginas do RMD nao dependem de leilao nenhum: elas so mudam quando
+# entra um RMD novo. Dizer a data do ultimo leilao ali nao seria so ruido --
+# sugeriria que aqueles graficos andam toda semana, quando andam uma vez por mes.
+PAGINAS_SEM_LEILAO = frozenset(arquivo for arquivo, _, _, _ in PAGINAS_DO_RMD)
+
+
+def procedencia(nome_do_arquivo):
+    """A linha do topo que diz DE QUANDO e o dado desta pagina.
+
+    Decisao dela, 27/08/2026: "SEMPRE deixar no comeco da pagina qual o rmd
+    utilizado; nas de leiloes qual o ultimo leilao puxado".
+
+    O QUE ISSO PROTEGE, e vale escrever porque nao e obvio: o projeto escolhe o
+    anexo do RMD pelo MTIME do arquivo (leitura_rmd.caminho_do_rmd), e vive
+    dentro do OneDrive, que reescreve arquivo por conta propria. Se ele tocasse
+    no anexo de junho depois do de julho, o projeto inteiro voltaria a junho SEM
+    AVISO -- publicando o mes errado com cara de certo. Esta linha nao conserta o
+    criterio; faz a falha aparecer na primeira olhada.
+
+    A DATA DO LEILAO SO E BUSCADA NAS PAGINAS QUE PRECISAM DELA. rolagem.leiloes()
+    junta a planilha com o provisorio da API, ou seja, VAI A REDE -- e o dashboard
+    do RMD nao ia. Busca-la para toda pagina desfaria o commit "os testes da
+    pagina param de ir a rede". Ha um teste que trava isso.
+
+    Leilao e liquidacao sao datas DIFERENTES e as duas aparecem: a rolagem casa
+    por liquidacao, entao quem le a tabela precisa das duas para conferir.
+    """
+    from .. import rolagem
+
+    base, _ = rolagem.base_do_rmd()
+    mes = estilo.MES_LONGO[base.month].lower()
+    partes = [f"RMD de {mes}/{base.year} (base {base.strftime('%d/%m/%Y')})"]
+
+    if nome_do_arquivo not in PAGINAS_SEM_LEILAO:
+        d = rolagem.leiloes()
+        leilao = d["data_leilao"].max()
+        liquidacao = d["data_liquidacao"].max()
+        partes.append(
+            f"\u00faltimo leil\u00e3o {leilao.strftime('%d/%m/%Y')}, "
+            f"liquidado em {liquidacao.strftime('%d/%m/%Y')}")
+
+    return ('<div id="procedencia">' + " \u00b7 ".join(partes) + "</div>")
+
+
+
 def grava_o_rmd(recortes=None, destino=None):
     """Grava as DUAS paginas do dashboard do RMD e devolve os caminhos.
 
@@ -824,6 +869,8 @@ CSS_DAS_PAGINAS = """
 #paginas a:hover { border-bottom-color: var(--tinta); }
 #paginas b.atual { color: var(--tinta); border-bottom: 2px solid var(--tinta);
                    padding-bottom: 1px; }
+""" + """\n#procedencia { font-size: 12px; color: var(--fraco); margin: 2px 0 14px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--linha); }
 """
 
 
@@ -991,7 +1038,8 @@ def grava(caminho=None, recortes=None, registro=None, grupos=None, titulo=None,
     # a margem do <main> e o problema some.
     html = html.replace(
         '<header id="topo">',
-        '<header id="topo">' + barra_das_paginas(caminho.name, extras, familia),
+        '<header id="topo">' + barra_das_paginas(caminho.name, extras, familia)
+        + procedencia(caminho.name),
         1)
     html = html.replace("</style>",
                         CSS_DAS_PAGINAS + CSS_DOS_GRUPOS + "</style>", 1)

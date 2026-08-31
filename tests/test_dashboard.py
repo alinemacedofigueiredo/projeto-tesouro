@@ -517,3 +517,103 @@ def test_nenhuma_legenda_tem_ACENTO_SEGUIDO_DE_DIGITO():
     assert not suspeitos, (
         "acento colado num algarismo, quase certamente escape mal feito:"
         + chr(10) + chr(10).join(suspeitos))
+
+# ---------------------------------------------------------------------------
+# A linha de procedencia no topo: QUAL RMD esta na tela, e ate que leilao.
+#
+# Decisao dela, 27/08/2026: "SEMPRE deixar no comeco da pagina qual o rmd
+# utilizado; nas de leiloes qual o ultimo leilao puxado".
+#
+# O QUE ISSO PROTEGE. leitura_rmd.caminho_do_rmd() escolhe o anexo pelo MTIME
+# do arquivo, e este projeto vive dentro do OneDrive, que reescreve arquivo por
+# conta propria. Se ele tocasse no anexo de junho depois do de julho, o projeto
+# inteiro voltaria a junho SEM AVISO -- publicando o mes errado com cara de
+# certo. A linha nao conserta o criterio; faz a falha aparecer na primeira
+# olhada, que era o que ela queria.
+# ---------------------------------------------------------------------------
+
+def test_a_procedencia_NOMEIA_A_BASE_CARREGADA_e_nao_um_mes_cravado(tmp_path,
+                                                                    monkeypatch):
+    """O teste com dentes desta entrega.
+
+    Uma assercao do tipo "existe uma linha de procedencia" passaria com o mes
+    escrito a mao no codigo -- e um rotulo cravado e PIOR que rotulo nenhum,
+    porque afirma com confianca o mes errado.
+
+    Entao aqui a base e FORCADA para um mes que nao e o real, e a pagina tem de
+    dizer aquele. Se alguem cravar o texto, isto fica vermelho.
+    """
+    from tesouro import rolagem
+
+    falsa = pd.Timestamp("2020-03-31")
+    monkeypatch.setattr(rolagem, "base_do_rmd",
+                        lambda: (falsa, pd.Series(dtype=float)))
+
+    destino = tmp_path / "dashboard.html"
+    html = dashboard.grava(destino).read_text(encoding="utf-8")
+
+    assert 'id="procedencia"' in html, "a linha de procedencia sumiu do topo"
+    linha = re.search(r'id="procedencia"[^>]*>(.*?)</div>', html, re.S).group(1)
+    assert "2020" in linha, f"a base forcada nao aparece; a linha diz {linha!r}"
+    assert "mar" in linha.lower(), f"o mes forcado nao aparece: {linha!r}"
+    assert "31/03" in linha, f"o dia da base nao aparece: {linha!r}"
+
+
+def test_a_procedencia_fica_DENTRO_do_cabecalho_e_nao_solta_na_pagina(tmp_path):
+    """Irma da barra de paginas, e pelo mesmo motivo que ela.
+
+    A barra ja teve de ser movida para dentro do <header> porque o <nav> e
+    position:fixed com 250px e desenhava por cima do que ficasse solto no alto.
+    Uma linha nova solta no mesmo lugar repetiria o defeito.
+    """
+    destino = tmp_path / "dashboard.html"
+    html = dashboard.grava(destino).read_text(encoding="utf-8")
+
+    cabecalho = re.search(r'<header id="topo">(.*?)</header>', html, re.S)
+    assert cabecalho, "nao achei o cabecalho"
+    assert 'id="procedencia"' in cabecalho.group(1), (
+        "a procedencia saiu fora do <header>, onde o <nav> fixo a cobre")
+
+
+def test_so_as_paginas_de_LEILAO_trazem_a_data_do_leilao(tmp_path):
+    """As duas do RMD nao dependem de leilao, e dizer a data ali seria ruido.
+
+    Mais que ruido: sugeriria que aqueles graficos andam a cada leilao, quando
+    eles so mudam quando entra um RMD novo.
+    """
+    do_rmd = tmp_path / "dashboard.html"
+    html_rmd = dashboard.grava(do_rmd).read_text(encoding="utf-8")
+    linha_rmd = re.search(r'id="procedencia"[^>]*>(.*?)</div>',
+                          html_rmd, re.S).group(1)
+    assert "leil" not in linha_rmd.lower(), (
+        f"a pagina do RMD nao devia falar de leilao: {linha_rmd!r}")
+
+    from tesouro.graficos import painel_paf
+    do_paf = painel_paf.grava(caminho=tmp_path / "paf.html", registros=[])
+    linha_paf = re.search(r'id="procedencia"[^>]*>(.*?)</div>',
+                          do_paf.read_text(encoding="utf-8"), re.S).group(1)
+    assert "leil" in linha_paf.lower(), (
+        f"a pagina do PAF depende de leilao e tem de dizer ate qual: "
+        f"{linha_paf!r}")
+
+
+def test_a_pagina_do_RMD_nao_passa_a_depender_da_REDE(tmp_path, monkeypatch):
+    """O dashboard nao ia a rede, e esta entrega nao pode mudar isso.
+
+    A data do leilao sai de rolagem.leiloes(), que junta a planilha com o
+    provisorio da API -- ou seja, vai a rede. Buscar isso para TODA pagina
+    desfaria o commit "os testes da pagina param de ir a rede".
+
+    Aqui leiloes() e trocada por uma que explode. Se o dashboard a chamar, este
+    teste morre com a mensagem, e nao com um erro de rede meses depois.
+    """
+    from tesouro import rolagem
+
+    def explode(*a, **k):
+        raise AssertionError(
+            "o dashboard do RMD chamou rolagem.leiloes(), que vai a API -- "
+            "a data do leilao so pode ser buscada nas paginas de leilao")
+
+    monkeypatch.setattr(rolagem, "leiloes", explode)
+    destino = tmp_path / "dashboard.html"
+    dashboard.grava(destino)     # nao pode levantar
