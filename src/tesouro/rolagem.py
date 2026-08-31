@@ -179,10 +179,111 @@ PARADOS = ("C\u00e2mbio",)
 _INDICE_DO_INDEXADOR = {"Taxa Flutuante": "SELIC",
                         "\u00cdndice Pre\u00e7os": "IPCA"}
 
-# Carga do prefixado: LTN e NTN-F nao tem VNA, carregam para o par pela taxa de
-# emissao. O residuo medido sem este termo e de +12,2 bi/mes sobre ~1.900 bi, ou
-# 0,64% ao mes -- que e uma carga de ~13% ao ano, e nao ruido.
-_CARGA_DO_PREFIXADO = 0.135
+# Papeis prefixados: LTN e NTN-F nao tem VNA, e o juro deles TRAVA NA EMISSAO.
+_PREFIXADOS = ("LTN", "NTN-F")
+
+
+def carga_do_prefixado(quando):
+    """A taxa a que o estoque prefixado de fato rende, na data.
+
+    O QUE MUDOU EM 27/08/2026, e por que. Ate aqui isto era a constante
+    _CARGA_DO_PREFIXADO = 0.135, calibrada contra o residuo da propria rolagem.
+    O valor nem era absurdo: batia com a taxa de EMISSAO do prefixado, 13,68% na
+    media ponderada de 12 meses. Mas e a taxa errada.
+
+    LTN e NTN-F tem juro travado na emissao. O que o ESTOQUE rende nos proximos
+    meses nao e a taxa de mercado de hoje -- e a que ja foi contratada quando
+    cada papel saiu, e essa e mais baixa, porque o estoque carrega papel de
+    quando o juro era menor. Sao dois numeros publicados e diferentes:
+
+        custo do ESTOQUE    LTN 12,916%   NTN-F 11,814%    (31/07/2026, mensal)
+        custo das EMISSOES  LTN 13,628%   NTN-F 13,733%
+
+    O primeiro e o que se aplica ao estoque; o segundo, ao dinheiro novo.
+
+    MENSAL, E NAO ACUM_12M -- decisao dela em 27/08/2026. As duas medidas estao
+    no arquivo e a conta fecha entre elas: compor doze 'mensal' reproduz o
+    'acum_12m' com diferenca mediana de 0,05 pp. Mas o acum_12m e media movel de
+    doze meses e fica ATRASADO quando o juro anda: a carga derivada dele ia de
+    11,3% ha um ano para 12,2% hoje, sempre correndo atras do mensal, que no
+    mesmo periodo foi de 12,63% para 12,92%.
+
+    Medido no backtest, vies medio do prefixado: mensal -0,058%, acum_12m
+    -0,090%. A medida do mes ganha, e ganha pelo motivo certo -- e a grandeza
+    que se quer (quanto o estoque rende AGORA), nao uma media que arrasta o ano.
+
+    NOS PAPEIS DE INDICE DE PRECOS A ESCOLHA DELA FOI A OUTRA, e tambem esta
+    certa: o custo mensal de uma NTN-B balanca com o IPCA do mes (7,18% num mes
+    contra 10,58% no acumulado; a NTN-C chegou a -3,00%), entao ali a media de
+    doze meses e que serve. Quando aquela parte for feita, usar acum_12m.
+
+    PARA O PREFIXADO, O NUMERO RETROSPECTIVO E O CORRETO -- e a curva implicita
+    e que seria errada. E o oposto da LFT, que rende Selic FUTURA e por isso le
+    a curva. A NTN-B fica no meio: inflacao futura, cupom real travado.
+
+    MEDIDO no backtest de 24 meses, vies medio do prefixado:
+
+        13,500% (a constante)         +0,071%   19 dos 24 meses para cima
+        por data, mensal              -0,058%    6 dos 24
+        por data, acum_12m            -0,090%    2 dos 24
+        12,233% fixo                  -0,021%   10 dos 24  <- ILEGITIMO
+
+    O 12,233% fixo mede melhor e NAO pode ser usado: e o custo de julho de 2026
+    aplicado a 2024, ou seja, olha o gabarito. O mesmo vicio do 13,5%, que
+    tambem foi ajustado contra a saida da propria rolagem. Entre as opcoes
+    honestas -- as que so leem o RMD anterior -- o mensal ganha.
+
+    E O GANHO AQUI E DE PROCEDENCIA, E NAO DE PRECISAO: o vies vai de +0,071%
+    para -0,058%, quase o mesmo tamanho com o sinal trocado. O que muda e a
+    fonte deixar de ser um numero ajustado por nos.
+
+    O CARREGO DA EMISSAO NAO FECHA O RESTO. Medido em 27/08/2026: o residuo do
+    prefixado e de -1,535 bi/mes e o carrego que falta e 0,178 bi, ou 12% dele.
+    Chegou a ser dito aqui que os dois se encontrariam perto de zero; e falso.
+
+    E SAI DO ARQUIVO A CADA DATA, e nao de uma constante. Era esse o defeito de
+    fundo do 0.135: nao o valor, mas ser um numero congelado enquanto o custo do
+    estoque anda todo mes -- envelheceria em silencio, sem nada acusar.
+    """
+    quando = pd.Timestamp(quando)
+    custo = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv",
+                        parse_dates=["data"])
+    custo = custo[(custo["medida"] == "mensal")
+                  & (custo["nivel"] == "DPMFi")
+                  & (custo["titulo"].isin(_PREFIXADOS))
+                  & (custo["data"] <= quando)
+                  & custo["custo_aa_pct"].notna()]
+    if custo.empty:
+        raise LookupError(
+            f"nao ha custo do estoque prefixado ate {quando:%d/%m/%Y} em "
+            f"custo_medio.csv. Congelar uma carga aqui produziria juros "
+            f"plausiveis e errados; a rolagem para.")
+    quando_custo = custo["data"].max()
+    custo = custo[custo["data"] == quando_custo].set_index("titulo")["custo_aa_pct"]
+
+    estoque = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                          parse_dates=["data"])
+    estoque = estoque[(estoque["data"] <= quando)
+                      & (estoque["titulo"].isin(_PREFIXADOS))]
+    if estoque.empty:
+        raise LookupError(
+            f"nao ha estoque prefixado ate {quando:%d/%m/%Y} para ponderar a "
+            f"carga entre LTN e NTN-F.")
+    estoque = estoque[estoque["data"] == estoque["data"].max()]
+    peso = estoque.groupby("titulo")["financeiro_milhoes"].sum()
+
+    num = den = 0.0
+    for titulo in _PREFIXADOS:
+        if titulo not in custo.index or titulo not in peso.index:
+            continue
+        p = float(peso[titulo])
+        num += p * float(custo[titulo]) / 100
+        den += p
+    if den <= 0:
+        raise LookupError(
+            f"estoque prefixado zerado em {quando:%d/%m/%Y}; sem peso nao ha "
+            f"como ponderar a carga.")
+    return num / den
 
 _INDEXADOR_DO_TITULO = {"LTN": "Prefixado", "NTN-F": "Prefixado",
                         "NTN-B": "\u00cdndice Pre\u00e7os",
@@ -264,7 +365,7 @@ def _apropriacao(indexador, base, de, ate):
     if indexador == "Prefixado":
         cal = calendario.padrao()
         du = cal.du(pd.Timestamp(de).date(), pd.Timestamp(ate).date())
-        return base * ((1 + _CARGA_DO_PREFIXADO) ** (du / 252) - 1)
+        return base * ((1 + carga_do_prefixado(de)) ** (du / 252) - 1)
     indice = _INDICE_DO_INDEXADOR[indexador]
     return base * (_vna_para_apropriacao(indice, ate)
                    / _vna_para_apropriacao(indice, de) - 1)
@@ -511,7 +612,10 @@ def _taxa_do_indexador(indexador, ate, data_base=None):
         return curva.selic_implicita(ate, data_base=data_base)
     if indexador == "\u00cdndice Pre\u00e7os":
         return (1 + curva.inflacao_implicita(ate, data_base=data_base)) * 1.06 - 1
-    return _CARGA_DO_PREFIXADO
+    # A carga do prefixado e a da DATA DE PARTIDA, e nao a de 'ate': o backtest
+    # parte de datas antigas de proposito, e usar a carga de hoje para projetar
+    # de 2024 seria olhar o futuro -- que curva.selic_implicita ja recusa.
+    return carga_do_prefixado(data_base if data_base is not None else ate)
 
 
 # Os termos de emissao_necessaria QUE NAO DEPENDEM DO ALVO -- so de indexador,

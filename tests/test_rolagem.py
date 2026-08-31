@@ -239,7 +239,10 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
         elif ind == "Taxa Flutuante":
             taxa = selic
         else:
-            taxa = rolagem._CARGA_DO_PREFIXADO
+            # A peca PUBLICA, como selic/inflacao acima -- e nao
+            # _taxa_do_indexador, que tornaria a comparacao a mesma conta
+            # contra ela mesma e removeria a unica cobertura da premissa.
+            taxa = rolagem.carga_do_prefixado(de)
         juros = base * ((1 + taxa) ** (du / 252) - 1)
         emissao_esperada = float(ritmo[ind]) * rolagem.leiloes_que_faltam(dias, ind)
         emissao_publicada = p["estoque"][ind] - base + pago - juros
@@ -568,3 +571,184 @@ def test_emissao_necessaria_LEVANTA_quando_nao_ha_leilao_do_papel_na_janela():
     data = hoje.strftime("%d/%m/%Y")
     assert f"'Prefixado' entre {data} e {data}" in mensagem, (
         "a mensagem tem de nomear o indexador e as DUAS datas da janela")
+
+# ---------------------------------------------------------------------------
+# A CARGA DO PREFIXADO SAI DO CUSTO PUBLICADO, e nao de uma constante.
+#
+# Ate 27/08/2026 era _CARGA_DO_PREFIXADO = 0.135, calibrada contra o residuo da
+# propria rolagem. O numero nem era absurdo -- bate com a taxa de EMISSAO do
+# prefixado (13,68% em 12 meses) -- mas e a taxa errada: LTN e NTN-F tem juro
+# TRAVADO na emissao, entao o que o ESTOQUE rende e a taxa ja contratada la
+# atras, que e mais baixa. O custo do estoque publicado pelo Tesouro em
+# 31/07/2026 dava 12,233% ponderado, contra os 13,5% usados.
+#
+# MEDIDO no backtest de 24 meses, vies medio do prefixado:
+#
+#     13,500% (a constante)   +0,071%   com 19 dos 24 meses para cima
+#     por data, mensal        -0,058%   com  6 dos 24
+#     por data, acum_12m      -0,090%   com  2 dos 24
+#     12,233% fixo            -0,021%   com 10 dos 24  <- ILEGITIMO, olha o gabarito
+#
+# O ganho e de PROCEDENCIA e nao de precisao: o vies quase nao muda de tamanho,
+# so de sinal. O que muda e a fonte deixar de ser ajustada por nos.
+# ---------------------------------------------------------------------------
+
+def test_a_carga_do_prefixado_e_o_custo_do_ESTOQUE_e_nao_o_da_EMISSAO():
+    """A distincao que da sentido a esta entrega.
+
+    Sao dois numeros publicados, diferentes, e o codigo usava o errado:
+
+        custo do ESTOQUE   LTN 12,916%  NTN-F 11,814%   <- o que o estoque rende
+        custo das EMISSOES LTN 13,628%  NTN-F 13,733%   <- o que o dinheiro NOVO custa
+
+    Se alguem trocar a fonte para 'emissoes_12m', a carga sobe ~1,4 pp e este
+    teste fica vermelho.
+    """
+    from tesouro import config
+
+    c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
+    quando = c["data"].max()
+    do_estoque = c[(c["data"] == quando) & (c["medida"] == "mensal")
+                   & (c["nivel"] == "DPMFi")].set_index("titulo")["custo_aa_pct"]
+    das_emissoes = c[(c["data"] == quando) & (c["medida"] == "emissoes_12m")
+                     & (c["nivel"] == "DPMFi")].set_index("titulo")["custo_aa_pct"]
+
+    obtida = 100 * rolagem.carga_do_prefixado(quando)
+
+    menor = min(float(do_estoque["LTN"]), float(do_estoque["NTN-F"]))
+    maior = max(float(do_estoque["LTN"]), float(do_estoque["NTN-F"]))
+    assert menor <= obtida <= maior, (
+        f"a carga ({obtida:.3f}%) tem de ficar entre o custo de estoque da "
+        f"NTN-F e o da LTN ({menor:.3f}% a {maior:.3f}%)")
+
+    piso_emissao = min(float(das_emissoes["LTN"]), float(das_emissoes["NTN-F"]))
+    assert obtida < piso_emissao, (
+        f"a carga ({obtida:.3f}%) ficou na faixa do custo de EMISSAO "
+        f"(>= {piso_emissao:.3f}%) -- fonte trocada")
+
+
+def test_a_carga_do_prefixado_ANDA_no_tempo():
+    """Uma constante nao envelhece: ela apenas passa a estar errada em silencio.
+
+    Era esse o defeito real do 0.135 -- nao o valor, que ate batia com a taxa
+    de emissao da epoca, mas ser um numero congelado num arquivo enquanto o
+    custo do estoque se move todo mes.
+    """
+    from tesouro import config
+
+    c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
+    datas = sorted(c["data"].unique())[-24:]
+    valores = {round(rolagem.carga_do_prefixado(d), 6) for d in datas}
+    assert len(valores) > 12, (
+        f"a carga so assumiu {len(valores)} valores em 24 meses; "
+        f"isso e constante disfarcada")
+
+
+def test_a_carga_do_prefixado_pondera_pelo_ESTOQUE_de_cada_papel():
+    """LTN e NTN-F custam diferente, e a mistura importa.
+
+    Em 31/07/2026, medida mensal: LTN 12,916% com R$ 1.133 bi, NTN-F 11,814%
+    com R$ 647 bi. A media SIMPLES daria 12,365%; a ponderada da 12,516%. Sao
+    0,15 pp, e sobre 1.800 bi isso e da ordem de R$ 1 bi por ano de juros.
+    """
+    from tesouro import config
+
+    quando = pd.Timestamp("2026-07-31")
+    c = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv", parse_dates=["data"])
+    k = c[(c["data"] == quando) & (c["medida"] == "mensal")
+          & (c["nivel"] == "DPMFi")].set_index("titulo")["custo_aa_pct"]
+    simples = (float(k["LTN"]) + float(k["NTN-F"])) / 2
+
+    obtida = 100 * rolagem.carga_do_prefixado(quando)
+    assert abs(obtida - simples) > 0.05, (
+        f"a carga ({obtida:.3f}%) ficou colada na media SIMPLES "
+        f"({simples:.3f}%) -- a ponderacao pelo estoque sumiu")
+
+
+def test_a_projecao_usa_a_carga_da_DATA_DE_PARTIDA():
+    """A taxa que interessa e a do estoque de onde a projecao parte.
+
+    Nao a de hoje, nem a do fim da janela: o backtest parte de datas antigas de
+    proposito, e usar a carga de 2026 para projetar de 2024 seria olhar o
+    futuro. curva.selic_implicita ja recusa isso, e com razao.
+    """
+    antiga = pd.Timestamp("2024-12-31")
+    recente = pd.Timestamp("2026-07-31")
+    assert (rolagem._taxa_do_indexador("Prefixado", recente, data_base=antiga)
+            == pytest.approx(rolagem.carga_do_prefixado(antiga)))
+    assert (rolagem._taxa_do_indexador("Prefixado", recente, data_base=recente)
+            == pytest.approx(rolagem.carga_do_prefixado(recente)))
+
+def test_a_rolagem_NAO_LE_O_MES_QUE_ESTA_TENTANDO_REPRODUZIR(tmp_path, monkeypatch):
+    """A regra dela, 27/08/2026, e ela vale para toda a rolagem.
+
+    Ao rolar de t0 para t1 nao se pode ler nada carimbado em t1: seria olhar o
+    gabarito que se esta tentando prever. Um backtest que le o futuro fica lindo
+    e nao diz nada -- a projecao de verdade, que nao tem gabarito, erra do mesmo
+    jeito e ninguem descobre.
+
+    JA ACONTECEU AQUI, e foi por isso que a regra apareceu. Uma das candidatas
+    a carga do prefixado era a constante 12,233%, que media MELHOR que todas as
+    outras (-0,021% de vies). Era o custo de julho de 2026 aplicado a 2024. Em
+    2024 ninguem sabia aquele numero.
+
+    COMO ESTE TESTE FUNCIONA: em vez de inspecionar quem le o que -- que exigiria
+    saber de antemao todos os caminhos, inclusive os que ainda nao existem -- ele
+    ESTRAGA o futuro e exige que nada mude. Qualquer leitura indevida move o
+    resultado e o teste cai.
+
+    ONDE ESTA A FRONTEIRA, e ela e escolha dela:
+
+      GABARITO, nao pode ler em t1
+        composicao_dpf.csv              a resposta que a rolagem tenta reproduzir
+        custo_medio.csv                 a taxa a que o estoque rendeu
+        estoque_titulos_vencimento.csv  a abertura do estoque por papel
+
+      NAO E GABARITO, pode ler ate t1
+        leiloes                         quanto o Tesouro de fato emitiu no mes
+        vna.csv                         a inflacao e a Selic que de fato correram
+
+    A segunda lista existe porque estoque_em() e uma RECONSTRUCAO do mes que
+    passou, e nao uma previsao. Proibi-la de saber quanto foi emitido a impediria
+    de reproduzir mes nenhum -- e e justamente reproduzir os meses fechados que
+    sustenta todo o resto.
+    """
+    import shutil
+
+    from tesouro import config
+
+    t0, t1 = pd.Timestamp("2026-06-30"), pd.Timestamp("2026-07-31")
+
+    esperado = rolagem.estoque_em(t1, de=t0)
+
+    destino = tmp_path / "processed"
+    destino.mkdir()
+    for arquivo in config.PROCESSED_DIR.glob("*.csv"):
+        shutil.copy2(arquivo, destino / arquivo.name)
+
+    GABARITO = ("composicao_dpf.csv", "custo_medio.csv",
+                "estoque_titulos_vencimento.csv")
+    estragadas = 0
+    for nome in GABARITO:
+        caminho = destino / nome
+        d = pd.read_csv(caminho, parse_dates=["data"])
+        futuro = d["data"] >= t1
+        estragadas += int(futuro.sum())
+        for coluna in d.columns:
+            # is_numeric_dtype, e nao 'dtype == object': o pandas novo usa um
+            # dtype 'str' proprio, que nao e object e explode ao receber float.
+            if coluna == "data" or not pd.api.types.is_numeric_dtype(d[coluna]):
+                continue
+            d.loc[futuro, coluna] = 999999.0
+        d.to_csv(caminho, index=False)
+
+    assert estragadas > 0, (
+        "nenhuma linha de t1 foi estragada -- o teste nao provaria nada")
+
+    monkeypatch.setattr(config, "PROCESSED_DIR", destino)
+    obtido = rolagem.estoque_em(t1, de=t0)
+
+    for ind in rolagem.INDEXADORES:
+        assert float(obtido[ind]) == pytest.approx(float(esperado[ind]), abs=1e-6), (
+            f"{ind}: a rolagem mudou quando o dado de {t1:%d/%m/%Y} foi "
+            f"estragado -- ou seja, ela LE o mes que deveria estar prevendo")
