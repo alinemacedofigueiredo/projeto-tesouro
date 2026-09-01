@@ -454,6 +454,80 @@ def _apropriacao(indexador, base, de, ate):
     return base * (fator - 1)
 
 
+# Como cada papel carrega o dinheiro que levantou, entre a liquidacao e a data.
+# NAO E A MESMA REGRA PARA OS QUATRO, e a diferenca nao e detalhe:
+#
+#   LTN, NTN-F   taxa_media_pct e a taxa NOMINAL, travada na emissao.
+#   NTN-B        taxa_media_pct e a taxa REAL; a inflacao vem por cima.
+#   LFT          taxa_media_pct e o AGIO sobre a Selic -- 0,11% nos ultimos dez
+#                leiloes. Carregar uma LFT a 0,11% ao ano seria catastrofico:
+#                ela rende Selic mais aquilo.
+_REGRA_DE_CARREGO = {"LTN": "nominal", "NTN-F": "nominal",
+                     "NTN-B": "real", "NTN-B1": "real", "NTN-C": "real",
+                     "LFT": "agio"}
+
+
+def _fator_de_carrego(titulo, taxa_pct, de, ate):
+    """Quanto o financeiro emitido em 'de' vale em 'ate', pela regra do papel.
+
+    A inflacao e a Selic saem do VNA REALIZADO -- e esta funcao so serve para
+    emissao que JA aconteceu. Para leilao futuro nao ha VNA, e quem carrega e a
+    projecao, com as implicitas.
+    """
+    de, ate = pd.Timestamp(de), pd.Timestamp(ate)
+    # A GUARDA E PELAS DATAS, e nao pelo du: calendario.padrao().du devolve
+    # positivo mesmo com as datas invertidas, entao 'du <= 0' nunca pegava o
+    # caso de liquidacao POSTERIOR a data pedida -- e ela seria carregada para
+    # a frente, aumentando o estoque com dinheiro que ainda nao entrou.
+    # leiloes_liquidados_carregados ja filtra por data, entao isto e defesa;
+    # achado ao reforcar o teste, e nao em producao.
+    if ate <= de:
+        return 1.0
+    du = calendario.padrao().du(de.date(), ate.date())
+    if du <= 0:
+        return 1.0
+    regra = _REGRA_DE_CARREGO.get(titulo)
+    if regra is None:
+        return 1.0
+    taxa = float(taxa_pct) / 100 if pd.notna(taxa_pct) else 0.0
+    if regra == "nominal":
+        return (1 + taxa) ** (du / 252)
+    indice = "IPCA" if regra == "real" else "SELIC"
+    correcao = (_vna_para_apropriacao(indice, ate)
+                / _vna_para_apropriacao(indice, de))
+    return correcao * (1 + taxa) ** (du / 252)
+
+
+def leiloes_liquidados_carregados(de, ate):
+    """Financeiro dos leiloes liquidados em (de, ate], CARREGADO ate 'ate'.
+
+    O QUE ISTO CONSERTA. leiloes_liquidados soma o financeiro e pronto: o
+    dinheiro que entrou em agosto e tratado como se tivesse chegado no ultimo
+    dia da janela, sem render nada no caminho. O vies e de mao unica -- sempre
+    para baixo -- e medido em 27/08/2026 valia 0,178 bi/mes no prefixado, 0,088
+    no indice de precos e 0,334 na taxa flutuante.
+
+    E DESENHO DELA, passo 3 de quatro: "adiciona emissoes ajustando o preco ate
+    hj (pela taxa de cada emissao)". Aqui nao ha estimativa nenhuma -- cada
+    leilao traz a sua taxa e a sua data.
+    """
+    l = leiloes()
+    l = l[(l["data_liquidacao"] > pd.Timestamp(de))
+          & (l["data_liquidacao"] <= pd.Timestamp(ate))].copy()
+    l["indexador"] = [_INDEXADOR_DO_TITULO.get(t) for t in l["titulo"]]
+    l["sinal"] = [_SINAL.get(t, 0) for t in l["tipo_leilao"]]
+    l = l[l["indexador"].notna()]
+
+    valores = []
+    for r in l.itertuples(index=False):
+        fator = _fator_de_carrego(r.titulo, r.taxa_media_pct,
+                                  r.data_liquidacao, ate)
+        valores.append(float(r.financeiro_milhoes) * r.sinal * fator)
+    l = l.assign(carregado=valores)
+    fluxo = l.groupby("indexador")["carregado"].sum()
+    return fluxo.reindex(list(INDEXADORES)).fillna(0.0)
+
+
 def estoque_em(quando, de=None):
     """O estoque por indexador na data, rolado desde o RMD (ou desde 'de')."""
     from . import fluxos
@@ -469,7 +543,9 @@ def estoque_em(quando, de=None):
         inicial = piv.loc[de]
 
     quando = pd.Timestamp(quando)
-    emitido = leiloes_liquidados(de, quando)
+    # CARREGADO, e nao so somado: o dinheiro que entrou no meio da janela
+    # rende ate o fim dela. Ver leiloes_liquidados_carregados.
+    emitido = leiloes_liquidados_carregados(de, quando)
     pagou = fluxos.pagos(de, quando)
     saida = {}
     for ind in INDEXADORES:

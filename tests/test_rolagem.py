@@ -882,3 +882,117 @@ def test_a_taxa_real_pondera_pelo_ESTOQUE_e_nao_pelo_numero_de_leiloes():
     assert abs(obtida - media_simples) > 0.0003, (
         f"a taxa ({obtida:.4%}) ficou colada na media SIMPLES entre "
         f"vencimentos ({media_simples:.4%}) -- a ponderacao pelo estoque sumiu")
+
+# ---------------------------------------------------------------------------
+# PASSO 3: cada emissao carregada da sua data, pela sua taxa.
+#
+# leiloes_liquidados somava o financeiro e pronto -- o dinheiro que entrou no
+# comeco da janela era tratado como se tivesse chegado no ultimo dia. Vies de
+# mao unica, medido em 0,178 bi/mes no prefixado, 0,088 no indice de precos e
+# 0,334 na taxa flutuante.
+#
+# BACKTEST, vies medio, antes -> depois:
+#     Prefixado        -0,058% -> -0,045%
+#     Indice Precos    -0,112% -> -0,106%
+#     Taxa Flutuante   -0,062% -> -0,045%
+# ---------------------------------------------------------------------------
+
+def test_a_LFT_nao_carrega_pelo_AGIO_como_se_fosse_taxa():
+    """A armadilha deste passo, e ela e de ordem de grandeza.
+
+    taxa_media_pct nao quer dizer a mesma coisa nos quatro papeis. Na LTN e na
+    NTN-F e a taxa nominal (14,08% e 14,55% nos ultimos dez leiloes); na NTN-B e
+    a taxa REAL (7,99%); na LFT e o AGIO sobre a Selic -- 0,11%.
+
+    Tratar a LFT como as prefixadas a faria render 0,11% ao ano em vez de ~13,7%.
+    Sobre 4,9 trilhoes, isso e a diferenca entre carregar e nao carregar.
+    """
+    de = pd.Timestamp("2026-06-30")
+    ate = pd.Timestamp("2026-07-31")
+
+    como_agio = rolagem._fator_de_carrego("LFT", 0.11, de, ate)
+    como_nominal = rolagem._fator_de_carrego("LTN", 0.11, de, ate)
+
+    assert como_agio > como_nominal * 1.005, (
+        f"a LFT carregou {como_agio:.6f} e uma prefixada de mesma taxa "
+        f"carregou {como_nominal:.6f} -- a LFT esta sendo tratada como se "
+        f"0,11% fosse a taxa dela, e nao o agio sobre a Selic")
+
+    # E o carrego dela tem de ficar perto da Selic do periodo, nao perto de zero.
+    selic = (rolagem._vna_para_apropriacao("SELIC", ate)
+             / rolagem._vna_para_apropriacao("SELIC", de))
+    assert como_agio == pytest.approx(selic, rel=0.002)
+
+
+def test_a_NTN_B_carrega_juro_real_MAIS_inflacao():
+    """So o real trava na emissao; a inflacao corre por cima.
+
+    Se alguem tratar a taxa da NTN-B como nominal, o carrego perde a correcao
+    do VNA -- que e a maior parte dele.
+    """
+    de, ate = pd.Timestamp("2026-06-30"), pd.Timestamp("2026-07-31")
+    real = rolagem._fator_de_carrego("NTN-B", 7.99, de, ate)
+    inflacao = (rolagem._vna_para_apropriacao("IPCA", ate)
+                / rolagem._vna_para_apropriacao("IPCA", de))
+    assert real > inflacao, "a NTN-B nao esta rendendo o real por cima da inflacao"
+    nominal = rolagem._fator_de_carrego("LTN", 7.99, de, ate)
+    assert real > nominal, (
+        "a NTN-B carregou MENOS que uma prefixada de 7,99% -- a correcao pelo "
+        "VNA sumiu")
+
+
+def test_emissao_que_liquida_NA_data_OU_DEPOIS_dela_nao_carrega_nada():
+    """du = 0 da fator 1 sozinho -- o expoente zera. Quem a guarda protege de
+    verdade e o du NEGATIVO: sem ela, uma liquidacao posterior a data pedida
+    carregaria com expoente negativo e DESCONTARIA o financeiro, em silencio.
+
+    A primeira versao deste teste so olhava du = 0 e passava com a guarda
+    mutada, porque ali nao havia o que pegar. Achado na conferencia de dentes.
+    """
+    d = pd.Timestamp("2026-07-31")
+    depois = pd.Timestamp("2026-08-31")
+    for titulo in ("LTN", "NTN-B", "LFT"):
+        assert rolagem._fator_de_carrego(titulo, 10.0, d, d) == 1.0
+        assert rolagem._fator_de_carrego(titulo, 10.0, depois, d) == 1.0, (
+            f"{titulo}: liquidacao posterior a data pedida descontou o "
+            f"financeiro em vez de nao carregar")
+
+
+def test_o_emitido_carregado_e_MAIOR_que_a_soma_simples():
+    """O sintoma que motivou o passo, travado.
+
+    A janela tem emissao liquida positiva nos tres indexadores, entao carregar
+    tem de aumentar todos. Se os dois baterem, o carrego nao esta sendo
+    aplicado.
+    """
+    de, ate = pd.Timestamp("2026-06-30"), pd.Timestamp("2026-07-31")
+    simples = rolagem.leiloes_liquidados(de, ate)
+    carregado = rolagem.leiloes_liquidados_carregados(de, ate)
+    for ind in rolagem.INDEXADORES:
+        assert float(simples[ind]) > 0, f"{ind}: janela sem emissao liquida"
+        assert float(carregado[ind]) > float(simples[ind]), (
+            f"{ind}: carregado ({carregado[ind]:.1f}) nao ficou acima da soma "
+            f"simples ({simples[ind]:.1f})")
+
+
+def test_a_ROLAGEM_usa_o_emitido_carregado_e_nao_a_soma_simples():
+    """O teste acima confere a FUNCAO; este confere que ela e usada.
+
+    Sem isto, trocar a chamada em estoque_em de volta para leiloes_liquidados
+    passava batido -- o teste da funcao continuava verde porque chama a funcao
+    direto. Achado na conferencia de dentes.
+    """
+    t0, t1 = pd.Timestamp("2026-06-30"), pd.Timestamp("2026-07-31")
+    com_carrego = rolagem.estoque_em(t1, de=t0)
+
+    guardada = rolagem.leiloes_liquidados_carregados
+    try:
+        rolagem.leiloes_liquidados_carregados = rolagem.leiloes_liquidados
+        sem_carrego = rolagem.estoque_em(t1, de=t0)
+    finally:
+        rolagem.leiloes_liquidados_carregados = guardada
+
+    for ind in rolagem.INDEXADORES:
+        assert float(com_carrego[ind]) > float(sem_carrego[ind]), (
+            f"{ind}: a rolagem deu o mesmo resultado com e sem carrego -- ela "
+            f"nao esta usando leiloes_liquidados_carregados")
