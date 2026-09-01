@@ -752,3 +752,133 @@ def test_a_rolagem_NAO_LE_O_MES_QUE_ESTA_TENTANDO_REPRODUZIR(tmp_path, monkeypat
         assert float(obtido[ind]) == pytest.approx(float(esperado[ind]), abs=1e-6), (
             f"{ind}: a rolagem mudou quando o dado de {t1:%d/%m/%Y} foi "
             f"estragado -- ou seja, ela LE o mes que deveria estar prevendo")
+
+# ---------------------------------------------------------------------------
+# O JURO REAL DO ESTOQUE INDEXADO A PRECOS.
+#
+# Ate 27/08/2026 a rolagem historica aplicava SO a razao entre VNAs -- ou seja,
+# so inflacao -- e ao mesmo tempo SUBTRAIA o cupom pago via fluxos.pagos. Tirava
+# R$ 10,0 bi/mes sem nunca ter posto. Dai o bloco sair menor em 24 dos 24 meses
+# do backtest.
+#
+# A TAXA NAO E O CUPOM CONTRATUAL, e a correcao e dela: "o 6% fala sobre os
+# cupons que serao pagos (1+6%)^(0,5)*VNA. Mas o papel e emitido em uma taxa
+# negociada, entao cada papel vai pagar um juro real .. nao faz sentido manter
+# 6%". A taxa sai dos leiloes que emitiram cada papel vivo.
+#
+# MEDIDO no backtest, vies medio do Indice de Precos:
+#     sem juro real (como era)   -0,568%    0 dos 24 meses para cima
+#     taxa negociada             -0,112%    1 dos 24
+#
+# Sobra -0,112%, e NAO se fecha subindo a taxa: o ajuste melhora ate ~7% a.a.,
+# que nem o cupom contratual (6,00%) nem a negociada (5,948% na NTN-B) alcancam.
+# ---------------------------------------------------------------------------
+
+def test_a_taxa_real_e_a_NEGOCIADA_e_nao_o_cupom_contratual():
+    """A distincao que ela fez, e que o cupom de 6% escondia.
+
+    CUPOM_ANUAL["NTN-B"] = 0.06 e a regra do cupom PAGO. A taxa a que o estoque
+    rende e a de EMISSAO de cada papel, e as duas nao coincidem: medido em
+    31/07/2026, 6,042% contra 6,000%. Se alguem devolver o cupom contratual
+    aqui, o numero fica redondo demais e este teste cai.
+    """
+    from tesouro import fluxos
+
+    quando = pd.Timestamp("2026-07-31")
+    obtida = rolagem.taxa_real_do_estoque(quando)
+
+    assert obtida != pytest.approx(fluxos.CUPOM_ANUAL["NTN-B"], abs=1e-6), (
+        "a taxa real saiu exatamente igual ao cupom contratual de 6% -- ou "
+        "alguem devolveu CUPOM_ANUAL, ou a ponderacao por leilao sumiu")
+
+    # E tem de ficar na faixa em que NTN-B de fato saiu a leilao: nem perto de
+    # zero (taxa perdida) nem perto de 10% (leu taxa nominal em vez de real).
+    assert 0.04 < obtida < 0.08, f"taxa real implausivel: {obtida:.4%}"
+
+
+def test_a_taxa_real_so_olha_leilao_ATE_a_data():
+    """A regra dela: nao se le o que ainda nao aconteceu.
+
+    Um leilao posterior a data de partida nao existia quando a rolagem parte
+    dali. Sem o filtro, a taxa de 2024 sairia contaminada pelos leiloes de 2026
+    -- que sairam a juro real MAIOR, entao o erro nao seria neutro.
+    """
+    antiga = rolagem.taxa_real_do_estoque(pd.Timestamp("2024-12-31"))
+    recente = rolagem.taxa_real_do_estoque(pd.Timestamp("2026-07-31"))
+    assert antiga < recente, (
+        f"a taxa de 2024 ({antiga:.4%}) nao ficou abaixo da de 2026 "
+        f"({recente:.4%}); o filtro por data provavelmente sumiu")
+    # Medido: 5,401% em 31/12/2024 e 6,042% em 31/07/2026.
+    assert recente - antiga > 0.004, (
+        "a diferenca entre 2024 e 2026 encolheu; se o filtro cair, as duas "
+        "convergem para a mesma taxa e esta assercao morre junto")
+
+
+def test_o_bloco_de_precos_rende_MAIS_do_que_a_inflacao():
+    """O sintoma que motivou tudo, travado.
+
+    A apropriacao do bloco tem de ficar ACIMA da razao entre VNAs: o VNA corrige
+    o principal pela inflacao, e o juro real vem por cima. Enquanto os dois eram
+    iguais, a rolagem subtraia cupom sem nunca apropria-lo.
+    """
+    de, ate = pd.Timestamp("2026-06-30"), pd.Timestamp("2026-07-31")
+    base = 1_000_000.0
+
+    obtido = rolagem._apropriacao("\u00cdndice Pre\u00e7os", base, de, ate)
+    so_inflacao = base * (rolagem._vna_para_apropriacao("IPCA", ate)
+                          / rolagem._vna_para_apropriacao("IPCA", de) - 1)
+
+    assert obtido > so_inflacao, (
+        "a apropriacao do bloco de precos ficou igual a inflacao pura -- o "
+        "juro real nao esta entrando")
+
+    # E a diferenca tem de ter o tamanho de um mes de juro real, nao de um ano.
+    from tesouro import calendario
+
+    du = calendario.padrao().du(de.date(), ate.date())
+    esperado = base * (1 + rolagem.taxa_real_do_estoque(de)) ** (du / 252)
+    esperado = esperado * (rolagem._vna_para_apropriacao("IPCA", ate)
+                           / rolagem._vna_para_apropriacao("IPCA", de)) - base
+    assert obtido == pytest.approx(esperado, rel=1e-9)
+
+
+def test_a_taxa_real_pondera_pelo_ESTOQUE_e_nao_pelo_numero_de_leiloes():
+    """A NTN-B 2055 saiu a 5,142% em 281 leiloes; a 2045, a 6,856% em 253.
+
+    Contar leilao em vez de estoque daria peso igual a papel de R$ 165 bi e de
+    R$ 180 bi -- e, pior, o mesmo peso a um vencimento pequeno com muitos
+    leiloes. A media simples entre os quinze vencimentos vivos da 5,986%; a
+    ponderada pelo estoque da 6,042%.
+    """
+    from tesouro import config
+
+    quando = pd.Timestamp("2026-07-31")
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    # O MESMO CONJUNTO DE PAPEIS QUE A FUNCAO USA. Comparar contra uma media
+    # simples so de NTN-B deixava a assercao sobreviver por acidente: a NTN-C
+    # sozinha ja afastava os dois numeros, e a mutacao que trocava a ponderacao
+    # por contagem passava batida. Pego na conferencia de dentes.
+    e = e[(e["data"] == quando) & (e["titulo"].isin(rolagem._INDEXADOS_A_PRECOS))
+          & (e["financeiro_milhoes"] > 0)]
+    assert len(e) > 10, "o estoque indexado encolheu; reveja este teste"
+
+    l = rolagem.leiloes()
+    l = l[(l["titulo"].isin(rolagem._INDEXADOS_A_PRECOS))
+          & (l["tipo_leilao"] == "Venda")
+          & l["taxa_media_pct"].notna() & (l["financeiro_milhoes"] > 0)
+          & (l["data_leilao"] <= quando)]
+    simples = []
+    for r in e.itertuples(index=False):
+        seus = l[(l["titulo"] == r.titulo)
+                 & (l["data_vencimento"] == r.vencimento)]
+        if seus.empty:
+            continue
+        peso = seus["financeiro_milhoes"]
+        simples.append(float((seus["taxa_media_pct"] * peso).sum() / peso.sum()))
+    media_simples = sum(simples) / len(simples) / 100
+
+    obtida = rolagem.taxa_real_do_estoque(quando)
+    assert abs(obtida - media_simples) > 0.0003, (
+        f"a taxa ({obtida:.4%}) ficou colada na media SIMPLES entre "
+        f"vencimentos ({media_simples:.4%}) -- a ponderacao pelo estoque sumiu")

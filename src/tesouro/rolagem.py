@@ -329,11 +329,14 @@ def _vna_para_apropriacao(indice, quando):
     (ver o docstring dele) -- e e exatamente ali, e so ali, que ele deve ser
     chamado.
 
-    VIES CONHECIDO, MEDIDO, E AINDA NAO CORRIGIDO (revisao da branch, item 7).
-    Fora da cobertura do vna.csv o desvio nao cancela: vna_em devolve o VNA da
-    ANCORA -- o ultimo leilao do papel ate 'quando' -- e ninguem carrega dali
-    ate a data pedida. Em 17/08/2026 a ancora e 11/08 para LFT e para NTN-B, e
-    ficam QUATRO DIAS UTEIS sem apropriar:
+    VIES QUE JA FOI FECHADO -- o texto abaixo descrevia um defeito ABERTO e
+    ficou para tras; corrigido em 27/08/2026. vna_em hoje CARREGA da ancora ate
+    a data pedida (ver o corpo dele), por decisao dela de 25/08: "projeta tudo a
+    partir da data do ultimo leilao, ai vc usa as premissas que ja estava
+    usando". Com isso o vao caiu de quatro dias uteis para UM, e o carrego e
+    aplicado: medido em 26/08/2026, +0,051% na Selic e +0,020% no IPCA.
+
+    O que se media antes de fechar, e que fica de registro do tamanho:
 
         SELIC  0,221% sobre R$ 4.800,7 bi  ->  R$ 10,6 bi a menos
         IPCA   0,073% sobre R$ 2.111,0 bi  ->  R$  1,5 bi a menos
@@ -360,6 +363,78 @@ def _vna_para_apropriacao(indice, quando):
     return vna_em(indice, quando)
 
 
+# Papeis do bloco de Indice de Precos. A NTN-C entra: a taxa dela sai dos leiloes
+# que a emitiram, entao e o juro real DELA -- nao depende de termos serie de
+# IGP-M, que o projeto nao tem.
+_INDEXADOS_A_PRECOS = ("NTN-B", "NTN-B1", "NTN-C")
+
+
+def taxa_real_do_estoque(quando):
+    """O juro real a que o estoque indexado a precos rende, na data.
+
+    ELA CORRIGIU ISTO EM 27/08/2026, e a correcao desfaz um engano meu. Eu tinha
+    proposto usar os 6% de CUPOM_ANUAL como taxa de apropriacao. Nas palavras
+    dela: "o 6% fala sobre os cupons que serao pagos (1+6%)^(0,5)*VNA. Mas o
+    papel e emitido em uma taxa negociada, entao cada papel vai pagar um juro
+    real .. nao faz sentido manter 6%".
+
+    Os 6% sao a REGRA DO CUPOM PAGO, e nao a taxa a que o estoque rende. Quem
+    manda no rendimento e a taxa com que cada papel saiu do leilao.
+
+    DE ONDE SAI. O anexo do RMD nao publica taxa de estoque -- so custo (abas
+    4.1, 4.2 e 4.3). Mas cada leilao traz taxa_media_pct e cada papel vivo traz
+    vencimento, entao da para casar os dois e ponderar pelo estoque. Medido em
+    31/07/2026: 5,948% para a NTN-B, com 100% do estoque casado a leilao.
+
+    ATE 'quando', NUNCA DEPOIS -- a regra dela sobre nao ler o mes que se tenta
+    reproduzir. Um leilao posterior a data de partida nao existia quando a
+    rolagem parte dali.
+
+    O QUE ISTO CONSERTA. A rolagem historica subtraia o cupom da NTN-B (via
+    fluxos.pagos, R$ 10,0 bi/mes) e NUNCA o apropriava: tirava sem nunca ter
+    posto. Dai o estoque de Indice de Precos sair menor em 24 dos 24 meses do
+    backtest, -0,568% ao mes sobre um bloco de 2,1 trilhoes.
+
+    O QUE ISTO NAO CONSERTA, e esta escrito para ninguem procurar de novo: o
+    ajuste do backtest melhora monotonicamente ate ~7% ao ano, e nem o cupom
+    contratual (6,00%) nem a taxa negociada (5,948%) chegam la. Sobra da ordem
+    de 0,07% ao mes sem explicacao. NAO se fecha isso subindo a taxa: seria um
+    numero que nenhuma fonte sustenta, e enterraria a causa de vez.
+    """
+    quando = pd.Timestamp(quando)
+
+    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                    parse_dates=["data", "vencimento"])
+    e = e[(e["data"] <= quando) & (e["titulo"].isin(_INDEXADOS_A_PRECOS))]
+    if e.empty:
+        raise LookupError(
+            f"nao ha estoque indexado a precos ate {quando:%d/%m/%Y} para "
+            f"apurar a taxa real.")
+    e = e[(e["data"] == e["data"].max()) & (e["financeiro_milhoes"] > 0)]
+
+    l = leiloes()
+    l = l[(l["titulo"].isin(_INDEXADOS_A_PRECOS)) & (l["tipo_leilao"] == "Venda")
+          & l["taxa_media_pct"].notna() & (l["financeiro_milhoes"] > 0)
+          & (l["data_leilao"] <= quando)]
+
+    num = den = 0.0
+    for r in e.itertuples(index=False):
+        seus = l[(l["titulo"] == r.titulo)
+                 & (l["data_vencimento"] == r.vencimento)]
+        peso = seus["financeiro_milhoes"]
+        if seus.empty or float(peso.sum()) <= 0:
+            continue
+        taxa = float((seus["taxa_media_pct"] * peso).sum() / peso.sum()) / 100
+        num += float(r.financeiro_milhoes) * taxa
+        den += float(r.financeiro_milhoes)
+
+    if den <= 0:
+        raise LookupError(
+            f"nenhum papel indexado a precos vivo em {quando:%d/%m/%Y} pode ser "
+            f"casado com o leilao que o emitiu; sem isso nao ha taxa real.")
+    return num / den
+
+
 def _apropriacao(indexador, base, de, ate):
     """Juros apropriados sobre o estoque no periodo."""
     if indexador == "Prefixado":
@@ -367,8 +442,16 @@ def _apropriacao(indexador, base, de, ate):
         du = cal.du(pd.Timestamp(de).date(), pd.Timestamp(ate).date())
         return base * ((1 + carga_do_prefixado(de)) ** (du / 252) - 1)
     indice = _INDICE_DO_INDEXADOR[indexador]
-    return base * (_vna_para_apropriacao(indice, ate)
-                   / _vna_para_apropriacao(indice, de) - 1)
+    fator = (_vna_para_apropriacao(indice, ate)
+             / _vna_para_apropriacao(indice, de))
+    if indexador == "\u00cdndice Pre\u00e7os":
+        # O VNA corrige o principal pela inflacao; o JURO REAL vem por cima, e
+        # ate 27/08/2026 nao vinha de lugar nenhum -- a rolagem subtraia o cupom
+        # pago e nunca o apropriava. Ver taxa_real_do_estoque.
+        cal = calendario.padrao()
+        du = cal.du(pd.Timestamp(de).date(), pd.Timestamp(ate).date())
+        fator *= (1 + taxa_real_do_estoque(de)) ** (du / 252)
+    return base * (fator - 1)
 
 
 def estoque_em(quando, de=None):
