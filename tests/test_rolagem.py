@@ -244,7 +244,13 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
             # contra ela mesma e removeria a unica cobertura da premissa.
             taxa = rolagem.carga_do_prefixado(de)
         juros = base * ((1 + taxa) ** (du / 252) - 1)
-        emissao_esperada = float(ritmo[ind]) * rolagem.leiloes_que_faltam(dias, ind)
+        # PELA SOMA DOS FATORES, e nao pela contagem: desde 27/08/2026 cada
+        # leilao futuro carrega da sua data ate o fim da janela (passo 4 do
+        # desenho dela). Emitir X por leilao vale X * soma(fatores) em 31/12.
+        fatores = rolagem.fatores_da_emissao_futura(
+            ind, dias, ate, rolagem.taxa_de_emissao_recente(ind, de),
+            selic, inflacao)
+        emissao_esperada = float(ritmo[ind]) * fatores
         emissao_publicada = p["estoque"][ind] - base + pago - juros
         assert emissao_publicada == pytest.approx(emissao_esperada, rel=1e-6), ind
         total_emissao += emissao_publicada
@@ -261,8 +267,16 @@ def test_a_projecao_devolve_a_PREMISSA_que_usou():
     # errado (contar dias, e nao leiloes do papel) e quase o dobro. 0,7 e nao 0,5
     # porque os tres papeis nao se dividem exatamente meio a meio -- mas ainda
     # reprova a mutacao, que leva a razao a 1,0.
-    teto_do_metodo_errado = sum(float(ritmo[ind]) * len(dias)
-                                for ind in rolagem.INDEXADORES)
+    # O teto usa TODOS os dias com o mesmo carrego, para a comparacao isolar o
+    # que ela quer isolar: contar dia em vez de leilao do papel. Sem o carrego
+    # nos dois lados, a folga viria de mistura de dois efeitos.
+    teto_do_metodo_errado = 0.0
+    for ind in rolagem.INDEXADORES:
+        todos = rolagem.fatores_da_emissao_futura(
+            ind, dias, ate, rolagem.taxa_de_emissao_recente(ind, de),
+            selic, inflacao)
+        por_dia = todos / max(rolagem.leiloes_que_faltam(dias, ind), 1)
+        teto_do_metodo_errado += float(ritmo[ind]) * por_dia * len(dias)
     assert total_emissao < teto_do_metodo_errado * 0.7
 
 
@@ -996,3 +1010,116 @@ def test_a_ROLAGEM_usa_o_emitido_carregado_e_nao_a_soma_simples():
         assert float(com_carrego[ind]) > float(sem_carrego[ind]), (
             f"{ind}: a rolagem deu o mesmo resultado com e sem carrego -- ela "
             f"nao esta usando leiloes_liquidados_carregados")
+
+# ---------------------------------------------------------------------------
+# PASSO 4: cada leilao FUTURO carregado da sua data ate o fim da janela.
+#
+# A taxa sai dos MESMOS LEILOES_DO_PACE leiloes que definem o pace -- decisao
+# dela, por coerencia de amostra: se o volume vem dali, a taxa tambem. As duas
+# fontes discordam (LTN a 14,08% contra Selic implicita de 13,69% em 26/08/2026)
+# e misturar esconderia a discordancia dentro do numero.
+# ---------------------------------------------------------------------------
+
+def test_a_emissao_projetada_CARREGA_e_nao_chega_toda_no_ultimo_dia():
+    """O sintoma do passo 4, travado.
+
+    A soma dos fatores tem de ficar ACIMA da contagem de leiloes: cada um deles
+    rende de sua data ate 31/12. Se os dois baterem, o carrego nao entrou.
+    """
+    from tesouro import calendario_leiloes, curva
+
+    hoje = rolagem.leiloes()["data_liquidacao"].max()
+    ate = pd.Timestamp("2026-12-31")
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=[], hoje=hoje)
+    selic = curva.selic_implicita(ate, data_base=hoje)
+    inflacao = curva.inflacao_implicita(ate, data_base=hoje)
+
+    for ind in rolagem.INDEXADORES:
+        quantos = rolagem.leiloes_que_faltam(dias, ind)
+        fatores = rolagem.fatores_da_emissao_futura(
+            ind, dias, ate, rolagem.taxa_de_emissao_recente(ind, hoje),
+            selic, inflacao)
+        assert quantos > 0
+        assert fatores > quantos, (
+            f"{ind}: a soma dos fatores ({fatores:.4f}) nao ficou acima da "
+            f"contagem ({quantos}) -- a emissao futura nao esta carregando")
+        # E nao pode explodir: nenhum leilao rende mais que a janela inteira.
+        assert fatores < quantos * 1.20, (
+            f"{ind}: fatores ({fatores:.4f}) grandes demais para {quantos} "
+            f"leiloes numa janela de meses")
+
+
+def test_a_taxa_de_emissao_recente_usa_A_JANELA_DO_PACE():
+    """Coerencia de amostra: mesma janela do pace, mesmos pesos.
+
+    Se alguem trocar por 'toda a historia', a taxa muda -- o prefixado saiu a
+    13,68% em 12 meses e a 14,08% nos ultimos dez leiloes.
+    """
+    hoje = rolagem.leiloes()["data_liquidacao"].max()
+    obtida = rolagem.taxa_de_emissao_recente("Prefixado", hoje)
+
+    l = rolagem.leiloes()
+    papeis = [t for t, i in rolagem._INDEXADOR_DO_TITULO.items()
+              if i == "Prefixado"]
+    l = l[(l["titulo"].isin(papeis)) & (l["tipo_leilao"] == "Venda")
+          & l["taxa_media_pct"].notna() & (l["financeiro_milhoes"] > 0)
+          & (l["data_leilao"] <= hoje)]
+
+    dias = sorted(l["data_leilao"].unique())[-rolagem.LEILOES_DO_PACE:]
+    janela = l[l["data_leilao"].isin(dias)]
+    peso = janela["financeiro_milhoes"]
+    esperada = float((janela["taxa_media_pct"] * peso).sum() / peso.sum()) / 100
+    assert obtida == pytest.approx(esperada, rel=1e-9)
+
+    peso_tudo = l["financeiro_milhoes"]
+    historia = float((l["taxa_media_pct"] * peso_tudo).sum()
+                     / peso_tudo.sum()) / 100
+    assert abs(obtida - historia) > 0.0005, (
+        f"a taxa da janela do pace ({obtida:.4%}) ficou colada na de toda a "
+        f"historia ({historia:.4%}) -- a janela provavelmente sumiu")
+
+
+def test_a_LFT_futura_carrega_SELIC_e_nao_o_agio_sozinho():
+    """Mesma armadilha do passo 3, agora no futuro.
+
+    O agio da LFT foi 0,11% nos ultimos dez leiloes. Se ele for usado como taxa,
+    a emissao futura de LFT praticamente nao rende -- sobre a maior fatia da
+    divida.
+    """
+    from tesouro import calendario_leiloes, curva
+
+    hoje = rolagem.leiloes()["data_liquidacao"].max()
+    ate = pd.Timestamp("2026-12-31")
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=[], hoje=hoje)
+    selic = curva.selic_implicita(ate, data_base=hoje)
+    inflacao = curva.inflacao_implicita(ate, data_base=hoje)
+
+    agio = rolagem.taxa_de_emissao_recente("Taxa Flutuante", hoje)
+    assert agio < 0.01, f"o agio da LFT saiu {agio:.4%}; nao parece agio"
+
+    com_selic = rolagem.fatores_da_emissao_futura(
+        "Taxa Flutuante", dias, ate, agio, selic, inflacao)
+    so_agio = rolagem.fatores_da_emissao_futura(
+        "Prefixado", dias, ate, agio, selic, inflacao)
+    quantos_lft = rolagem.leiloes_que_faltam(dias, "Taxa Flutuante")
+    quantos_pre = rolagem.leiloes_que_faltam(dias, "Prefixado")
+
+    assert (com_selic / quantos_lft) > (so_agio / quantos_pre) * 1.01, (
+        "a LFT futura carregou como se 0,11% fosse a taxa dela, e nao o agio "
+        "sobre a Selic")
+
+
+def test_a_simulacao_divide_pela_SOMA_DOS_FATORES_e_nao_pela_contagem():
+    """A inversa tem de inverter a MESMA conta.
+
+    Se a projecao carrega cada leilao e a simulacao divide pela contagem, as
+    duas param de bater -- e o teste de identidade da entrega 5 quebra. Este
+    confere o termo diretamente, para o motivo aparecer no nome quando cair.
+    """
+    hoje = rolagem.leiloes()["data_liquidacao"].max()
+    ate = pd.Timestamp("2026-12-31")
+    termos = rolagem.termos_da_simulacao("Prefixado", hoje=hoje, ate=ate,
+                                         registros=[])
+    assert termos.fatores > termos.quantos, (
+        f"fatores ({termos.fatores:.4f}) nao ficou acima de quantos "
+        f"({termos.quantos}) -- a simulacao nao esta carregando")

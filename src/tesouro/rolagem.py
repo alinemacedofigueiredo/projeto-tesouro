@@ -467,7 +467,7 @@ _REGRA_DE_CARREGO = {"LTN": "nominal", "NTN-F": "nominal",
                      "LFT": "agio"}
 
 
-def _fator_de_carrego(titulo, taxa_pct, de, ate):
+def _fator_de_carrego(titulo, taxa_pct, de, ate, vna=None):
     """Quanto o financeiro emitido em 'de' vale em 'ate', pela regra do papel.
 
     A inflacao e a Selic saem do VNA REALIZADO -- e esta funcao so serve para
@@ -493,8 +493,13 @@ def _fator_de_carrego(titulo, taxa_pct, de, ate):
     if regra == "nominal":
         return (1 + taxa) ** (du / 252)
     indice = "IPCA" if regra == "real" else "SELIC"
-    correcao = (_vna_para_apropriacao(indice, ate)
-                / _vna_para_apropriacao(indice, de))
+    # 'vna' existe por DESEMPENHO, e a razao esta medida: _vna_para_apropriacao
+    # le o vna.csv do disco a CADA chamada, e esta funcao roda uma vez por
+    # leilao da janela -- centenas de leituras por rolagem. Sem o memo, gravar
+    # paf.html subiu de 24 s para 57 s. Quem chama em lote passa um resolvedor
+    # que le uma vez so; o padrao continua sendo o caminho direto.
+    ler = vna if vna is not None else _vna_para_apropriacao
+    correcao = ler(indice, ate) / ler(indice, de)
     return correcao * (1 + taxa) ** (du / 252)
 
 
@@ -518,10 +523,18 @@ def leiloes_liquidados_carregados(de, ate):
     l["sinal"] = [_SINAL.get(t, 0) for t in l["tipo_leilao"]]
     l = l[l["indexador"].notna()]
 
+    memo = {}
+
+    def _vna(indice, quando):
+        chave = (indice, pd.Timestamp(quando))
+        if chave not in memo:
+            memo[chave] = _vna_para_apropriacao(indice, quando)
+        return memo[chave]
+
     valores = []
     for r in l.itertuples(index=False):
         fator = _fator_de_carrego(r.titulo, r.taxa_media_pct,
-                                  r.data_liquidacao, ate)
+                                  r.data_liquidacao, ate, vna=_vna)
         valores.append(float(r.financeiro_milhoes) * r.sinal * fator)
     l = l.assign(carregado=valores)
     fluxo = l.groupby("indexador")["carregado"].sum()
@@ -627,6 +640,82 @@ def leiloes_que_faltam(dias, indexador):
     return sum(1 for d in dias if pd.Timestamp(d).dayofweek == alvo)
 
 
+def dias_do_papel(dias, indexador):
+    """Os dias de leilao que levam AQUELE papel -- as datas, e nao a contagem.
+
+    leiloes_que_faltam devolve quantos; o passo 4 precisa de QUANDO, porque
+    cada leilao carrega da sua propria data ate o fim da janela.
+    """
+    alvo = DIA_DO_PAPEL[indexador]
+    return [pd.Timestamp(d) for d in dias if pd.Timestamp(d).dayofweek == alvo]
+
+
+def taxa_de_emissao_recente(indexador, quando):
+    """A taxa dos MESMOS leiloes que definem o pace.
+
+    DECISAO DELA, 27/08/2026, e o motivo e coerencia de amostra. O pace afirma
+    "o Tesouro vai continuar emitindo 14,43 bi por leilao de prefixado" a partir
+    dos ultimos LEILOES_DO_PACE leiloes. A companhia natural e "a taxa a que ele
+    vem emitindo", tirada dos MESMOS leiloes, com os MESMOS pesos.
+
+    Tirar o volume dos leiloes e a taxa da curva implicita juntaria duas fontes
+    que podem discordar -- e elas discordam: em 26/08/2026 a LTN saia a 14,08%
+    e a Selic implicita ate 31/12 era 13,69%. Quase 0,4 pp que entrariam no
+    numero sem aparecer.
+
+    O QUE ELA DEVOLVE MUDA DE SIGNIFICADO POR INDEXADOR, e quem usa tem de
+    saber: nominal no prefixado, REAL no indice de precos, AGIO sobre a Selic
+    na taxa flutuante. Ver _REGRA_DE_CARREGO.
+    """
+    quando = pd.Timestamp(quando)
+    papeis = [t for t, i in _INDEXADOR_DO_TITULO.items() if i == indexador]
+    l = leiloes()
+    l = l[(l["titulo"].isin(papeis)) & (l["tipo_leilao"] == "Venda")
+          & l["taxa_media_pct"].notna() & (l["financeiro_milhoes"] > 0)
+          & (l["data_leilao"] <= quando)]
+    if l.empty:
+        raise LookupError(
+            f"nenhum leilao de {indexador!r} ate {quando:%d/%m/%Y} para apurar "
+            f"a taxa de emissao recente.")
+    dias = sorted(l["data_leilao"].unique())[-LEILOES_DO_PACE:]
+    l = l[l["data_leilao"].isin(dias)]
+    peso = l["financeiro_milhoes"]
+    return float((l["taxa_media_pct"] * peso).sum() / peso.sum()) / 100
+
+
+def fatores_da_emissao_futura(indexador, dias, ate, taxa, selic, inflacao):
+    """Soma dos fatores de carrego de um leilao em cada dia que ainda vem.
+
+    Uma emissao de X por leilao vale X * soma(fatores) na data final -- e nao
+    X * quantidade de leiloes, que e como era ate 27/08/2026. O dinheiro que
+    entra em setembro rende ate 31/12.
+
+    As premissas de inflacao e Selic sao as IMPLICITAS que a projecao ja usa,
+    porque para leilao futuro nao ha VNA realizado. A taxa do papel vem dos
+    leiloes recentes (taxa_de_emissao_recente) e se compoe com elas, seguindo a
+    regra de cada papel.
+    """
+    cal = calendario.padrao()
+    ate = pd.Timestamp(ate)
+    total = 0.0
+    for dia in dias_do_papel(dias, indexador):
+        if dia >= ate:
+            total += 1.0
+            continue
+        du = cal.du(dia.date(), ate.date())
+        if du <= 0:
+            total += 1.0
+            continue
+        if indexador == "Prefixado":
+            fator = (1 + taxa) ** (du / 252)
+        elif indexador == "\u00cdndice Pre\u00e7os":
+            fator = ((1 + inflacao) * (1 + taxa)) ** (du / 252)
+        else:
+            fator = ((1 + selic) * (1 + taxa)) ** (du / 252)
+        total += fator
+    return total
+
+
 def projecao(ate, de_snapshot=None, registros=None, hoje=None):
     """O estoque projetado para 'ate', com a premissa que usou ao lado.
 
@@ -714,8 +803,12 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
         # revisao da entrega 5).
         taxa = _taxa_do_indexador(ind, ate, data_base=partida)
         juros = base * ((1 + taxa) ** (du / 252) - 1)
-        projetado[ind] = (base + float(ritmo[ind])
-                          * leiloes_que_faltam(dias, ind) - pago + juros)
+        # CADA LEILAO CARREGA DA SUA DATA, e nao chega todo no ultimo dia --
+        # passo 4 do desenho dela. Ver fatores_da_emissao_futura.
+        fatores = fatores_da_emissao_futura(
+            ind, dias, ate, taxa_de_emissao_recente(ind, partida),
+            selic, inflacao)
+        projetado[ind] = base + float(ritmo[ind]) * fatores - pago + juros
     for ind in PARADOS:
         projetado[ind] = float(inicial[ind])
 
@@ -788,7 +881,8 @@ def _taxa_do_indexador(indexador, ate, data_base=None):
 # matriz). Achado da revisao: a versao anterior carregava os dois campos e o
 # docstring justificava por uma necessidade que o codigo nunca teve.
 TermosDaSimulacao = collections.namedtuple(
-    "TermosDaSimulacao", ["partida", "juros", "vence", "quantos"])
+    "TermosDaSimulacao",
+    ["partida", "juros", "vence", "quantos", "fatores"])
 
 
 def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
@@ -825,8 +919,18 @@ def termos_da_simulacao(indexador, hoje=None, ate=None, registros=None):
     taxa = _taxa_do_indexador(indexador, ate, data_base=hoje)
     juros = partida * ((1 + taxa) ** (du / 252) - 1)
 
+    # A MESMA SOMA DE FATORES QUE A PROJECAO USA. A simulacao e a projecao lida
+    # ao contrario; se uma carrega cada leilao da sua data e a outra divide pela
+    # contagem, as duas param de bater -- e o teste de identidade que sustenta a
+    # entrega 5 quebra. As premissas saem daqui, nao de uma copia.
+    from . import curva as _curva
+    fatores = fatores_da_emissao_futura(
+        indexador, dias, ate, taxa_de_emissao_recente(indexador, hoje),
+        _curva.selic_implicita(ate, data_base=hoje),
+        _curva.inflacao_implicita(ate, data_base=hoje))
+
     return TermosDaSimulacao(partida=partida, juros=juros, vence=vence,
-                             quantos=quantos)
+                             quantos=quantos, fatores=fatores)
 
 
 def emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total):
@@ -840,7 +944,10 @@ def emissao_a_partir_dos_termos(termos, alvo_pct, alvo_total):
     formula feita num lugar e esquecida no outro.
     """
     alvo = alvo_total * alvo_pct / 100 * 1000
-    return (alvo - termos.partida - termos.juros + termos.vence) / termos.quantos
+    # DIVIDE PELA SOMA DOS FATORES, e nao pela contagem: se cada leilao
+    # carrega da sua data (passo 4), emitir X por leilao vale
+    # X * soma(fatores) no fim -- e a inversa tem de dividir pelo mesmo.
+    return (alvo - termos.partida - termos.juros + termos.vence) / termos.fatores
 
 
 def emissao_necessaria(indexador, alvo_pct, alvo_total, hoje=None, ate=None,
