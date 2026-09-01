@@ -2,7 +2,7 @@
 
 > **Para quem executa:** SUB-SKILL OBRIGATÓRIA: use `superpowers:subagent-driven-development` (recomendado) ou `superpowers:executing-plans` para implementar tarefa a tarefa. Os passos usam `- [ ]` para acompanhamento.
 
-**Objetivo:** Devolver ao verde os 58 testes que ficaram vermelhos porque o RMD virou de junho para julho — **sem que nenhum deles vire espelho** do nosso próprio código.
+**Objetivo:** Devolver ao verde os 60 testes que ficaram vermelhos porque o RMD virou de junho para julho — **sem que nenhum deles vire espelho** do nosso próprio código.
 
 **Arquitetura:** Não há código de produção nesta entrega. O trabalho é reescrever asserções, e a única coisa nova é `tests/anexo.py`: um leitor que abre o anexo do RMD **direto**, sem passar pelo nosso parser, para que o valor novo de cada âncora do tipo §3.1 venha da fonte e não de nós.
 
@@ -35,9 +35,11 @@ Foram essas âncoras que acharam a coluna "Demais" zerada desde 2006, o câmbio 
 
 ---
 
-## O inventário, medido em 27/08/2026
+## O inventário, medido em 01/09/2026
 
-64 vermelhos ao todo. **6 são da revisão do PAF** e ficam de fora deste plano — a divisão foi medida revertendo `referencia/paf_bandas.csv` e rodando os mesmos 64 de novo. Os 58 que sobram, por arquivo:
+66 vermelhos ao todo. **6 são da revisão do PAF** e ficam de fora deste plano — a divisão foi medida revertendo `referencia/paf_bandas.csv` e rodando os mesmos vermelhos de novo. Os 60 que sobram, por arquivo:
+
+> **A contagem subiu de 58 para 60 em 01/09/2026**, e não por causa das mudanças na rolagem: as duas novas continuaram vermelhas com a rolagem revertida. Elas se moveram quando o pipeline reprocessou o DV e o decay já com o VNA de julho da Bloomberg. As quatro mudanças do motor (juro real, carrego das emissões passadas e futuras) **não acrescentaram nenhuma falha** — medido rodando a suíte inteira depois delas.
 
 | arquivo | quantos | tipo da spec |
 |---|---|---|
@@ -46,7 +48,7 @@ Foram essas âncoras que acharam a coluna "Demais" zerada desde 2006, o câmbio 
 | `test_graficos_detentores.py` | 6 | §3.1 anexo |
 | `test_graficos_custo.py` | 6 | §3.1 anexo |
 | `test_graficos_funding.py` | 5 | §3.1 anexo |
-| `test_graficos_estoque.py` | 5 | §3.1 anexo |
+| `test_graficos_estoque.py` | 6 | §3.1 anexo |
 | `test_graficos_reserva.py` | 4 | §3.1 anexo |
 | `test_graficos_prazo.py` | 3 | §3.1 anexo |
 | `test_decay.py` | 3 | §3.2 data + §3.4 |
@@ -55,6 +57,7 @@ Foram essas âncoras que acharam a coluna "Demais" zerada desde 2006, o câmbio 
 | `test_figuras.py` | 2 | §3.2 data + §3.4 valores |
 | `test_dv.py` | 1 | §3.4 coerência |
 | `test_dashboard.py` | 1 | §3.2 data no lugar errado |
+| `test_curva.py` | 1 | §3.1 valor medido da implicita |
 
 A lista completa, nó a nó, está em `git show 246819e` (a spec) e sai de novo com:
 
@@ -327,15 +330,15 @@ Para cada asserção vermelha do seu arquivo:
 
 ---
 
-## Task 3: `test_graficos_estoque.py` — 5 âncoras
+## Task 3: `test_graficos_estoque.py` — 6 âncoras
 
 **Files:** Modify: `tests/test_graficos_estoque.py`
 
-Cinco vermelhos, todos §3.1 (composição por indexador, o pico do câmbio, a soma 100%). São os que a Task 2 já provou serem conferíveis contra a aba 2.4 — use os mesmos números.
+Seis vermelhos, todos §3.1 (composição por indexador, o pico do câmbio, a soma 100%). São os que a Task 2 já provou serem conferíveis contra a aba 2.4 — use os mesmos números.
 
 Atenção a `test_cada_mes_da_composicao_soma_100` e `test_a_area_de_100_por_cento_empilha_as_cinco_faixas`: se falharem por soma, é §3.4 (coerência) disfarçado de §3.1, e a asserção certa é "soma 100 em **todo** mês", sem número de mês nenhum.
 
-- [ ] Passo 1: rodar e listar os cinco
+- [ ] Passo 1: rodar e listar os seis
 - [ ] Passo 2: classificar cada um
 - [ ] Passo 3: obter os valores do anexo (Task 1)
 - [ ] Passo 4: reescrever com procedência
@@ -559,7 +562,7 @@ Esta tarefa é o motivo de todas as outras. Sem ela, não há como saber se as 5
 PYTHONPATH=src python -m pytest -q --tb=no -rf
 ```
 
-Esperado: **6 vermelhos**, e todos da revisão do PAF (fora do escopo deste plano). Zero dos 58.
+Esperado: **6 vermelhos**, e todos da revisão do PAF (fora do escopo deste plano). Zero dos 60.
 
 - [ ] **Prova 2: contra o RMD de junho, a suíte tem de FICAR VERMELHA**
 
