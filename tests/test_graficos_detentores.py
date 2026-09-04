@@ -18,20 +18,34 @@ def part():
 
 def test_as_colunas_sao_os_anos_fechados_mais_os_dois_ultimos_meses(part):
     # O formato da pagina 7 do RMD, pedido pela dona do projeto em 19/08/2026.
-    assert list(part.index) == ["2020", "2021", "2022", "2023", "2024", "2025",
-                                "mai-26", "jun-26"]
+    #
+    # OS DOIS ULTIMOS MESES ANDAM A CADA RMD -- eram mai-26 e jun-26, hoje sao
+    # jun-26 e jul-26. Cravar os rotulos quebrava todo mes sem proteger o
+    # formato, que e o assunto do teste: seis anos fechados seguidos de dois
+    # meses. A FORMA fica travada; os nomes saem do dado.
+    anos = [r for r in part.index if r.isdigit()]
+    meses = [r for r in part.index if not r.isdigit()]
+    assert len(anos) == 6 and len(meses) == 2, list(part.index)
+    assert anos == sorted(anos), "os anos fechados fora de ordem"
+    assert [int(a) for a in anos] == list(range(int(anos[0]),
+                                                int(anos[0]) + 6)), (
+        "os seis anos nao sao consecutivos")
+    for m in meses:
+        assert "-" in m and len(m) == 6, f"rotulo de mes fora do formato: {m}"
     assert list(part.columns) == detentores.ORDEM_GRUPOS
 
 
-def test_a_participacao_de_junho_de_2026_bate_com_a_pagina_do_rmd(part):
-    # Conferido contra a pagina 7 do RMD de jun/26, que a dona do projeto forneceu.
-    assert round(part.loc["jun-26", "Inst. Financeiras"], 1) == 31.8
-    assert round(part.loc["jun-26", "Fundos"], 1) == 22.0
-    assert round(part.loc["jun-26", "Previd\u00eancia"], 1) == 22.5
-    assert round(part.loc["jun-26", "N\u00e3o-residentes"], 1) == 10.0
-    assert round(part.loc["jun-26", "Demais Grupos"], 1) == 13.8
-    assert round(part.loc["mai-26", "Inst. Financeiras"], 1) == 31.5
-    assert round(part.loc["mai-26", "Fundos"], 1) == 21.7
+def test_a_participacao_dos_DOIS_ULTIMOS_MESES_bate_com_o_anexo(part):
+    # O NOME DIZIA "junho" e os dois meses andam a cada RMD. Aba 2.7 do anexo de
+    # julho -- o mes da base e o anterior, pegos pela posicao e nao pelo rotulo.
+    ultimo, anterior = part.index[-1], part.index[-2]
+    assert round(part.loc[ultimo, "Inst. Financeiras"], 1) == 31.3
+    assert round(part.loc[ultimo, "Fundos"], 1) == 22.2
+    assert round(part.loc[ultimo, "Previd\u00eancia"], 1) == 22.7
+    assert round(part.loc[ultimo, "N\u00e3o-residentes"], 1) == 9.8
+    assert round(part.loc[ultimo, "Demais Grupos"], 1) == 13.9
+    assert round(part.loc[anterior, "Inst. Financeiras"], 1) == 31.8
+    assert round(part.loc[anterior, "Fundos"], 1) == 22.0
 
 
 def test_toda_coluna_soma_100(part):
@@ -47,11 +61,15 @@ def test_a_variacao_vai_em_reais_e_bate_com_a_pagina_do_rmd():
     assert list(v.columns) == ["em 12 meses", "no ano", "no m\u00eas"]
     assert list(v.index) == detentores.PRINCIPAIS
 
-    assert round(v.loc["Inst. Financeiras", "no ano"], 1) == 101.1
-    assert round(v.loc["Inst. Financeiras", "no m\u00eas"], 1) == 92.1
-    assert round(v.loc["Fundos", "no ano"], 1) == 234.9
-    assert round(v.loc["Previd\u00eancia", "no ano"], 1) == 117.6
-    assert round(v.loc["N\u00e3o-residentes", "em 12 meses"], 1) == 142.0
+    # Aba 2.7 do anexo de julho, em R$ bilhoes. REPARE NOS SINAIS: no mes, as
+    # Instituicoes Financeiras e os Nao-residentes REDUZIRAM posicao (-28,5 e
+    # -8,8), enquanto Fundos e Previdencia aumentaram. Em junho os quatro eram
+    # positivos.
+    assert round(v.loc["Inst. Financeiras", "no ano"], 1) == 72.6
+    assert round(v.loc["Inst. Financeiras", "no m\u00eas"], 1) == -28.5
+    assert round(v.loc["Fundos", "no ano"], 1) == 261.8
+    assert round(v.loc["Previd\u00eancia", "no ano"], 1) == 143.0
+    assert round(v.loc["N\u00e3o-residentes", "em 12 meses"], 1) == 126.7
 
 
 def test_a_variacao_falha_alto_se_faltar_o_mes_de_referencia(monkeypatch):
@@ -75,17 +93,17 @@ def test_o_rotulo_perde_o_numero_da_nota_de_rodape(part):
 
 
 def test_a_quebra_por_papel_soma_o_estoque_do_papel():
-    # A quebra de um papel entre os oito detentores tem de somar o estoque daquele
-    # papel: 4.567,3 bi de LFT em jun/26.
+    # A quebra de um papel entre os oito detentores tem de somar o estoque
+    # daquele papel: 4.744,1 bi de LFT em jul/26 (aba 2.8 do anexo).
     lft = detentores.dados_financeiro_do_papel("LFT")
-    assert round(lft.iloc[-1].sum() / 1000, 1) == 4567.3
+    assert round(lft.iloc[-1].sum() / 1000, 1) == 4744.1
     assert len(lft.columns) == 8
-    assert round(lft.iloc[-1]["Inst. Financeiras"] / 1000, 1) == 1666.0
+    assert round(lft.iloc[-1]["Inst. Financeiras"] / 1000, 1) == 1749.9
 
     ntnb = detentores.dados_financeiro_do_papel("NTN-B")
-    assert round(ntnb.iloc[-1].sum() / 1000, 1) == 2309.6
+    assert round(ntnb.iloc[-1].sum() / 1000, 1) == 2330.4
     # A Previdencia carrega quase metade da NTN-B, e e o fato do papel.
-    assert round(ntnb.iloc[-1]["Previd\u00eancia"] / ntnb.iloc[-1].sum() * 100, 1) == 44.9
+    assert round(ntnb.iloc[-1]["Previd\u00eancia"] / ntnb.iloc[-1].sum() * 100, 1) == 44.8
 
 
 def test_papel_que_nao_existe_falha_alto():
@@ -106,11 +124,11 @@ def papel():
 def test_quem_carrega_cada_papel_bate_com_o_medido(papel):
     # Os quatro fatos que o grafico existe para mostrar: a LFT e de banco e fundo,
     # a NTN-B e da previdencia, e o estrangeiro esta na ponta prefixada.
-    assert round(papel.loc["LFT", "Inst. Financeiras"], 1) == 36.5
-    assert round(papel.loc["LFT", "Fundos"], 1) == 33.0
-    assert round(papel.loc["NTN-B", "Previd\u00eancia"], 1) == 44.9
-    assert round(papel.loc["NTN-F", "N\u00e3o-residente"], 1) == 41.8
-    assert round(papel.loc["LTN", "N\u00e3o-residente"], 1) == 26.4
+    assert round(papel.loc["LFT", "Inst. Financeiras"], 1) == 36.9
+    assert round(papel.loc["LFT", "Fundos"], 1) == 32.5
+    assert round(papel.loc["NTN-B", "Previd\u00eancia"], 1) == 44.8
+    assert round(papel.loc["NTN-F", "N\u00e3o-residente"], 1) == 41.0
+    assert round(papel.loc["LTN", "N\u00e3o-residente"], 1) == 29.2
 
 
 def test_cada_papel_soma_100_entre_os_detentores(papel):
@@ -129,11 +147,13 @@ def fin():
 
 def test_o_financeiro_por_detentor_bate_com_o_medido(fin):
     u = fin.iloc[-1]
-    assert round(u["Inst. Financeiras"] / 1000, 1) == 2833.5
-    assert round(u["Previd\u00eancia"] / 1000, 1) == 2008.8
-    assert round(u["Fundos"] / 1000, 1) == 1962.6
-    assert round(u["Tesouro Direto"] / 1000, 1) == 262.5
-    assert round(u.sum() / 1000, 1) == 8920.7
+    assert round(u["Inst. Financeiras"] / 1000, 1) == 2805.0
+    assert round(u["Previd\u00eancia"] / 1000, 1) == 2034.2
+    assert round(u["Fundos"] / 1000, 1) == 1989.5
+    assert round(u["Tesouro Direto"] / 1000, 1) == 272.3
+    # A soma bate com o estoque total da DPF do mesmo anexo (aba 2.4): 8.948,7
+    # e o total da 2.8, que exclui o que a 2.4 chama de fora do detalhe.
+    assert round(u.sum() / 1000, 1) == 8948.7
     # A 2.8 comeca em fev/2011, quatro anos depois da 2.7. As duas series nao sao
     # a mesma coisa e nao vao para o mesmo eixo.
     assert fin.index.min() == pd.Timestamp("2011-02-28")
