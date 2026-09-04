@@ -53,13 +53,27 @@ def test_a_NTN_B_de_referencia_nao_e_a_mais_proxima():
 
 
 def test_selic_implicita_bate_o_valor_medido():
-    # Medido em 04/09/2026, com a curva de 31/07: 13,6852%.
-    #
-    # A TOLERANCIA DE 0,1 pp E APERTADA DE PROPOSITO -- ela pega curva lida na
-    # escala errada ou vertice trocado. Mas o numero anda com o mercado a cada
-    # RMD, e a versao anterior (13,76%, de 30/06) ja estava a 0,075 pp do
-    # limite: passava por um fio e quebraria no mes seguinte sem que nada
-    # tivesse dado errado.
+    """Medido em 04/09/2026, com a curva de 31/07: 13,6852%.
+
+    ESTA E UMA CHECAGEM DE ESCALA, E NAO UMA ANCORA DE MES -- e a distincao foi
+    medida, nao suposta. A PROVA 2 da entrega das ancoras (rodar a suite contra
+    o RMD de junho, onde toda ancora de valor tem de ficar vermelha) mostrou que
+    esta passa nos DOIS meses: a Selic implicita andou 0,075 pp de junho para
+    julho e a tolerancia e de 0,1 pp.
+
+    Nao e espelho -- o numero sai da curva, e nao de uma rodada do teste. Mas
+    tambem nao trava mes nenhum, e chamar isso de ancora seria mentir sobre o
+    que ela protege. O que ela pega e curva lida na escala errada ou vertice
+    trocado, que e outra coisa, e util.
+
+    A da INFLACAO implicita, logo abaixo, trava o mes: la o movimento foi de
+    0,49 pp, cinco vezes a tolerancia, e ela cai contra junho.
+
+    APERTAR A TOLERANCIA ATE DISTINGUIR O MES foi considerado e descartado: o
+    limiar teria de sair de 0,1 pp para menos de 0,075, escolhido para caber
+    entre dois meses que por acaso andaram pouco. Seria numero ajustado contra o
+    proprio dado, que e o vicio que esta entrega inteira remove.
+    """
     taxa = curva.selic_implicita(pd.Timestamp("2026-12-31"))
     assert abs(taxa - 0.1369) < 0.001, taxa
 
