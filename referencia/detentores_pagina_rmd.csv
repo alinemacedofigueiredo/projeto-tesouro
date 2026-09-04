@@ -29,25 +29,25 @@ participacao,Fundos,2025,20.8
 participacao,Previdência,2025,22.8
 participacao,Não-residentes,2025,10.3
 participacao,Demais Grupos,2025,13.2
-participacao,Inst. Financeiras,mai-26,31.5
-participacao,Fundos,mai-26,21.7
-participacao,Previdência,mai-26,22.9
-participacao,Não-residentes,mai-26,10.1
-participacao,Demais Grupos,mai-26,13.7
 participacao,Inst. Financeiras,jun-26,31.8
 participacao,Fundos,jun-26,22.0
 participacao,Previdência,jun-26,22.5
 participacao,Não-residentes,jun-26,10.0
 participacao,Demais Grupos,jun-26,13.8
-variacao,Inst. Financeiras,em 12 meses,418.7
-variacao,Inst. Financeiras,no ano,101.1
-variacao,Inst. Financeiras,no mês,92.1
-variacao,Fundos,em 12 meses,158.6
-variacao,Fundos,no ano,234.9
-variacao,Fundos,no mês,73.1
-variacao,Previdência,em 12 meses,412.5
-variacao,Previdência,no ano,117.6
-variacao,Previdência,no mês,16.4
-variacao,Não-residentes,em 12 meses,142.0
-variacao,Não-residentes,no ano,28.2
-variacao,Não-residentes,no mês,6.9
+participacao,Inst. Financeiras,jul-26,31.3
+participacao,Fundos,jul-26,22.2
+participacao,Previdência,jul-26,22.7
+participacao,Não-residentes,jul-26,9.8
+participacao,Demais Grupos,jul-26,13.9
+variacao,Inst. Financeiras,em 12 meses,377.4
+variacao,Fundos,em 12 meses,359.8
+variacao,Previdência,em 12 meses,241.3
+variacao,Não-residentes,em 12 meses,126.7
+variacao,Inst. Financeiras,no ano,72.6
+variacao,Fundos,no ano,261.8
+variacao,Previdência,no ano,143.0
+variacao,Não-residentes,no ano,19.4
+variacao,Inst. Financeiras,no mês,-28.5
+variacao,Fundos,no mês,26.9
+variacao,Previdência,no mês,25.4
+variacao,Não-residentes,no mês,-8.8
