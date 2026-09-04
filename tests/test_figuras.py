@@ -42,17 +42,37 @@ def test_figura_do_sistema_plota_ltn_ntnf_ntnb_e_total_com_valor_certo():
                    if not linha.get_label().startswith("_")}
         assert rotulos == {"LTN", "NTN-F", "NTN-B", "total"}
 
+        # A DATA ERA CRAVADA EM 2026-06-30 e anda todo RMD. Sai da fonte: o
+        # painel de DV parte da data-base do RMD carregado.
+        from tesouro import rolagem
+
+        do_rmd, _ = rolagem.base_do_rmd()
         ultima_data = serie.index.max()
-        assert ultima_data == date(2026, 6, 30)
+        assert ultima_data == do_rmd.date(), (
+            f"a figura desenha ate {ultima_data} e o RMD carregado e de "
+            f"{do_rmd.date()}")
 
         por_rotulo = {linha.get_label(): linha for linha in eixo.lines}
         # ydata[-1]: ultimo ponto de cada linha, na mesma ordem do eixo x
         # (serie.index, ordenado). Confere contra os mesmos ancoras do
         # teste acima, agora olhando o que foi de fato desenhado.
-        assert por_rotulo["LTN"].get_ydata()[-1] == pytest.approx(-198.535484, abs=1e-6)
-        assert por_rotulo["NTN-F"].get_ydata()[-1] == pytest.approx(-177.755607, abs=1e-6)
-        assert por_rotulo["NTN-B"].get_ydata()[-1] == pytest.approx(-1096.581570, abs=1e-6)
-        assert por_rotulo["total"].get_ydata()[-1] == pytest.approx(-1472.872661, abs=1e-6)
+        # O QUE ESTE TESTE PROVA e que o DESENHO carrega o mesmo numero que o
+        # dado -- ele existe para pegar a figura divergindo do CSV. Entao o
+        # esperado sai da PROPRIA serie, e nao de constantes copiadas: assim
+        # ele para de envelhecer e passa a pegar mais, porque compara os dois
+        # lados em vez de comparar cada um contra um terceiro numero digitado.
+        ultima = serie.loc[ultima_data]
+        for rotulo in ("LTN", "NTN-F", "NTN-B"):
+            assert por_rotulo[rotulo].get_ydata()[-1] == pytest.approx(
+                float(ultima[rotulo]), abs=1e-6), rotulo
+        assert por_rotulo["total"].get_ydata()[-1] == pytest.approx(
+            float(ultima[list(("LTN", "NTN-F", "NTN-B"))].sum()), abs=1e-6)
+
+        # E o nivel, medido em 04/09/2026 com a base em 31/07 -- e ele que pega
+        # VNA fora de escala, que a igualdade acima nao pegaria (os dois lados
+        # escalariam juntos).
+        assert por_rotulo["total"].get_ydata()[-1] == pytest.approx(
+            -1468.443345, abs=1e-5)
 
         # Unidade e conta precisam aparecer no proprio grafico, nao so no
         # relatorio -- e o que a usuaria ve antes de qualquer CSV. "\u00f5"
@@ -72,7 +92,13 @@ def test_figura_do_sistema_plota_ltn_ntnf_ntnb_e_total_com_valor_certo():
         # fig.text() -- verificado a mao removendo a linha correspondente
         # em _figura_do_sistema e confirmando que este teste quebra.
         textos = " ".join(t.get_text() for t in fig.texts)
-        assert "DV01 cobre 46,5% do estoque em 30/06/2026" in textos
+        # A DATA da frase tem de ser a do RMD carregado -- cravar um dia
+        # fazia o teste quebrar todo RMD sem checar nada de novo. A cobertura
+        # fica como medida: ela e uma fracao do estoque e nao ha, neste teste,
+        # uma fonte independente dela para comparar.
+        assert f"{do_rmd:%d/%m/%Y}" in textos, (
+            f"a figura nao cita a data-base do RMD ({do_rmd:%d/%m/%Y})")
+        assert "44,8%" in textos
     finally:
         import matplotlib.pyplot as plt
         plt.close(fig)
@@ -104,8 +130,13 @@ def test_figura_pontual_plota_as_quatro_barras_com_o_valor_do_resumo():
     fig, eixo, rotulos, valores = figuras._figura_pontual(resumo)
     try:
         assert rotulos == ["DV na base", "vence", "decay", "DV no alvo"]
+        # A CASCATA E UMA IDENTIDADE: a base mais o que vence mais o decay da
+        # o alvo. Vale em qualquer mes, e e o que o grafico afirma.
+        assert valores[0] + valores[1] + valores[2] == pytest.approx(
+            valores[3], abs=1e-5), "a cascata nao fecha"
+        # E os valores medidos em 04/09/2026, com a base em 31/07.
         assert valores == pytest.approx(
-            [-1472.872661, 5.248806, 86.540294, -1381.083561], abs=1e-5
+            [-1468.443345, 2.314195, 72.960186, -1393.168964], abs=1e-5
         )
 
         barras = eixo.patches
@@ -117,7 +148,16 @@ def test_figura_pontual_plota_as_quatro_barras_com_o_valor_do_resumo():
         assert "Conta B" in eixo.get_title()
 
         textos = " ".join(t.get_text() for t in fig.texts)
-        assert "DV01 cobre 46,5% do estoque em 30/06/2026" in textos
+        # A COBERTURA E A DATA VEM DO RESUMO, e nao de um texto cravado: a
+        # frase da figura tem de repetir o que a conta apurou. Assim o teste
+        # deixa de quebrar por RMD e passa a checar o que ele quer -- que a
+        # figura e o resumo concordam.
+        from tesouro.graficos import estilo
+
+        assert estilo.num_br(resumo["cobertura"]["cobertos_pct"], 1) + "%" in textos
+        assert f"{resumo['data_base']:%d/%m/%Y}" in textos
+        # E a escala, medida em 04/09/2026.
+        assert "44,8%" in textos and "31/07/2026" in textos
     finally:
         import matplotlib.pyplot as plt
         plt.close(fig)
