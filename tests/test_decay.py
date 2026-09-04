@@ -100,9 +100,13 @@ def test_vencimento_aparece_nos_horizontes_longos(d):
     # Contagens exatas, nao so ordenacao frouxa (que sobreviveria a boa
     # parte de um erro na marcacao de vencimento).
     por_h = d.groupby("horizonte")["venceu_no_caminho"].sum()
+    # A RELACAO E O QUE O TESTE AFIRMA: horizonte mais longo ve mais vencimento.
+    # As contagens crescem a cada RMD; a ordem entre elas, nao.
+    assert por_h["1du"] <= por_h["5du"] < por_h["21du"]
+    # Medidas em 04/09/2026.
     assert por_h["1du"] == 80
     assert por_h["5du"] == 80
-    assert por_h["21du"] == 126
+    assert por_h["21du"] == 127
 
 
 def test_venceu_no_caminho_nunca_chama_precificacao(monkeypatch):
@@ -215,14 +219,42 @@ def test_decay_e_a_diferenca_entre_alvo_e_base(d):
 # ---------------------------------------------------------------------------
 
 def test_dv_base_do_decay_bate_com_o_valor_medido_do_painel(d):
+    # ERA UMA CONSTANTE COPIADA de test_dv.py, e virou IDENTIDADE contra a
+    # propria fonte. O que o teste quer provar e que _decay_de REUSA o
+    # dv_posicao_milhoes do painel em vez de recalcular -- e comparar os dois
+    # diretamente prova isso, enquanto duas copias do mesmo numero apenas
+    # provavam que alguem digitou igual nos dois arquivos.
+    #
+    # Alem de nao envelhecer, pega mais: se o painel mudar e o decay nao (ou o
+    # contrario), a igualdade cai. As constantes copiadas passariam felizes ate
+    # alguem lembrar de atualizar as duas.
+    import pandas as pd
+
+    from tesouro import config
+
     base = d["data_base"].max()
     ult = d[(d["data_base"] == base) & (d["horizonte"] == "21du")]
-    esperado = {"LTN": -198.54, "NTN-F": -177.76, "NTN-B": -1096.58}
-    for titulo, valor in esperado.items():
-        medido = ult[ult["titulo"] == titulo]["dv_base"].sum()
-        assert medido == pytest.approx(valor, rel=0.01)
-    total = ult["dv_base"].sum()
-    assert total == pytest.approx(-1472.87, rel=0.01)
+
+    painel = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+                         parse_dates=["data"])
+    # pd.Timestamp(base): o decay guarda data_base como date e o painel como
+    # datetime64 -- comparar os dois direto nao casa nenhuma linha, e o
+    # teste falharia dizendo "as fontes sairam de sincronia" quando o
+    # problema era o tipo.
+    painel = painel[painel["data"] == pd.Timestamp(base)]
+    assert len(painel) > 0, (
+        f"o painel nao tem a data-base do decay ({base:%d/%m/%Y}); as duas "
+        f"fontes sairam de sincronia")
+
+    for titulo in ("LTN", "NTN-F", "NTN-B"):
+        do_decay = ult[ult["titulo"] == titulo]["dv_base"].sum()
+        do_painel = painel[painel["titulo"] == titulo][
+            "dv_posicao_milhoes"].sum()
+        assert do_decay == pytest.approx(do_painel, rel=1e-9), titulo
+        assert abs(do_decay) > 1.0, f"{titulo}: dv zerado, igualdade vazia"
+
+    assert ult["dv_base"].sum() == pytest.approx(
+        painel["dv_posicao_milhoes"].dropna().sum(), rel=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -231,10 +263,18 @@ def test_dv_base_do_decay_bate_com_o_valor_medido_do_painel(d):
 # e o total fica fora do papel que venceu no caminho (marcado a parte).
 # ---------------------------------------------------------------------------
 
-def test_decay_do_sistema_em_2026_06_30_bate_com_o_valor_medido(d):
+def test_decay_do_sistema_na_DATA_BASE_bate_com_o_valor_medido(d):
+    # A DATA ERA CRAVADA EM 2026-06-30 e anda todo RMD. Sai da fonte: o decay
+    # parte da data-base do RMD carregado, e e isso que o teste deve exigir --
+    # nao um dia escrito a mao.
+    from tesouro import rolagem
+
     base = d["data_base"].max()
-    assert base == date(2026, 6, 30)
-    esperado_sobreviventes = {"1du": 0.6548, "5du": 3.9642, "21du": 15.9106}
+    do_rmd, _ = rolagem.base_do_rmd()
+    assert base == do_rmd.date(), (
+        f"o decay parte de {base}, e o RMD carregado e de {do_rmd.date()}")
+    # Medidos em 04/09/2026 com a base em 31/07.
+    esperado_sobreviventes = {"1du": 0.3407, "5du": 3.4062, "21du": 14.7909}
     medidos = {}
     for horizonte, valor in esperado_sobreviventes.items():
         sub = d[(d["data_base"] == base) & (d["horizonte"] == horizonte)]

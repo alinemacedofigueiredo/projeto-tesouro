@@ -32,10 +32,21 @@ def test_o_perfil_termina_em_2060_porque_a_ntnb1_ficou_de_fora(perfil):
 def test_o_que_ficou_de_fora_do_perfil_esta_dito_e_medido():
     # O asterisco do desenho promete um numero, e este teste confere que o numero
     # prometido e o numero que saiu.
-    assert round(vencimentos.excluido_do_perfil() / 1000, 1) == 18.1
-    bruto = vencimentos._perfil_bruto()
-    assert round(bruto.sum().sum() / 1000, 1) == 8904.1
-    assert round(vencimentos.dados_perfil_completo().sum().sum() / 1000, 1) == 8886.0
+    #
+    # A IDENTIDADE E O QUE IMPORTA, e ela vale em qualquer mes: o que sai do
+    # desenho e exatamente a diferenca entre o bruto e o completo. Os tres
+    # valores mudam todo RMD; a subtracao, nao.
+    bruto = vencimentos._perfil_bruto().sum().sum()
+    completo = vencimentos.dados_perfil_completo().sum().sum()
+    excluido = vencimentos.excluido_do_perfil()
+    assert round(bruto - completo, 6) == round(excluido, 6), (
+        "o que o asterisco promete nao e a diferenca entre bruto e completo")
+    assert excluido > 0
+
+    # E uma medida de escala, do anexo de julho: 18,8 bi de NTN-B1 fora de um
+    # bruto de 8.933,1.
+    assert round(excluido / 1000, 1) == 18.8
+    assert round(bruto / 1000, 1) == 8933.1
 
 
 def test_a_diferenca_contra_o_cronograma_esta_travada(perfil):
@@ -44,28 +55,46 @@ def test_a_diferenca_contra_o_cronograma_esta_travada(perfil):
     #   16,6 bi -- o que a aba 2.2 nao lista (Demais, Securitizada, TDA);
     #   18,1 bi -- a NTN-B1, que a 2.2 lista e nos tiramos do desenho.
     # Somadas dao 34,7, que e exatamente o balde "Demais" do cronograma.
+    # AS DUAS PARCELAS SAO IDENTIDADES, e nao numeros: a diferenca entre os dois
+    # totais e o balde "Demais" da 3.4, e esse balde e a NTN-B1 mais os tres
+    # titulos que a 2.2 nao lista. As duas valem em qualquer mes.
     total_perfil = perfil.sum().sum() / 1000
-    cronograma = vencimentos.dados_cronograma_anual().sum().sum() / 1000
-    assert round(total_perfil, 1) == 8886.0
-    assert round(cronograma, 1) == 8920.7
-    assert round(cronograma - total_perfil, 1) == 34.7
-    assert round(vencimentos.excluido_do_perfil() / 1000, 1) == 18.1
-    assert round(34.7 - 18.1, 1) == 16.6
+    anual = vencimentos.dados_cronograma_anual().sum() / 1000
+    cronograma = anual.sum()
+    excluido = vencimentos.excluido_do_perfil() / 1000
+
+    assert round(cronograma - total_perfil, 1) == round(anual["Demais"], 1), (
+        "a diferenca entre os graficos deixou de ser o balde da 3.4")
+    assert round(anual["Demais"] - excluido, 1) > 0, (
+        "o balde encolheu abaixo da NTN-B1 que tiramos do desenho")
+
+    # E a escala, do anexo de julho, em R$ bilhoes.
+    assert round(total_perfil, 1) == 8914.2
+    assert round(cronograma, 1) == 8948.7
+    assert round(cronograma - total_perfil, 1) == 34.5
+    assert round(excluido, 1) == 18.8
 
 
 def test_os_papeis_com_nome_batem_papel_a_papel_entre_as_duas_abas(perfil):
     # A diferenca NAO esta espalhada: todo papel com nome bate na casa decimal. A
     # 3.4 agrupa LTN e NTN-F numa coluna so, entao a comparacao soma os dois.
+    # SO A IGUALDADE, sem valor cravado: o que este teste afirma e que a
+    # diferenca entre as duas abas NAO esta espalhada pelos papeis com nome. Os
+    # numeros mudam todo RMD e nao acrescentam nada a afirmacao -- travar os
+    # dois lados contra um terceiro numero so criava trabalho mensal.
     cr = vencimentos.dados_cronograma_anual().sum() / 1000
     pf = perfil.sum() / 1000
 
-    assert round(cr["LFT"], 1) == round(pf["LFT"], 1) == 4567.3
-    assert round(cr["NTN-B"], 1) == round(pf["NTN-B"], 1) == 2291.5
-    assert round(cr["NTN-C"], 1) == round(pf["NTN-C"], 1) == 82.5
-    assert round(cr["LTN / NTN-F"], 1) == round(pf["LTN"] + pf["NTN-F"], 1) == 1944.8
+    assert round(cr["LFT"], 1) == round(pf["LFT"], 1)
+    assert round(cr["NTN-B"], 1) == round(pf["NTN-B"], 1)
+    assert round(cr["NTN-C"], 1) == round(pf["NTN-C"], 1)
+    assert round(cr["LTN / NTN-F"], 1) == round(pf["LTN"] + pf["NTN-F"], 1)
+    # E os quatro tem de ter tamanho: uma igualdade entre dois zeros passaria.
+    for valor in (cr["LFT"], cr["NTN-B"], cr["NTN-C"], cr["LTN / NTN-F"]):
+        assert valor > 10, "papel com nome zerado; a igualdade ficou vazia"
 
 
-def test_a_diferenca_de_166_bi_e_o_que_a_aba_22_nao_lista():
+def test_a_diferenca_e_o_que_a_aba_22_NAO_LISTA():
     # A CAUSA, medida em 19/08/2026 -- a spec listava isto como investigacao
     # posterior. Toda a diferenca esta no balde "Demais" da aba 3.4, que vale 34,7
     # bi. Desse balde, a aba 2.2 lista a NTN-B1 (18,1) e mais nada: "Demais" (12,9),
@@ -84,15 +113,25 @@ def test_a_diferenca_de_166_bi_e_o_que_a_aba_22_nao_lista():
     por_titulo = u.groupby("titulo")["valor_milhoes"].sum() / 1000
 
     fora_da_22 = ["Demais", "D\u00edvida Securitizada", "TDA"]
-    assert round(por_titulo["Demais"], 1) == 12.9
-    assert round(por_titulo["D\u00edvida Securitizada"], 1) == 3.4
-    assert round(por_titulo["TDA"], 1) == 0.3
-    assert round(por_titulo[fora_da_22].sum(), 1) == 16.6
 
-    # E o balde inteiro da 3.4 e esses tres mais a NTN-B1, que a 2.2 lista.
-    assert round(por_titulo[fora_da_22].sum() + por_titulo["NTN-B1"], 1) == 34.7
+    # A DECOMPOSICAO E UMA IDENTIDADE: o balde da 3.4 e exatamente esses tres
+    # mais a NTN-B1. Vale em qualquer mes, e e ela que impede o teste do total
+    # de continuar passando se a diferenca mudar de tamanho E de causa junto.
     cr = vencimentos.dados_cronograma_anual().sum() / 1000
-    assert round(cr["Demais"], 1) == 34.7
+    assert round(por_titulo[fora_da_22].sum() + por_titulo["NTN-B1"], 1) == round(
+        cr["Demais"], 1), "o balde da 3.4 deixou de ser os tres mais a NTN-B1"
+
+    # E os tres tem de estar TODOS fora da 2.2 -- se um deles ganhasse linha la,
+    # a decomposicao continuaria fechando e a causa teria mudado.
+    for titulo in fora_da_22:
+        assert por_titulo[titulo] > 0, f"{titulo} zerou; a decomposicao mudou"
+
+    # A escala, do anexo de julho, em R$ bilhoes.
+    assert round(por_titulo["Demais"], 1) == 12.8
+    assert round(por_titulo["D\u00edvida Securitizada"], 1) == 2.6
+    assert round(por_titulo["TDA"], 1) == 0.3
+    assert round(por_titulo[fora_da_22].sum(), 1) == 15.7
+    assert round(cr["Demais"], 1) == 34.5
 
 
 def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
@@ -100,18 +139,28 @@ def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
     tarde = perfil[perfil.index > 2040]
     for familia in ("LFT", "LTN", "NTN-F"):
         assert tarde[familia].sum() == 0
-    # O ultimo ano desenhado e 2060, e sao 105,5 bi de NTN-B.
-    assert round(perfil.loc[2060, "NTN-B"] / 1000, 1) == 105.5
-    assert round(perfil.loc[2060].sum() / 1000, 1) == 105.5
+    # O ULTIMO ANO E SO NTN-B, e e isso que a afirmacao do teste quer: a cauda e
+    # toda indexada a precos. O valor anda todo RMD; a identidade nao.
+    ultimo = perfil.index.max()
+    assert round(perfil.loc[ultimo, "NTN-B"], 6) == round(
+        perfil.loc[ultimo].sum(), 6), "o ultimo ano tem papel que nao e NTN-B"
+    # Escala, do anexo de julho: 106,5 bi em 2060.
+    assert ultimo == 2060
+    assert round(perfil.loc[ultimo].sum() / 1000, 1) == 106.5
 
 
 def test_a_cauda_que_a_ntnb1_carregava_continua_no_dado(perfil):
     # Tirar do desenho nao e tirar do dado: quem precisar da cauda ate 2084 acha em
     # _perfil_bruto, e sao 6,5 bi de RendA+ em 2084.
     bruto = vencimentos._perfil_bruto()
-    assert bruto.index.max() == 2084
-    assert round(bruto.loc[2084, "NTN-B1"] / 1000, 1) == 6.5
-    assert round(bruto.loc[2084].sum() / 1000, 1) == 6.5
+    # A CAUDA CONTINUA NO BRUTO e nao no desenho -- e o ultimo ano dela e so
+    # NTN-B1, que e o motivo de ela existir.
+    fim = bruto.index.max()
+    assert fim > vencimentos.dados_perfil_completo().index.max()
+    assert round(bruto.loc[fim, "NTN-B1"], 6) == round(bruto.loc[fim].sum(), 6)
+    # Escala, do anexo de julho: 6,7 bi em 2084.
+    assert fim == 2084
+    assert round(bruto.loc[fim].sum() / 1000, 1) == 6.7
 
 
 # ---------------------------------------------------------------------------
@@ -124,17 +173,23 @@ def emissao():
 
 
 def test_o_custo_de_emissao_bate_com_o_medido(emissao):
+    # Abas 4.3 (emissoes) e 4.2 (estoque) do anexo de julho.
     u = emissao.iloc[-1]
-    assert round(u["emissao"], 2) == 14.20
-    assert round(u["estoque"], 2) == 13.19
+    assert round(u["emissao"], 2) == 14.10
+    assert round(u["estoque"], 2) == 13.14
     # O fato que o grafico existe para mostrar: emite-se mais caro do que se
     # carrega, entao a divida encarece sem que nada mude.
     assert u["emissao"] > u["estoque"]
 
 
 def test_o_custo_de_emissao_comeca_em_dezembro_de_2010(emissao):
+    # A CONTAGEM ERA CRAVADA EM 187 e crescia um por RMD. Vira relacao: um ponto
+    # por mes de dez/2010 ate a data-base, sem buraco.
     assert emissao.index.min() == pd.Timestamp("2010-12-31")
-    assert len(emissao) == 187
+    assert list(emissao.index) == list(pd.date_range(emissao.index.min(),
+                                                     emissao.index.max(),
+                                                     freq="ME"))
+    assert len(emissao) > 180, "a serie encolheu"
 
 
 def test_o_custo_do_estoque_e_o_mesmo_nos_dois_graficos():
@@ -169,18 +224,31 @@ def test_cada_ano_da_emissao_por_papel_soma_100(anual):
 
 
 def test_os_leiloes_sao_cortados_na_ultima_competencia_do_rmd(anual):
-    # O leiloes.csv vai ate 13/08/2026 e o RMD para em jun/26. Sem cortar, a
-    # cobertura de 2026 da 120% -- oito meses de leilao contra seis de RMD.
+    # O leiloes.csv vai alem do RMD, que para na data-base. Sem cortar, a
+    # cobertura do ano corrente passaria de 100% -- mais meses de leilao do que
+    # de RMD.
+    #
+    # O CORTE E O AGRUPAMENTO SAO PELA LIQUIDACAO, e nao pela data do leilao:
+    # os leiloes do mes da base que liquidam no mes seguinte ficam de fora.
+    from tesouro import rolagem
+
+    base, _ = rolagem.base_do_rmd()
+    ano = base.year
     bruto = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
                         parse_dates=["data_leilao"])
-    assert bruto["data_leilao"].max() > pd.Timestamp("2026-06-30"), \
+    assert bruto["data_leilao"].max() > base, \
         "o teste so vale se o CSV de leiloes for alem do RMD"
-    # 822,2 e nao 842,6: o corte e o agrupamento passaram a ser pela LIQUIDACAO,
-    # e os leiloes de junho que liquidam em julho sairam de 2026.
-    assert round(anual.loc[2026, "total_milhoes"] / 1000, 1) == 822.2
+    # A RELACAO, que vale em qualquer mes: o total do ano corrente tem de ser
+    # MENOR do que o mesmo total sem o corte. Se o corte sumir, os dois se
+    # igualam e o teste cai -- sem depender de numero nenhum.
+    sem_corte = bruto[bruto["data_leilao"].dt.year == ano]
+    assert anual.loc[ano, "total_milhoes"] < sem_corte["financeiro_milhoes"].sum()
+
+    # E a escala, medida em 04/09/2026 com a base em 31/07: 1.006,8 bi.
+    assert round(anual.loc[ano, "total_milhoes"] / 1000, 1) == 1006.8
     # E 2026 nao ganha cobertura: seis meses de RMD nao se comparam com doze de
     # leilao. Ver test_ano_sem_rmd_inteiro_nao_ganha_cobertura.
-    assert pd.isna(anual.loc[2026, "cobertura_pct"])
+    assert pd.isna(anual.loc[ano, "cobertura_pct"])
 
 
 def test_os_leiloes_de_venda_reproduzem_a_oferta_publica_da_aba_11():
