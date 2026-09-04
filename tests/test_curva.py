@@ -53,15 +53,44 @@ def test_a_NTN_B_de_referencia_nao_e_a_mais_proxima():
 
 
 def test_selic_implicita_bate_o_valor_medido():
-    # Numero medido a mao em 30/06/2026: ~13,76%. Nao e so o tipo, e o valor.
+    # Medido em 04/09/2026, com a curva de 31/07: 13,6852%.
+    #
+    # A TOLERANCIA DE 0,1 pp E APERTADA DE PROPOSITO -- ela pega curva lida na
+    # escala errada ou vertice trocado. Mas o numero anda com o mercado a cada
+    # RMD, e a versao anterior (13,76%, de 30/06) ja estava a 0,075 pp do
+    # limite: passava por um fio e quebraria no mes seguinte sem que nada
+    # tivesse dado errado.
     taxa = curva.selic_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(taxa - 0.1376) < 0.001, taxa
+    assert abs(taxa - 0.1369) < 0.001, taxa
 
 
 def test_inflacao_implicita_bate_o_valor_medido():
-    # Numero medido a mao em 30/06/2026: ~4,70% de breakeven.
+    # Medido em 04/09/2026, com a curva de 31/07: 5,1880% de breakeven.
     infl = curva.inflacao_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(infl - 0.0470) < 0.001, infl
+    assert abs(infl - 0.0519) < 0.001, infl
+
+
+def test_o_juro_real_implicito_e_positivo_e_plausivel():
+    """A RELACAO QUE SOBREVIVE ao mercado andar, e que as duas ancoras acima
+    nao dao sozinhas.
+
+    A inflacao implicita e o breakeven entre a curva nominal e a real, entao a
+    Selic implicita tem de ficar ACIMA dela -- juro real positivo. Se um dia as
+    duas se cruzarem, ou uma leitura esta na escala errada, ou o pais mudou de
+    regime; nos dois casos alguem precisa olhar antes de a pagina publicar.
+
+    A banda de 2% a 15% e larga de proposito: ela nao julga politica monetaria,
+    so pega numero impossivel. Medido em 04/09/2026: 8,08%.
+    """
+    ate = pd.Timestamp("2026-12-31")
+    selic = curva.selic_implicita(ate)
+    infl = curva.inflacao_implicita(ate)
+
+    assert selic > infl, (
+        f"juro real implicito NEGATIVO: selic {selic:.4%} contra inflacao "
+        f"{infl:.4%}")
+    real = (1 + selic) / (1 + infl) - 1
+    assert 0.02 < real < 0.15, f"juro real implausivel: {real:.4%}"
 
 
 def test_extrapolacao_plana_antes_da_primeira_ponta():
