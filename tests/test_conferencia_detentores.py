@@ -1,7 +1,8 @@
-"""Cruza os detentores contra a pagina 7 do RMD de jun/26.
+"""Cruza os detentores contra a pagina de detentores do RMD de jul/26.
 
-A dona do projeto forneceu a foto daquela pagina em 19/08/2026, e a transcricao
-esta em referencia/detentores_pagina_rmd.csv. Nenhum grafico le aquele arquivo: ele
+A transcricao esta em referencia/detentores_pagina_rmd.csv. A de jun/26 veio de
+uma foto que ela forneceu em 19/08/2026; a de jul/26 saiu do PDF que ela salvou
+em 04/09/2026 (data/raw/rmd, a Apresentacao). Nenhum grafico le aquele arquivo: ele
 existe so para este cruzamento.
 
 O que estes testes travam nao e "os dois batem" -- eles NAO batem em toda parte.
@@ -90,16 +91,29 @@ def test_a_variacao_no_ano_e_no_mes_batem_na_casa_decimal(pagina, nossa_variacao
                 f"{linha['grupo']}/{horizonte}: nosso {nosso:.1f} x {linha['valor']}"
 
 
-def test_so_a_variacao_de_12_meses_diverge_e_so_em_tres_grupos(
+def test_so_a_variacao_de_12_meses_diverge_e_so_em_DOIS_grupos(
         pagina, nossa_variacao):
-    # O achado. Como "no ano" e "no mes" batem, a divergencia esta na BASE de doze
-    # meses: o jun/2025 que a pagina usou nao e o jun/2025 do anexo que temos.
+    # O achado. Como "no ano" e "no mes" batem EXATO nos quatro grupos, a
+    # divergencia esta na BASE de doze meses: o jul/2025 que a pagina usou nao e
+    # o jul/2025 do anexo que temos.
     #
-    # As diferencas somam +13,4 bi e trocam de sinal entre os grupos -- a Previdencia
-    # aparece com 154,1 bi a MENOS na nossa base e Fundos com 125,6 a mais. Isso tem
-    # cara de reclassificacao entre grupos aplicada ao anexo depois de a pagina de
-    # jun/2025 ter sido publicada. Nao da para confirmar sem um anexo antigo, e nao
-    # temos: data/raw/rmd guarda so o de jun/26. Documentado, nao perseguido.
+    # O PADRAO MUDOU DE JUNHO PARA JULHO, e mudou para melhor:
+    #
+    #                    contra a pagina de jun/26   contra a de jul/26
+    #     Inst. Fin.            +41,8                     +42,5
+    #     Fundos               +125,6                     -28,9
+    #     Previdencia          -154,1                      0,0  <- passou a bater
+    #     Nao-residentes          0,0                      0,0
+    #     soma                  +13,4                     +13,6
+    #
+    # Em junho eram TRES grupos divergindo, com valores grandes se compensando.
+    # Agora sao DOIS, trocando entre si -- e a soma ficou praticamente igual.
+    # Isso reforca a leitura de reclassificacao ENTRE grupos aplicada ao anexo
+    # depois de a pagina antiga ter sido publicada: a parte que se compensava
+    # migrou, e o que sobra e um nivel de ~13,5 bi que nao se cancela.
+    #
+    # Nao da para confirmar sem um anexo de jul/2025, e nao temos: data/raw/rmd
+    # guarda so junho e julho de 2026. Documentado, nao perseguido.
     var = pagina[pagina["painel"] == "variacao"]
     doze = var[var["coluna"] == "em 12 meses"].set_index("grupo")["valor"]
 
@@ -107,7 +121,14 @@ def test_so_a_variacao_de_12_meses_diverge_e_so_em_tres_grupos(
                   for g in doze.index}
 
     assert abs(diferencas["N\u00e3o-residentes"]) < 0.15, "este bate"
-    assert round(diferencas["Inst. Financeiras"], 1) == 41.8
-    assert round(diferencas["Fundos"], 1) == 125.6
-    assert round(diferencas["Previd\u00eancia"], 1) == -154.1
-    assert round(sum(diferencas.values()), 1) == 13.4
+    assert abs(diferencas["Previd\u00eancia"]) < 0.15, "este passou a bater"
+    assert round(diferencas["Inst. Financeiras"], 1) == 42.5
+    assert round(diferencas["Fundos"], 1) == -28.9
+    assert round(sum(diferencas.values()), 1) == 13.6
+
+    # E OS DOIS QUE DIVERGEM TROCAM DE SINAL -- e o que sustenta a leitura de
+    # reclassificacao. Se um dia os dois forem para o mesmo lado, a explicacao
+    # muda e este teste tem de cair junto com ela.
+    assert (diferencas["Inst. Financeiras"] > 0) != (diferencas["Fundos"] > 0), (
+        "os dois grupos que divergem foram para o mesmo lado; a leitura de "
+        "reclassificacao entre eles nao se sustenta mais")

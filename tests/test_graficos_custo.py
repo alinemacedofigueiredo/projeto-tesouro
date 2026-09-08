@@ -13,29 +13,37 @@ def dados():
     return custo.dados_custo()
 
 
-def test_o_custo_de_junho_de_2026_bate_com_o_medido(dados):
+def test_o_custo_do_ULTIMO_MES_bate_com_o_anexo(dados):
+    # O NOME DIZIA "junho" e o corpo sempre olhou dados.iloc[-1] -- o ultimo mes
+    # que houver. Com a virada para julho o nome passou a mentir.
+    #
+    # Aba 4.2 do anexo de julho, custo acumulado em 12 meses.
     u = dados.iloc[-1]
-    assert round(u["DPF"], 2) == 12.68
-    assert round(u["DPMFi"], 2) == 13.19
+    assert round(u["DPF"], 2) == 12.45
+    assert round(u["DPMFi"], 2) == 13.14
 
 
 def test_a_selic_e_o_ipca_saem_do_nosso_vna(dados):
     # A variacao de 12 meses do VNA E o indice acumulado. A pagina do RMD busca
     # isso no site do Bacen; nos temos em casa desde a entrega 2.
     u = dados.iloc[-1]
-    assert round(u["SELIC"], 2) == 14.78
-    assert round(u["IPCA"], 2) == 4.81
+    assert round(u["SELIC"], 2) == 14.71
+    assert round(u["IPCA"], 2) == 4.47
 
 
 def test_a_medida_e_o_acumulado_de_12_meses_e_nao_o_mensal(dados):
-    # A medida 'mensal' da 13,64 para a DPF em junho: plausivel, e errado.
+    # A medida 'mensal' da 10,92 para a DPF em julho: plausivel, e errado. E o
+    # exemplo mais limpo do medo deste projeto -- os dois numeros existem, os
+    # dois vem do Tesouro, e so um responde a pergunta do grafico.
     bruto = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv",
                         parse_dates=["data"])
     mensal = bruto[(bruto["medida"] == "mensal") & (bruto["nivel"] == "DPF")
                    & bruto["entidade"].isna() & bruto["titulo"].isna()]
     valor_mensal = mensal.set_index("data")["custo_aa_pct"].iloc[-1]
-    assert round(valor_mensal, 2) == 13.64          # existe, e nao e o nosso
-    assert round(dados.iloc[-1]["DPF"], 2) == 12.68
+    assert round(valor_mensal, 2) == 10.92          # existe, e nao e o nosso
+    assert round(dados.iloc[-1]["DPF"], 2) == 12.45
+    assert valor_mensal != dados.iloc[-1]["DPF"], (
+        "as duas medidas colidiram; o teste perdeu o sentido")
 
 
 def test_o_vna_e_mensal_e_completo():
@@ -44,13 +52,18 @@ def test_o_vna_e_mensal_e_completo():
     v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
     meses = v["data"].dt.to_period("M").drop_duplicates().sort_values()
     esperado = pd.period_range(meses.min(), meses.max(), freq="M")
-    assert len(meses) == 198
+    # A CONTAGEM ERA CRAVADA EM 198 e crescia um por coleta -- amarra no lugar
+    # errado, num teste que e sobre a serie nao ter buraco. A completude, essa,
+    # e a assercao de verdade e vale em qualquer mes.
     assert list(meses) == list(esperado), "o VNA tem mes faltando"
+    assert len(meses) > 190, "a serie do VNA encolheu"
 
 
 def test_a_juncao_e_por_competencia_e_nao_por_data(dados):
-    # O VNA e do ultimo dia util e o custo e do ultimo dia do mes: so 137 das 198
-    # datas coincidem. Juntar por data exata perde 61 meses.
+    # O VNA e do ultimo dia util e o custo e do ultimo dia do mes: em 02/09/2026,
+    # so 138 das 199 datas coincidem. Juntar por data exata perderia 61 meses.
+    # O numero anda a cada coleta; o teste trava a RELACAO (coincidem de menos
+    # para que juntar por data seja seguro), e nao a contagem.
     v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
     coincidem = set(v["data"]) & set(dados.index)
     assert len(coincidem) < 150, "as datas coincidem demais; o teste perdeu sentido"
@@ -77,7 +90,7 @@ def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
     assert len(curto) < len(longo)
     assert curto.index.max() == longo.index.max()
     assert curto.index.min() >= longo.index.max() - pd.DateOffset(years=5)
-    assert round(curto.iloc[-1]["DPF"], 2) == 12.68
+    assert round(curto.iloc[-1]["DPF"], 2) == 12.45
 
 
 def test_so_o_ultimo_ponto_de_cada_linha_leva_rotulo(dados):
@@ -86,5 +99,7 @@ def test_so_o_ultimo_ponto_de_cada_linha_leva_rotulo(dados):
     custo.desenha_custo(dados, ax)
     escritos = sorted(a.get_text() for a in ax.texts)
     plt.close(fig)
-    # Quatro linhas, quatro numeros, todos na borda direita.
-    assert escritos == ["12,68", "13,19", "14,78", "4,81"]
+    # Quatro linhas, quatro numeros, todos na borda direita. Sao os mesmos
+    # valores de test_o_custo_do_ULTIMO_MES e de
+    # test_a_selic_e_o_ipca_saem_do_nosso_vna, ordenados como texto.
+    assert escritos == ["12,45", "13,14", "14,71", "4,47"]

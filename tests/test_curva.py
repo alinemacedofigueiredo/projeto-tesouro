@@ -53,15 +53,58 @@ def test_a_NTN_B_de_referencia_nao_e_a_mais_proxima():
 
 
 def test_selic_implicita_bate_o_valor_medido():
-    # Numero medido a mao em 30/06/2026: ~13,76%. Nao e so o tipo, e o valor.
+    """Medido em 04/09/2026, com a curva de 31/07: 13,6852%.
+
+    ESTA E UMA CHECAGEM DE ESCALA, E NAO UMA ANCORA DE MES -- e a distincao foi
+    medida, nao suposta. A PROVA 2 da entrega das ancoras (rodar a suite contra
+    o RMD de junho, onde toda ancora de valor tem de ficar vermelha) mostrou que
+    esta passa nos DOIS meses: a Selic implicita andou 0,075 pp de junho para
+    julho e a tolerancia e de 0,1 pp.
+
+    Nao e espelho -- o numero sai da curva, e nao de uma rodada do teste. Mas
+    tambem nao trava mes nenhum, e chamar isso de ancora seria mentir sobre o
+    que ela protege. O que ela pega e curva lida na escala errada ou vertice
+    trocado, que e outra coisa, e util.
+
+    A da INFLACAO implicita, logo abaixo, trava o mes: la o movimento foi de
+    0,49 pp, cinco vezes a tolerancia, e ela cai contra junho.
+
+    APERTAR A TOLERANCIA ATE DISTINGUIR O MES foi considerado e descartado: o
+    limiar teria de sair de 0,1 pp para menos de 0,075, escolhido para caber
+    entre dois meses que por acaso andaram pouco. Seria numero ajustado contra o
+    proprio dado, que e o vicio que esta entrega inteira remove.
+    """
     taxa = curva.selic_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(taxa - 0.1376) < 0.001, taxa
+    assert abs(taxa - 0.1369) < 0.001, taxa
 
 
 def test_inflacao_implicita_bate_o_valor_medido():
-    # Numero medido a mao em 30/06/2026: ~4,70% de breakeven.
+    # Medido em 04/09/2026, com a curva de 31/07: 5,1880% de breakeven.
     infl = curva.inflacao_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(infl - 0.0470) < 0.001, infl
+    assert abs(infl - 0.0519) < 0.001, infl
+
+
+def test_o_juro_real_implicito_e_positivo_e_plausivel():
+    """A RELACAO QUE SOBREVIVE ao mercado andar, e que as duas ancoras acima
+    nao dao sozinhas.
+
+    A inflacao implicita e o breakeven entre a curva nominal e a real, entao a
+    Selic implicita tem de ficar ACIMA dela -- juro real positivo. Se um dia as
+    duas se cruzarem, ou uma leitura esta na escala errada, ou o pais mudou de
+    regime; nos dois casos alguem precisa olhar antes de a pagina publicar.
+
+    A banda de 2% a 15% e larga de proposito: ela nao julga politica monetaria,
+    so pega numero impossivel. Medido em 04/09/2026: 8,08%.
+    """
+    ate = pd.Timestamp("2026-12-31")
+    selic = curva.selic_implicita(ate)
+    infl = curva.inflacao_implicita(ate)
+
+    assert selic > infl, (
+        f"juro real implicito NEGATIVO: selic {selic:.4%} contra inflacao "
+        f"{infl:.4%}")
+    real = (1 + selic) / (1 + infl) - 1
+    assert 0.02 < real < 0.15, f"juro real implausivel: {real:.4%}"
 
 
 def test_extrapolacao_plana_antes_da_primeira_ponta():

@@ -12,16 +12,17 @@ def dados():
     return reserva.dados_reserva()
 
 
-def test_a_reserva_de_junho_de_2026_bate_com_o_medido(dados):
-    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
+def test_a_reserva_do_ULTIMO_MES_bate_com_o_anexo(dados):
+    # O NOME DIZIA "junho" e o corpo sempre olhou dados.iloc[-1]. Aba 6.1 do
+    # anexo de julho, em R$ bilhoes.
     u = dados.iloc[-1]
-    assert round(u["reserva"] / 1000) == 1346
-    assert round(u["prudencial"] / 1000) == 783
-    assert round(u["indice"], 2) == 8.33
+    assert round(u["reserva"] / 1000) == 1371
+    assert round(u["prudencial"] / 1000) == 611
+    assert round(u["indice"], 2) == 7.81
 
 
 def test_a_folga_e_a_reserva_menos_o_prudencial(dados):
-    assert round(dados.iloc[-1]["folga"] / 1000, 1) == 563.0
+    assert round(dados.iloc[-1]["folga"] / 1000, 1) == 760.2
     diferenca = dados["folga"] - (dados["reserva"] - dados["prudencial"])
     assert diferenca.abs().max() < 1e-6
 
@@ -37,9 +38,13 @@ def test_a_folga_e_negativa_nos_dois_primeiros_meses(dados):
 
 def test_a_versao_de_treze_meses_tem_treze_meses():
     t = reserva.dados_treze_meses()
+    # TREZE e o invariante; as DATAS andam com o RMD e por isso saem do proprio
+    # dado -- treze meses corridos terminando na base.
     assert len(t) == 13
-    assert t.index.min() == pd.Timestamp("2025-06-30")
-    assert t.index.max() == pd.Timestamp("2026-06-30")
+    assert list(t.index) == list(pd.date_range(end=t.index.max(), periods=13,
+                                               freq="ME")), (
+        "os treze meses nao sao corridos")
+    assert t.index.max() == pd.Timestamp("2026-07-31")
     assert round(t["indice"].min(), 2) == 5.69
     assert round(t["indice"].max(), 2) == 9.33
 
@@ -50,7 +55,12 @@ def test_a_janela_de_cinco_anos_bate_com_o_medido():
     assert round(c["indice"].min(), 2) == 5.69
     assert round(c["indice"].max(), 2) == 10.59
     assert round(c["reserva"].min() / 1000, 1) == 743.9
-    assert round(c["reserva"].max() / 1000, 1) == 1345.8
+    # O MAXIMO PASSOU A SER O ULTIMO MES: 1.371,2 bi em 31/07/2026, contra os
+    # 1.345,8 de junho. A reserva bateu recorde da janela no proprio mes da
+    # base -- vale reparar, porque um maximo na ponta e o caso em que o grafico
+    # pode estar cortando dado, e nao mostrando pico.
+    assert round(c["reserva"].max() / 1000, 1) == 1371.2
+    assert c["reserva"].idxmax() == c.index.max()
 
 
 def test_as_duas_versoes_dizem_o_mesmo_no_mes_comum(dados):

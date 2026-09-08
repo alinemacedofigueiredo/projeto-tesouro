@@ -64,29 +64,53 @@ def comp():
     return estoque.dados_composicao()
 
 
-def test_a_composicao_de_junho_de_2026_bate_com_o_medido(comp):
-    # Conferido contra a pagina do RMD que a dona do projeto forneceu.
+def test_a_composicao_do_ULTIMO_MES_bate_com_o_anexo(comp):
+    # O NOME DIZIA "junho" e o corpo sempre olhou comp.iloc[-1] -- o ultimo mes
+    # que houver. Com a virada para julho o nome passou a mentir, entao mudou.
+    #
+    # PROCEDENCIA: aba 2.4 do anexo de julho, os mesmos valores que
+    # test_a_composicao_do_nosso_CSV_bate_com_o_anexo confere contra o Excel.
+    # Os percentuais sao valor/total daqueles numeros, em R$ bilhoes:
+    #
+    #     Prefixado        1.785,3461 / 9.288,7803 = 19,2205%
+    #     Indice Precos    2.417,3288 / 9.288,7803 = 26,0243%
+    #     Taxa Flutuante   4.747,2540 / 9.288,7803 = 51,1075%
+    #     Cambio             338,8513 / 9.288,7803 =  3,6480%
     u = comp.iloc[-1]
-    assert round(u["Prefixado"], 1) == 21.0
-    assert round(u["\u00cdndice Pre\u00e7os"], 1) == 25.9
-    assert round(u["Taxa Flutuante"], 1) == 49.3
-    assert round(u["C\u00e2mbio"], 1) == 3.7
-    assert round(u["estoque_milhoes"] / 1000, 1) == 9268.4
+    assert round(u["Prefixado"], 1) == 19.2
+    assert round(u["\u00cdndice Pre\u00e7os"], 1) == 26.0
+    assert round(u["Taxa Flutuante"], 1) == 51.1
+    assert round(u["C\u00e2mbio"], 1) == 3.6
+    assert round(u["estoque_milhoes"] / 1000, 1) == 9288.8
 
 
 def test_cada_mes_da_composicao_soma_100(comp):
+    # A CONTAGEM ERA CRAVADA EM 307 e crescia um por RMD -- amarra no lugar
+    # errado, num teste que e sobre a soma fechar em 100. Agora ela sai da
+    # propria serie: um ponto por mes, do primeiro ao ultimo, sem buraco. Isso
+    # vale em qualquer mes, e pega o que a contagem pegava (serie encolhendo)
+    # sem quebrar a cada RMD.
     cols = [c for c in comp.columns if c != "estoque_milhoes"]
-    assert len(comp) == 307
+
+    meses = pd.date_range(comp.index.min(), comp.index.max(), freq="ME")
+    assert list(comp.index) == list(meses), (
+        "a composicao tem buraco ou data fora de fim de mes")
+    assert len(comp) > 300, "a serie encolheu"
+
     assert (comp[cols].sum(axis=1) - 100).abs().max() < 1e-9
 
 
-def test_o_cambio_cai_do_pico_de_51_para_37(comp):
+def test_o_cambio_cai_do_pico_de_51_para_menos_de_quatro(comp):
     # O fato central da gestao da divida brasileira, e a razao de a serie completa
     # ser o padrao: numa janela de 5 anos ele nao aparece.
+    #
+    # O PICO E HISTORICO e nao se move: 51,04% em setembro de 2002. O ultimo mes
+    # se move todo RMD, e sai do anexo -- 338,8513 / 9.288,7803 = 3,6480% em
+    # 31/07/2026. O nome deixou de carregar o numero que anda.
     cam = comp["C\u00e2mbio"]
     assert round(cam.max(), 1) == 51.0
     assert cam.idxmax() == pd.Timestamp("2002-09-30")
-    assert round(cam.iloc[-1], 2) == 3.74
+    assert round(cam.iloc[-1], 2) == 3.65
 
 
 def test_a_area_de_100_por_cento_empilha_as_cinco_faixas():
@@ -104,8 +128,9 @@ def test_a_area_de_100_por_cento_empilha_as_cinco_faixas():
 
     assert len(faixas) == 5, "uma faixa por indexador, com Demais"
     assert limites == (0, 100)
-    # Os valores do ultimo mes escritos na ponta de cada faixa que cabe.
-    for esperado in ("21,0", "25,9", "49,3"):
+    # Os valores do ultimo mes escritos na ponta de cada faixa que cabe --
+    # os mesmos do anexo de julho.
+    for esperado in ("19,2", "26,0", "51,1"):
         assert esperado in rotulos
     # E o pico do cambio dito com todas as letras.
     assert any("51,0" in r for r in rotulos)
@@ -150,8 +175,9 @@ def test_o_desenho_da_composicao_traz_as_quatro_linhas_e_os_rotulos():
     assert "Demais" not in nomes
     assert set(nomes) == {"Prefixado", "\u00cdndice Pre\u00e7os", "Taxa Flutuante",
                           "C\u00e2mbio"}
-    # E a figura carrega as mesmas ancoras que dados_composicao ja tem.
-    for esperado in ("21,0", "25,9", "49,3", "3,7"):
+    # E a figura carrega as mesmas ancoras que dados_composicao ja tem --
+    # os percentuais do anexo de julho (ver test_a_composicao_do_ULTIMO_MES).
+    for esperado in ("19,2", "26,0", "51,1", "3,6"):
         assert esperado in rotulos
 
 
@@ -650,8 +676,15 @@ def test_a_legenda_do_grafico_nao_afirma_numero_que_o_dado_desmente():
     d = estoque.dados_variacao_do_dv()
     nota = [g for g in dashboard.REGISTRO if g.id == "variacao_do_dv"][0].nota
 
-    assert str(len(d)) + " dos " + str(len(d)) in nota, (
-        "a nota fala de outro numero de meses")
+    # DUAS VEZES, e nao "em algum lugar". A nota faz esta afirmacao dois
+    # lugares -- uma para o decay, outra para a emissao -- e a versao anterior
+    # so checava presenca: mutar uma das duas deixava a outra passando, e o
+    # teste dava a impressao de proteger as duas. Achado na conferencia de
+    # dentes em 02/09/2026.
+    quantos = str(len(d)) + " dos " + str(len(d))
+    assert nota.count(quantos) == 2, (
+        f"a nota devia afirmar {quantos!r} duas vezes (decay e emissao), e "
+        f"afirma {nota.count(quantos)}")
     assert estilo.num_br(abs(d["decay"].mean()), 1) in nota
     assert estilo.num_br(d[EMISSAO].mean(), 1) in nota
     assert estilo.num_br(abs(d["resgate"].mean()), 1) in nota
@@ -661,6 +694,19 @@ def test_a_legenda_do_grafico_nao_afirma_numero_que_o_dado_desmente():
     assert estilo.num_br(abs(d.loc[pior, PRECO]), 1) in nota
     fracao = d[PRECO].std() / d[estoque.FATORES].std().sum()
     assert str(round(fracao * 100)) + "%" in nota
+
+    # A FAIXA CINZA, que a nota descreve e ninguem conferia. Ela afirma "10
+    # transicoes" e "a maior de 7,3 milhoes por bp em jan/2025" -- numeros
+    # publicados sem teste, o formato exato que esta pagina existe para nao
+    # produzir. Conferidos em 02/09/2026: continuam verdadeiros.
+    cinza = d["sem taxa"]
+    transicoes = cinza[cinza.abs() > 1e-9]
+    assert str(len(transicoes)) + " transi" in nota, (
+        f"a nota fala de outro numero de transicoes; sao {len(transicoes)}")
+    assert estilo.num_br(transicoes.abs().max(), 1) in nota
+    maior = transicoes.abs().idxmax()
+    assert estilo.MES[maior.month] + "/" + str(maior.year) in nota, (
+        f"a nota aponta outro mes para a maior transicao; foi {maior:%m/%Y}")
 
 
 def test_o_grafico_de_fatores_tem_o_PAINEL_DOS_ACUMULADOS():

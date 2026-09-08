@@ -1,9 +1,15 @@
 """Funding do DPMFi: emissoes, resgates e o liquido, das abas 1.1 e 1.2.
 
-Tres graficos: o net mes a mes com media movel de 12 meses e acumulado de 12 meses;
-a emissao bruta por indexador; e a composicao anual da emissao em 100%.
+Tres graficos: o net mes a mes com media movel de TRES meses e acumulado de 12
+meses; a emissao bruta por indexador; e a composicao anual da emissao em 100%.
 
-Decisoes tomadas com a usuaria: so a esfera DPMFi; sem media movel de 3 meses; e a
+O DOCSTRING DIZIA "media movel de 12 meses" na primeira linha e "sem media movel
+de 3 meses" na quarta, enquanto o codigo calcula mm3 desde 19/08/2026 -- as duas
+mencoes ficaram para tras quando ela trocou de doze para tres, e cada uma
+contradizia o codigo de um jeito. Corrigido em 04/09/2026.
+
+Decisoes tomadas com a usuaria: so a esfera DPMFi; media movel de TRES meses,
+porque a de doze alisava demais e escondia o giro trimestral; e a
 emissao anual por INDEXADOR e nao por papel, porque pela aba 1.2 a cobertura e 100%
 da emissao do RMD contra 93% a 97% se viesse dos leiloes.
 """

@@ -18,44 +18,63 @@ def anual():
 
 
 def test_o_cronograma_anual_bate_com_o_medido(anual):
+    # Aba 3.4 do anexo de julho, em R$ bilhoes. 2026 e 2031 sao PARCIAIS -- a
+    # janela detalha ago/26 a jul/31, entao 2026 e ago-dez e 2031 e jan-jul.
     por_ano = anual.sum(axis=1) / 1000
-    assert round(por_ano[2026], 1) == 833.5
-    assert round(por_ano[2027], 1) == 1771.9
-    assert round(por_ano[2028], 1) == 1133.2
-    assert round(por_ano[2029], 1) == 1315.6
-    assert round(por_ano[2030], 1) == 1223.2
-    assert round(por_ano[2031], 1) == 636.5
+    assert round(por_ano[2026], 1) == 584.1
+    assert round(por_ano[2027], 1) == 1794.8
+    assert round(por_ano[2028], 1) == 1183.8
+    assert round(por_ano[2029], 1) == 1342.0
+    assert round(por_ano[2030], 1) == 1239.9
+    assert round(por_ano[2031], 1) == 657.8
 
 
 def test_o_balde_entra_no_cronograma_e_o_total_fecha(anual):
     # Sem o balde da Task 2 o grafico mostraria 78% do estoque como se fosse tudo.
     por_ano = anual.sum(axis=1) / 1000
-    assert round(por_ano["Ap\u00f3s 5 anos"], 1) == 2006.9
-    assert round(por_ano.sum(), 1) == 8920.7
+    assert round(por_ano["Ap\u00f3s 5 anos"], 1) == 2146.4
+    assert round(por_ano.sum(), 1) == 8948.7
 
 
 def test_os_dois_anos_das_pontas_sao_parciais(anual):
-    # A aba 3.4 detalha jul/26 a jun/31: 2026 e jul-dez e 2031 e jan-jun. Comparar
-    # 833,5 com 1.771,9 sem saber disso e ler o grafico errado.
+    # Comparar 584,1 com 1.794,8 sem saber que o primeiro e parcial e ler o
+    # grafico errado.
+    #
+    # AS CONTAGENS ERAM CRAVADAS EM 6 E 6, e a janela anda todo RMD: ela
+    # detalhava jul/26 a jun/31 e hoje detalha ago/26 a jul/31, ou seja CINCO
+    # meses em 2026 e SETE em 2031. Agora saem do mes-base: a janela comeca no
+    # mes seguinte a ele, entao o primeiro ano leva 12 - mes_base meses e o
+    # ultimo leva mes_base. Vale em qualquer mes, e as duas somam 12.
     assert vencimentos.ANOS_PARCIAIS == (2026, 2031)
     mensal = vencimentos.dados_cronograma_mensal()
     meses = mensal.index.to_series().dt.year.value_counts()
-    assert meses[2026] == 6
-    assert meses[2031] == 6
-    assert meses[2027] == 12
+
+    base = mensal.index.min() - pd.offsets.MonthEnd(1)
+    primeiro, ultimo = vencimentos.ANOS_PARCIAIS
+    assert meses[primeiro] == 12 - base.month
+    assert meses[ultimo] == base.month
+    assert meses[primeiro] + meses[ultimo] == 12
+    assert meses[primeiro + 1] == 12
 
 
 def test_o_cronograma_mensal_tem_os_sessenta_meses():
     m = vencimentos.dados_cronograma_mensal()
     total = m.sum(axis=1) / 1000
+
+    # SESSENTA e invariante da aba: ela sempre detalha cinco anos. As DATAS
+    # andam com o RMD e por isso saem do proprio dado, e nao cravadas -- a
+    # janela comeca no mes seguinte a base e vai 59 meses adiante.
     assert len(m) == 60
-    assert m.index.min() == pd.Timestamp("2026-07-31")
-    assert m.index.max() == pd.Timestamp("2031-06-30")
-    assert round(total.max(), 1) == 562.8
+    assert m.index.max() == m.index.min() + pd.offsets.MonthEnd(59)
+    assert list(m.index) == list(pd.date_range(m.index.min(), periods=60,
+                                               freq="ME"))
+
+    # Aba 3.4 do anexo de julho, em R$ bilhoes.
+    assert round(total.max(), 1) == 569.5
     assert total.idxmax() == pd.Timestamp("2027-03-31")
-    assert round(total[pd.Timestamp("2026-07-31")], 1) == 256.0
+    assert round(total.iloc[0], 1) == 290.4
     # O balde NAO entra no detalhe mensal: ele nao tem mes.
-    assert round(total.sum(), 1) == 6913.8
+    assert round(total.sum(), 1) == 6802.3
 
 
 # ---------------------------------------------------------------------------
@@ -68,11 +87,12 @@ def faixas():
 
 
 def test_as_faixas_da_dpf_batem_com_o_medido(faixas):
+    # Aba 3.1 do anexo de julho.
     u = faixas.iloc[-1]
-    assert round(u["At\u00e9 12 meses"], 1) == 20.1
-    assert round(u["De 1 a 2 anos"], 1) == 14.1
-    assert round(u["De 2 a 5 anos"], 1) == 42.2
-    assert round(u["Acima de 5 anos"], 1) == 23.6
+    assert round(u["At\u00e9 12 meses"], 1) == 18.9
+    assert round(u["De 1 a 2 anos"], 1) == 13.7
+    assert round(u["De 2 a 5 anos"], 1) == 42.4
+    assert round(u["Acima de 5 anos"], 1) == 25.0
 
 
 def test_cada_mes_das_faixas_soma_100(faixas):
@@ -83,7 +103,12 @@ def test_cada_mes_das_faixas_soma_100(faixas):
     # do prazo medio comeca. Mantidos, eles viram dez meses somando zero por cento,
     # e a area empilhada abre com um buraco que parece dado faltando.
     assert faixas.index.min() == pd.Timestamp("2006-11-30")
-    assert len(faixas) == 236
+    # A CONTAGEM ERA CRAVADA e crescia um por RMD. Vira relacao: um ponto por
+    # mes, de nov/2006 ate a data-base, sem buraco.
+    assert list(faixas.index) == list(pd.date_range(faixas.index.min(),
+                                                    faixas.index.max(),
+                                                    freq="ME"))
+    assert len(faixas) > 230, "a serie encolheu"
 
 
 def test_a_banda_do_vincendo_cobre_de_2003_a_2026():
@@ -165,22 +190,55 @@ def test_o_cronograma_inclui_cupom_e_o_perfil_nao():
     def venceu(periodo, titulos):
         return sum(vence.get((periodo, t), 0.0) for t in titulos)
 
-    nov26 = pd.Period("2026-11", "M")
-    assert round(por_grupo.loc["2026-11-30", "NTN-B"], 1) == 25.8
-    assert venceu(nov26, ["NTN-B", "NTN-B Principal"]) == 0.0
+    # AS TRES PROVAS ERAM TRES MESES CRAVADOS, e um deles (jul/26) saiu da
+    # janela quando o RMD virou. Viraram relacoes, que valem em qualquer mes e
+    # provam mais: a LFT bate em TODOS os meses, e nao so naquele setembro.
 
-    jul26 = pd.Period("2026-07", "M")
-    assert round(por_grupo.loc["2026-07-31", "LTN / NTN-F"]
-                 - venceu(jul26, ["LTN", "NTN-F"]), 1) == 33.2
+    # LFT nao paga cupom: a 3.4 e o perfil batem em todo mes da janela.
+    for d in por_grupo.index:
+        if pd.isna(por_grupo.get("LFT", pd.Series(dtype=float)).get(d)):
+            continue
+        p = pd.Period(d, "M")
+        assert abs(por_grupo.loc[d, "LFT"]
+                   - venceu(p, ["LFT", "LFT-TD1 Reserva"])) < 0.05, (
+            f"LFT diverge em {d:%m/%Y}, e ela nao paga cupom")
 
-    set26 = pd.Period("2026-09", "M")
-    assert round(por_grupo.loc["2026-09-30", "LFT"]
-                 - venceu(set26, ["LFT", "LFT-TD1 Reserva"]), 1) == 0.0
+    # NTN-B: existe mes em que NENHUMA vence e a 3.4 traz valor -- so cupom.
+    so_cupom = [d for d in por_grupo.index
+                if venceu(pd.Period(d, "M"), ["NTN-B", "NTN-B Principal"]) == 0.0
+                and float(por_grupo.get("NTN-B", pd.Series(dtype=float))
+                          .get(d, 0.0) or 0.0) > 1.0]
+    assert so_cupom, "nenhum mes de cupom puro de NTN-B; a prova sumiu"
+    # O primeiro deles, medido no anexo de julho: nov/2026, 26,1 bi.
+    assert so_cupom[0] == pd.Timestamp("2026-11-30")
+    assert round(por_grupo.loc[so_cupom[0], "NTN-B"], 1) == 26.1
+
+    # LTN / NTN-F: cupom so em jan e jul, e nos outros meses a diferenca some.
+    for d in por_grupo.index:
+        if pd.isna(por_grupo.get("LTN / NTN-F",
+                                 pd.Series(dtype=float)).get(d)):
+            continue
+        p = pd.Period(d, "M")
+        dif = por_grupo.loc[d, "LTN / NTN-F"] - venceu(p, ["LTN", "NTN-F"])
+        if d.month not in (1, 7):
+            assert abs(dif) < 0.05, f"cupom fora de jan/jul em {d:%m/%Y}"
+
+    # E um mes de cupom medido, como o teste original fazia: jan/2027, +27,2 bi.
+    jan27 = pd.Timestamp("2027-01-31")
+    assert round(por_grupo.loc[jan27, "LTN / NTN-F"]
+                 - venceu(pd.Period(jan27, "M"), ["LTN", "NTN-F"]), 1) == 27.2
+
+    # NAO SE AFIRMA QUE A DIFERENCA E POSITIVA EM TODO JAN/JUL, e isso e achado
+    # e nao contorno. Medido em 02/09/2026, ela e positiva em 8 dos 10 meses de
+    # cupom da janela e NEGATIVA em dois: jan/2029 (-3,78) e jan/2031 (-59,51),
+    # justamente os dois com vencimento grande de LTN. Se fosse so cupom, nunca
+    # seria negativa. Falta explicacao, e inventar uma assercao que passasse por
+    # cima disso enterraria a pergunta.
 
     # E mesmo incluindo cupom a 3.4 soma o estoque, porque cada fluxo esta a preco
     # de curva: nao ha caixa nominal projetado, e nenhuma premissa de inflacao.
-    assert round(cr["valor_milhoes"].sum() / 1000, 1) == 8920.7
-    assert round(bruto.sum().sum() / 1000, 1) == 8904.1
+    assert round(cr["valor_milhoes"].sum() / 1000, 1) == 8948.7
+    assert round(bruto.sum().sum() / 1000, 1) == 8933.1
 
 
 def test_a_banda_do_vincendo_vem_das_duas_fontes():
@@ -194,12 +252,13 @@ def test_a_banda_do_vincendo_vem_das_duas_fontes():
 
 
 def test_o_vincendo_de_hoje_esta_dentro_da_banda_de_2026():
-    # 20,07% contra a banda de 18 a 22. Nao e teste de politica: e o cruzamento que
-    # pega banda digitada na escala errada, ou a faixa lida da coluna errada.
+    # 18,91% contra a banda de 18 a 22. Nao e teste de politica: e o cruzamento
+    # que pega banda digitada na escala errada, ou a faixa lida da coluna
+    # errada. O valor sai da aba 3.1 do anexo de julho.
     faixas = vencimentos.dados_faixas()
     b = vencimentos.banda_vincendo_12m()
     hoje = faixas["At\u00e9 12 meses"].iloc[-1]
-    assert round(hoje, 2) == 20.07
+    assert round(hoje, 2) == 18.91
     assert b.loc[2026, "minimo"] <= hoje <= b.loc[2026, "maximo"]
 
 

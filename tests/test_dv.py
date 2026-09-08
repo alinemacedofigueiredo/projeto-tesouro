@@ -108,12 +108,26 @@ def test_dv_por_titulo_no_ultimo_mes_bate_com_o_valor_medido(p):
     # plausivel deixa passar. Valores medidos em 2026-06-30 nesta sessao;
     # tolerancia de 1% cobre reprocessamento com o mesmo dado de origem.
     ult = p[p["data"] == p["data"].max()]
-    esperado = {"LTN": -198.54, "NTN-F": -177.76, "NTN-B": -1096.58}
+    # O NIVEL CONTINUA CRAVADO AQUI de proposito, e este e o unico lugar do
+    # bloco de calculo proprio onde valor e melhor que coerencia: e ele que pega
+    # VNA fora de escala (x10 ou /1000), que nenhuma relacao entre parcelas
+    # pegaria -- todas as parcelas escalariam juntas e continuariam coerentes.
+    # Medidos em 04/09/2026 com a base em 31/07; tolerancia de 1% cobre
+    # reprocessamento com o mesmo dado de origem.
+    esperado = {"LTN": -201.24, "NTN-F": -175.91, "NTN-B": -1091.29}
     for titulo, valor in esperado.items():
         medido = ult[ult["titulo"] == titulo]["dv_posicao_milhoes"].sum()
         assert medido == pytest.approx(valor, rel=0.01)
     total = ult[ult["dv_posicao_milhoes"].notna()]["dv_posicao_milhoes"].sum()
-    assert total == pytest.approx(-1472.87, rel=0.01)
+    assert total == pytest.approx(-1468.44, rel=0.01)
+
+    # E a ORDEM entre os papeis, que vale em qualquer mes: a NTN-B carrega muito
+    # mais risco de taxa que as prefixadas somadas. Se um dia inverter, o
+    # numero acima pode estar certo e a leitura errada.
+    dv_ntnb = abs(ult[ult["titulo"] == "NTN-B"]["dv_posicao_milhoes"].sum())
+    dv_pre = abs(ult[ult["titulo"].isin(["LTN", "NTN-F"])]
+                 ["dv_posicao_milhoes"].sum())
+    assert dv_ntnb > dv_pre * 2
 
 
 # ---------------------------------------------------------------------------

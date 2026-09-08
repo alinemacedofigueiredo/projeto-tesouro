@@ -10,7 +10,7 @@ indice acumulado -- 14,78% e 4,81% em jun/2026. A pagina do RMD busca isso no si
 do Bacen; nos nao precisamos, e e por isso que esta branch nasceu de dv01-decay.
 
 ARMADILHA 1: o custo_medio.csv tem tres medidas na mesma coluna. Este grafico e o
-'acum_12m'. O 'mensal' da 13,64 para a DPF em junho, numero plausivel e errado.
+'acum_12m'. O 'mensal' da 10,92 para a DPF em julho, numero plausivel e errado.
 
 ARMADILHA 2: o VNA e do ultimo dia util e o custo e do ultimo dia do mes -- so 137
 das 198 datas coincidem. A juncao e por competencia (ano e mes), nunca por data.

@@ -242,9 +242,26 @@ def test_resultado_decomposto_separa_inflacao_da_ntnb(dc, r):
     ultimos_12 = sorted(r["data_fim"].unique())[-12:]
     seg = dc[(dc["data_fim"].isin(ultimos_12)) & (dc["titulo"] == "NTN-B")]
     assert len(seg) > 0
-    assert seg["resultado_milhoes"].sum() == pytest.approx(29494.972496, abs=1.0)
-    assert seg["resultado_indice_milhoes"].sum() == pytest.approx(90095.877165, abs=1.0)
-    assert seg["resultado_taxa_e_carrego_milhoes"].sum() == pytest.approx(-60600.904669, abs=1.0)
+
+    total = seg["resultado_milhoes"].sum()
+    indice = seg["resultado_indice_milhoes"].sum()
+    taxa = seg["resultado_taxa_e_carrego_milhoes"].sum()
+
+    # AS TRES RELACOES CARREGAM O ARGUMENTO INTEIRO, e valem em qualquer janela:
+    # as partes somam o todo, a inflacao rendeu, a taxa real perdeu -- e o sinal
+    # do total NAO bate com o da parcela de taxa real, que e exatamente o motivo
+    # de a decomposicao existir.
+    assert total == pytest.approx(indice + taxa, rel=1e-9)
+    assert indice > 0, "a inflacao nao rendeu na janela; releia o achado"
+    assert taxa < 0, "a taxa real nao perdeu na janela; releia o achado"
+    assert (total > 0) != (taxa > 0), (
+        "o sinal do total passou a bater com o da taxa real -- sem isso a "
+        "decomposicao deixa de ser necessaria para ler o numero")
+
+    # E a escala, medida em 04/09/2026 na janela de doze meses ate 31/07.
+    assert total == pytest.approx(62528.480033, abs=1.0)
+    assert indice == pytest.approx(84483.863770, abs=1.0)
+    assert taxa == pytest.approx(-21955.383737, abs=1.0)
 
 
 def test_resultado_decomposto_lft_e_quase_toda_indexacao(dc, r):
@@ -260,9 +277,12 @@ def test_resultado_decomposto_lft_e_quase_toda_indexacao(dc, r):
     assert len(seg) > 0
     total = seg["resultado_milhoes"].sum()
     indice = seg["resultado_indice_milhoes"].sum()
-    assert total == pytest.approx(568716.321927, abs=1.0)
-    assert indice == pytest.approx(561516.767065, abs=1.0)
+    # A RELACAO E O ACHADO: quase tudo na LFT e acumulacao de indice, porque ela
+    # nao tem duration de juros por construcao. Vale em qualquer janela.
     assert indice / total > 0.95
+    # E a escala, medida em 04/09/2026.
+    assert total == pytest.approx(575458.008576, abs=1.0)
+    assert indice == pytest.approx(568631.555700, abs=1.0)
 
 
 # ---------------------------------------------------------------------------

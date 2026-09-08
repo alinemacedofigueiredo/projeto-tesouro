@@ -14,19 +14,24 @@ def net():
 
 
 def test_o_net_do_ultimo_mes_bate_com_o_medido(net):
+    # Julho de 2026, e o NET VIROU NEGATIVO: o Tesouro resgatou mais do que
+    # emitiu. Em junho era +143,4. Nao e erro de sinal -- resgate 260,1 contra
+    # emissao 198,1 -- e o teste abaixo (net = emissao - resgate em toda linha)
+    # e quem garante que a leitura esta certa.
     u = net.iloc[-1]
-    assert round(u["emissao"] / 1000, 1) == 149.5
-    assert round(u["resgate"] / 1000, 1) == 6.1
-    assert round(u["net"] / 1000, 1) == 143.4
+    assert round(u["emissao"] / 1000, 1) == 198.1
+    assert round(u["resgate"] / 1000, 1) == 260.1
+    assert round(u["net"] / 1000, 1) == -61.9
 
 
 def test_a_mm3_e_o_acumulado_batem_com_o_medido(net):
-    # A media movel e de TRES meses, por decisao da usuaria em 19/08/2026: a de doze
-    # alisava demais e escondia o giro trimestral. A de doze dava 27,7.
+    # A media movel e de TRES meses, por decisao da usuaria em 19/08/2026: a de
+    # doze alisava demais e escondia o giro trimestral. Naquele dia a de doze
+    # dava 27,7 -- numero da EPOCA, guardado como registro da decisao.
     u = net.iloc[-1]
-    assert round(u["mm3"] / 1000, 1) == 115.7
+    assert round(u["mm3"] / 1000, 1) == 72.4
     assert "mm12" not in net.columns
-    assert round(u["acum12"] / 1000, 1) == 332.3
+    assert round(u["acum12"] / 1000, 1) == 301.4
 
 
 def test_o_net_e_emissao_menos_resgate_em_toda_linha(net):
@@ -37,7 +42,7 @@ def test_o_net_e_emissao_menos_resgate_em_toda_linha(net):
 def test_so_o_dpmfi_entra(net):
     bruto = pd.read_csv(config.PROCESSED_DIR / "funding_por_canal.csv")
     assert set(bruto["esfera"]) > {"DPMFi"}, "o teste so vale se houver outra esfera"
-    assert round(net.iloc[-1]["net"] / 1000, 1) == 143.4
+    assert round(net.iloc[-1]["net"] / 1000, 1) == -61.9
 
 
 def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
@@ -50,9 +55,9 @@ def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
 
 def test_a_emissao_por_indexador_do_ultimo_mes_bate():
     u = funding.dados_emissao_indexador().iloc[-1]
-    assert round(u["Taxa Flutuante"] / 1000, 1) == 102.6
-    assert round(u["Prefixados"] / 1000, 1) == 35.5
-    assert round(u["\u00cdndice de Pre\u00e7os"] / 1000, 1) == 11.4
+    assert round(u["Taxa Flutuante"] / 1000, 1) == 124.1
+    assert round(u["Prefixados"] / 1000, 1) == 66.7
+    assert round(u["\u00cdndice de Pre\u00e7os"] / 1000, 1) == 7.3
 
 
 def test_a_emissao_anual_em_100_bate_com_o_medido():
@@ -82,8 +87,8 @@ def test_o_net_leva_rotulo_no_maior_no_menor_e_no_ultimo():
 
     assert "155,9" in escritos, "o maior net da janela"
     assert "-302,3" in escritos, "o menor"
-    assert "143,4" in escritos, "o ultimo"
-    assert "115,7" in escritos, "o ultimo ponto da media movel"
+    assert "-61,9" in escritos, "o ultimo"
+    assert "72,4" in escritos, "o ultimo ponto da media movel"
     assert "702,8" in escritos and "-447,0" in escritos, "os extremos do acumulado"
 
 

@@ -336,9 +336,14 @@ def test_o_botao_de_periodo_some_quando_ha_uma_janela_so():
 
 def test_o_recorte_por_data_chega_nas_funcoes_de_dado():
     from tesouro.graficos import funding
-    par = (pd.Timestamp("2021-01-01"), pd.Timestamp("2026-06-30"))
-    cortado = funding.dados_net(par)
+
     inteiro = funding.dados_net()
+    # A PONTA SAI DO DADO, e nao de uma data cravada. O teste e sobre o recorte
+    # cortar o COMECO; cravar o fim o fazia falhar a cada RMD por motivo nenhum
+    # -- e, pior, a partir da virada ele passou a cortar o fim de verdade, o que
+    # e outro defeito escondido atras do mesmo vermelho.
+    par = (pd.Timestamp("2021-01-01"), inteiro.index.max())
+    cortado = funding.dados_net(par)
     assert cortado.index.min() >= par[0]
     assert cortado.index.max() == inteiro.index.max()
     assert len(cortado) < len(inteiro)

@@ -73,7 +73,9 @@ def colunas_da_participacao():
     """As datas que viram coluna: os anos fechados mais os dois ultimos meses.
 
     Devolve pares (rotulo, data). O rotulo do ano fechado e o ano; o dos dois
-    ultimos meses e 'mai-26', 'jun-26' -- como a pagina do RMD escreve.
+    ultimos meses e no formato 'jul-26' -- como a pagina do RMD escreve. Os dois
+    ANDAM a cada RMD, e o exemplo aqui envelhece junto: em 04/09/2026 sao
+    'jun-26' e 'jul-26'.
     """
     piv = _estoque_por_grupo()
     ultimo = piv.index.max()
