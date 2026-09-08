@@ -26,7 +26,17 @@ from . import config
 CUPOM_ANUAL = {"NTN-B": 0.06, "NTN-F": 0.10, "NTN-C": 0.12}
 
 # Em que dia do mes cai o cupom de cada papel.
-DIA_DO_CUPOM = {"NTN-B": 15, "NTN-C": 15, "NTN-F": 1}
+#
+# A NTN-C PAGA NO DIA 1, e nao no 15. Todo vencimento de NTN-C que aparece no
+# estoque cai no dia 1 -- 01/03/2011, 01/07/2017, 01/04/2021 e a viva,
+# 01/01/2031 -- e o cupom segue o aniversario do vencimento.
+#
+# Ate 08/09/2026 esta linha dizia 15, herdado da NTN-B. O efeito NAO era cupom
+# faltando, que seria obvio: a regra do mes (distar um multiplo de seis do
+# vencimento) continuava batendo, entao o pagamento saia em 15/01/2027 no lugar
+# de 01/01/2027. DUAS SEMANAS DE ATRASO -- soma igual no ano, fluxo errado no
+# mes. Decisao da Aline em 08/09/2026.
+DIA_DO_CUPOM = {"NTN-B": 15, "NTN-C": 1, "NTN-F": 1}
 
 
 def paga_cupom_em(titulo, vencimento, quando):

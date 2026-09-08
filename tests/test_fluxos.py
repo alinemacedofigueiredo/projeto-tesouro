@@ -142,3 +142,46 @@ def test_a_janela_e_fechada_a_direita_e_aberta_a_esquerda():
     fora = fluxos.pagos(quinze, pd.Timestamp("2026-08-16"))
     assert dentro["principal_milhoes"].sum() > 0
     assert fora["principal_milhoes"].sum() == 0
+
+
+def test_a_ntn_c_paga_cupom_no_dia_1_e_nao_no_15():
+    """O dia do cupom da NTN-C tem de bater com o dia do VENCIMENTO dela.
+
+    ESTA E UMA RELACAO, E NAO UM VALOR MEDIDO: ela le os vencimentos de NTN-C do
+    estoque corrente e exige que DIA_DO_CUPOM concorde com eles. Vale em
+    qualquer RMD, e passa a valer sozinha se um dia o Tesouro emitir uma NTN-C
+    com outro vencimento.
+
+    O QUE ELA PEGA e o defeito que existia ate 08/09/2026, e que nao era cupom
+    faltando: com 15 no lugar de 1, a regra do mes continuava batendo e o
+    pagamento saia em 15/01/2027 em vez de 01/01/2027. Duas semanas de atraso,
+    R$ 3 a 4 bi no mes errado, soma anual intacta -- o tipo de erro que a soma
+    esconde.
+    """
+    import pandas as pd
+
+    from tesouro import config
+
+    estoque = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv")
+    ntnc = estoque[estoque["titulo"] == "NTN-C"]
+    assert not ntnc.empty, "a NTN-C sumiu do estoque, e nao do teste"
+
+    dias = {pd.Timestamp(v).day for v in ntnc["vencimento"].dropna().unique()}
+    assert dias == {fluxos.DIA_DO_CUPOM["NTN-C"]}, (
+        "os vencimentos de NTN-C caem nos dias %s, e DIA_DO_CUPOM diz %s"
+        % (sorted(dias), fluxos.DIA_DO_CUPOM["NTN-C"]))
+
+
+def test_o_cupom_da_ntn_c_2031_cai_em_01_01_e_nao_em_15_01():
+    """O caso concreto do unico papel vivo, escrito por extenso.
+
+    A relacao acima morre se a NTN-C sair do estoque; esta fica, e diz que
+    janeiro e julho de 2027 pagam no dia 1.
+    """
+    import pandas as pd
+
+    venc = pd.Timestamp("2031-01-01")
+    assert fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-01-01"))
+    assert fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-07-01"))
+    assert not fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-01-15"))
+    assert not fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-04-01"))
