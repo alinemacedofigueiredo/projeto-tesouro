@@ -10,7 +10,7 @@ reescrever 4 MB para mudar uma linha.
 """
 
 from .. import config, rolagem
-from . import banda, dashboard, simulacao
+from . import banda, dashboard, ritmo, simulacao
 
 ARQUIVO = "paf.html"
 GRUPOS = ["Contra o PAF"]
@@ -123,11 +123,19 @@ def grava(caminho=None, hoje=None, registros=None):
         # frequencia o Tesouro fecha dentro da banda", que e pergunta tanto de
         # quem olha onde estamos hoje quanto de quem olha onde o ano fecha.
         _recolhe(banda.tabela(de_hoje, "tabela-hoje") + _ACHADO, *SECOES[0]),
-        _recolhe(banda.tabela(projetado, "tabela-projecao") + _ACHADO,
+        # O RITMO ABRE O BLOCO, antes do veredito. Ate 08/09/2026 a pagina
+        # mostrava onde a projecao chega sem dizer de que ritmo ela saiu -- o
+        # pace so aparecia no rodape de cada grade da simulacao, tres blocos
+        # abaixo. Pedido dela.
+        _recolhe(ritmo.tabela(ritmo.dados_ritmo(hoje=hoje,
+                                                registros=registros))
+                 + banda.tabela(projetado, "tabela-projecao") + _ACHADO,
                  *SECOES[1]),
         _recolhe(_as_tres_tabelas(hoje, registros), *SECOES[2]),
     ])
     html = html[:inicio] + "\n" + corpo + "\n" + html[fim:]
-    html = html.replace("</style>", _CSS + simulacao._CSS + "</style>", 1)
+    html = html.replace("</style>",
+                        _CSS + ritmo._CSS + simulacao._CSS + "</style>",
+                        1)
     escrito.write_text(html, encoding="utf-8")
     return escrito
