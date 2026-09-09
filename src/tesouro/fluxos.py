@@ -163,6 +163,44 @@ def _vna(indice, quando):
     return float(s.iloc[-1]["vna"])
 
 
+# Os papeis cuja face e 1.000 por titulo. A LFT e a NTN-B nao entram: o nominal
+# delas vem do VNA, e quantidade x 1.000 nao e o que elas pagam.
+_FACE_DE_MIL = ("LTN", "NTN-F")
+
+
+def _resgate(linha):
+    """Quanto o papel PAGA no vencimento -- e nao quanto ele vale hoje.
+
+    APONTADO POR ELA em 09/09/2026: "quando uma ntn-f vence, e o estoque x
+    preco final, todo mundo que tem o papel vai receber o mesmo valor".
+
+    Ate aqui o principal saia por `financeiro_milhoes`, o valor de MERCADO na
+    data-base do RMD. Para prefixado abaixo do par isso subtrai MENOS do que o
+    papel paga: a NTN-F 2031 estava com PU de 929,83 contra face de 1.000, e nos
+    doze meses a frente a diferenca somava R$ 22,2 bi.
+
+    E O CODIGO JA SABIA A FACE: o cupom da NTN-F, calculado logo abaixo, sai
+    sobre 1.000. Uma coisa no cupom e outra no principal.
+
+    'quantidade_mil' esta em MILHARES de titulos, e o resultado tem de sair em
+    MILHOES de reais -- entao quantidade_mil x 1.000 titulos x 1.000 reais / 1e6
+    e a propria quantidade_mil. A conversao some, e por isso vale escrever que
+    ela existe.
+
+    MEDIDO no backtest de 24 meses, prefixado:
+
+        vies medio   -0,045%  ->  -0,032%
+        pior mes      0,339%  ->   0,120%     (queda de 65%)
+
+    A media quase nao anda e o PIOR MES desaba, e isso diz onde o erro estava:
+    so nos meses com vencimento grande de prefixado. A media diluia; a dispersao
+    mostrava.
+    """
+    if linha["titulo"] in _FACE_DE_MIL:
+        return float(linha["quantidade_mil"])
+    return float(linha["financeiro_milhoes"])
+
+
 def pagos(de, ate):
     """Principal e cupom pagos em (de, ate], por data e indexador.
 
@@ -176,7 +214,7 @@ def pagos(de, ate):
     vence = u[(u["vencimento"] > de) & (u["vencimento"] <= ate)]
     for _, r in vence.iterrows():
         linhas.append({"data": r["vencimento"], "indexador": r["indexador"],
-                       "principal_milhoes": r["financeiro_milhoes"],
+                       "principal_milhoes": _resgate(r),
                        "cupom_milhoes": 0.0})
 
     for dia in pd.date_range(de + pd.Timedelta(days=1), ate, freq="D"):
