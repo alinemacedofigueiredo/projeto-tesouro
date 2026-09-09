@@ -310,14 +310,21 @@ def _faixa(minimo, maximo, unidade):
 def _banda_da_celula(r):
     """A banda VIGENTE, e o quanto ela foi revisada quando foi.
 
-    A coluna sempre mostrou a vigente sem dizer que era a vigente. Em 8 dos 23
-    anos o Tesouro revisou a banda no meio do ano, e o paragrafo logo abaixo
-    desta tabela diz, em negrito, que em 14 de 14 casos a revisao pos o
+    A coluna sempre mostrou a vigente sem dizer que era a vigente. O Tesouro
+    revisa a banda no meio do ano com alguma frequencia, e o paragrafo logo
+    abaixo desta tabela diz, em negrito, que em 14 de 14 casos a revisao pos o
     realizado DENTRO. Medir contra a revisada sem avisar, ao lado dessa frase,
     e o tipo de numero plausivel e errado que esta pagina existe para nao
     produzir.
 
-    Quando as duas coincidem -- e em 2026 coincidem -- sai so uma faixa.
+    A CONTAGEM SAIU DAQUI. Dizia "em 8 dos 23 anos" e "em 2026 as duas
+    coincidem" -- as duas envelheceram juntas em 26/08/2026, quando o Tesouro
+    revisou 2026 e o oitavo virou nono. Quantos anos foram nao muda o que esta
+    funcao faz.
+
+    Quando as duas faixas coincidem, sai so uma. E a comparacao e de VALOR, e
+    nao de existencia: o Tesouro publica linha "revisado" para os sete
+    indicadores mesmo quando so alguns mudam.
     """
     vigente = _faixa(r["minimo"], r["maximo"], r["unidade"])
     original_min, original_max = r.get("minimo_original"), r.get("maximo_original")
