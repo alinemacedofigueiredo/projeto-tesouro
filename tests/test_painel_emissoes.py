@@ -44,7 +44,12 @@ def test_o_registro_muda_com_a_combinacao():
     # mudasse, as tres paginas seriam indistinguiveis para quem le.
     so_venda = painel_emissoes.registro(com_compra=False, com_2a=True)
     com_compra = painel_emissoes.registro(com_compra=True, com_2a=True)
-    assert len(so_venda) == len(com_compra) == 12
+    # AS DUAS TEM O MESMO CONJUNTO DE GRAFICOS, e e isso que importa aqui: a
+    # combinacao muda a NOTA, e nao quais graficos a pagina tem. Antes esta
+    # linha cravava "== 12", uma contagem que nao era o assunto deste teste e
+    # que envelhecia a cada grafico novo -- caiu ao entrar os acumulados de 12
+    # meses em 09/09/2026.
+    assert [g.id for g in so_venda] == [g.id for g in com_compra]
     assert "S\u00f3 venda" in so_venda[0].nota
     assert "compra" in com_compra[0].nota
     assert so_venda[0].nota != com_compra[0].nota
@@ -136,11 +141,25 @@ def test_a_pagina_nao_tem_referencia_externa(pagina):
 
 
 # --------------------------------------------------------------------------
-# As tres aparencias, para os tres momentos: ofertado (fantasma com contorno),
-# aceito (hachurado) e planilha (solido).
+# As tres aparencias, para os tres momentos: ofertado (fantasma com contorno
+# E HACHURADO), aceito (solido) e planilha (solido).
 #
 # O risco aqui nao e o grafico ficar feio. E alguem olhar um numero hoje, outro
 # amanha, e nao ter como saber por que mudou.
+#
+# A REGRA MUDOU EM 09/09/2026, por decisao dela: "so coloque hachurado os
+# leiloes que ainda nao saiu o resultado". Antes a hachura marcava o ACEITO --
+# resultado publicado, planilha ainda nao confirmou -- e o ofertado ficava so
+# com o contorno esmaecido.
+#
+# O QUE A HACHURA PASSA A SIGNIFICAR: "este numero ainda vai mudar", e nao
+# "este numero veio da API". Entre a oferta das 10h30 e o resultado, o grafico
+# desenha a QUANTIDADE OFERTADA, que e um teto e historicamente cai para 83,9%
+# dela. Saido o resultado, a quantidade e final e a barra fica solida.
+#
+# O PRECO, aceito de propria vontade: 'aceito' passa a ficar VISUALMENTE IGUAL a
+# 'planilha'. Some da tela a distincao "a planilha do Tesouro ainda nao
+# confirmou" -- que e bookkeeping do Tesouro, e nao informacao sobre o numero.
 # --------------------------------------------------------------------------
 
 def _dia_com_os_tres_estagios():
@@ -166,8 +185,11 @@ def test_cada_estagio_ganha_a_sua_aparencia():
     # grafico empilhado.
     assert a["color"][3][3] == emissao.OPACIDADE_DO_OFERTADO
     assert a["color"][0][3] > emissao.OPACIDADE_DO_OFERTADO
-    # So o aceito e hachurado.
-    assert a["hatch"] == ["", "", emissao.HACHURA_ACEITO, ""]
+    # SO O OFERTADO E HACHURADO. O indice 3 e o ofertado e o 2 e o aceito --
+    # se algum dia isto voltar a marcar o aceito, este teste cai.
+    assert a["hatch"] == ["", "", "", emissao.HACHURA_OFERTADO]
+    assert emissao.HACHURA_OFERTADO, "o ofertado precisa de alguma hachura"
+    assert not emissao.HACHURA_ACEITO, "o aceito nao pode mais ter hachura"
     # E so a oferta tem contorno grosso, que e o que a faz ler como contorno.
     assert a["linewidth"][3] > a["linewidth"][2] > a["linewidth"][0]
 
@@ -189,16 +211,22 @@ def test_csv_antigo_sem_a_coluna_estagio_continua_desenhando():
     assert emissao._estagios(d) is None
 
 
-def test_a_legenda_explica_so_os_estagios_presentes():
-    # Listra sem legenda e enfeite. E legenda de um estagio que nao esta na tela e
-    # ruido: quem olha procura a barra e nao acha.
+def test_a_legenda_explica_SO_O_OFERTADO():
+    """Desde 09/09/2026 so o ofertado tem aparencia propria.
+
+    Com a hachura marcando o ofertado, 'aceito' ficou VISUALMENTE IGUAL a
+    'planilha' -- e uma entrada de legenda para ele apontaria para uma barra
+    indistinguivel das outras. O comentario da versao anterior deste teste ja
+    dizia a regra que agora o condena: "legenda de um estagio que nao esta na
+    tela e ruido: quem olha procura a barra e nao acha".
+    """
     ambos = emissao._legenda_dos_estagios(["planilha", "aceito", "ofertado"])
     assert [e.get_label() for e in ambos] == [
-        emissao._ROTULO_DO_ESTAGIO["ofertado"], emissao._ROTULO_DO_ESTAGIO["aceito"]]
+        emissao._ROTULO_DO_ESTAGIO["ofertado"]]
 
     so_aceito = emissao._legenda_dos_estagios(["planilha", "aceito"])
-    assert len(so_aceito) == 1
-    assert so_aceito[0].get_label() == emissao._ROTULO_DO_ESTAGIO["aceito"]
+    assert so_aceito == [], (
+        "aceito nao tem mais aparencia propria, e nao pode ter legenda")
 
     assert emissao._legenda_dos_estagios(None) == []
 
@@ -215,7 +243,11 @@ def test_os_rotulos_do_estagio_sao_CURTOS():
     # E o do ofertado ainda diz que e TETO: sem essa palavra, a barra mais alta do
     # grafico parece emissao recorde quando e so o anuncio.
     assert "teto" in emissao._ROTULO_DO_ESTAGIO["ofertado"].lower()
-    assert emissao._ROTULO_DO_ESTAGIO["aceito"] == "leil\u00e3o de hoje"
+
+    # E SO ELE SOBROU. O rotulo existe para nomear uma aparencia; 'aceito'
+    # deixou de ter uma em 09/09/2026, entao um rotulo para ele seria nome sem
+    # coisa nomeada.
+    assert set(emissao._ROTULO_DO_ESTAGIO) == {"ofertado"}
 
 
 def test_a_barra_somada_recebe_o_estagio_menos_firme():
@@ -389,15 +421,38 @@ def test_ultimos_nao_e_lido_como_o_par_de_datas():
 
 
 def test_a_nota_do_grafico_semanal_avisa_que_ali_o_ponto_e_a_semana():
-    # "20 leiloes" conta PONTOS do grafico. Nos dois graficos por semana um ponto e
-    # uma semana, entao a janela mostra 20 semanas -- e o rotulo mentiria em
-    # silencio sem esta nota.
+    """"20 leiloes" conta PONTOS do grafico, e o que e um ponto varia.
+
+    Nos graficos SEMANAIS um ponto e uma semana, entao a janela mostra 20
+    semanas -- e o rotulo mentiria em silencio sem a nota.
+
+    NEM TODO GRAFICO DO GRUPO E SEMANAL desde 09/09/2026: os dois acumulados de
+    12 meses moram ali por vizinhanca, e neles um ponto e um DIA DE LEILAO com
+    soma movel. A versao anterior deste teste exigia a nota de TODO grafico do
+    grupo, e cravava que eram dois -- as duas coisas cairam quando os
+    acumulados entraram.
+
+    O corte agora e pela propria nota, e nao por uma lista de nomes: quem
+    carrega _NOTA_SEMANAL declara ser semanal, e tem de cumprir. Quem nao
+    carrega nao pode falar de semana como se fosse o ponto.
+    """
     por_semana = [g for g in painel_emissoes.registro()
                   if g.grupo == "Por semana"]
-    assert len(por_semana) == 2
-    for g in por_semana:
-        assert "semana" in g.nota
-        assert "20 leil\u00f5es" in g.nota
+    semanais = [g for g in por_semana
+                if painel_emissoes._NOTA_SEMANAL in g.nota]
+    outros = [g for g in por_semana
+              if painel_emissoes._NOTA_SEMANAL not in g.nota]
+
+    assert semanais, "nenhum grafico se declara semanal"
+    assert outros, "a divisao ficou degenerada; o teste nao esta separando nada"
+
+    for g in semanais:
+        assert "semana" in g.nota, g.id
+        assert "20 leil\u00f5es" in g.nota, g.id
+
+    # E os acumulados dizem qual e a janela DELES, que nao e a semana.
+    for g in outros:
+        assert "12 meses" in g.titulo, g.id
 
 
 def test_a_dispersao_saiu_da_pagina():
@@ -729,3 +784,193 @@ def test_a_serie_de_uma_familia_vai_ate_o_FIM_mesmo_que_ela_pare_antes(
             f"{familia} ficou com buraco: a serie de cada familia tem de cobrir "
             f"o periodo inteiro, e nao so os dias em que ela foi a leilao")
     assert d["LFT"].last_valid_index() == d["LTN"].last_valid_index()
+
+
+# --------------------------------------------------------------------------
+# OS DOIS ACUMULADOS DE 12 MESES, pedido dela em 09/09/2026.
+#
+# Cada um espelha o semanal logo acima: MESMA cesta de papeis e MESMA grandeza.
+# Quem olha de um para o outro ve o mesmo conjunto na semana e nos doze meses,
+# sem trocar de universo no meio.
+#
+#   Soma da semana - financeiro por papel e DV total (sem LFT)
+#     -> acumulado 12 meses de DV01,       sem LFT
+#   Financeiro da semana, por papel        (com LFT)
+#     -> acumulado 12 meses de financeiro, com LFT
+#
+# A LFT ENTRA NUM E NAO NO OUTRO, e nao e descuido: ela nao tem DV01 -- medido,
+# a coluna e inteiramente nula para ela --, entao num grafico de DV ela nao tem
+# o que somar, e num de financeiro ela e mais da metade do total.
+# --------------------------------------------------------------------------
+
+def test_os_recortes_novos_separam_a_LFT():
+    """'sem LFT' e 'tudo' diferem por exatamente uma familia."""
+    sem = set(emissao.RECORTES["sem LFT"])
+    tudo = set(emissao.RECORTES["tudo"])
+    assert tudo - sem == {"LFT"}, (tudo, sem)
+    assert "LFT" not in sem
+
+
+def test_o_recorte_TUDO_cobre_TODAS_as_familias_do_dado():
+    """Relacao, e nao lista cravada: se o Tesouro criar uma familia nova, este
+    teste fica vermelho em vez de ela sumir do grafico em silencio."""
+    import pandas as pd
+
+    from tesouro import config
+
+    d = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv")
+    assert set(d["familia"].dropna()) == set(emissao.RECORTES["tudo"])
+
+
+def test_o_acumulado_de_12_meses_SOMA_MAIS_que_o_de_3():
+    """A soma movel de doze meses tem de conter a de tres. Pega janela trocada
+    e recorte vazio -- os dois modos de a serie sair errada sem parecer."""
+    a3 = emissao.acumulado("sem LFT", meses=3, janela=1)
+    a12 = emissao.acumulado("sem LFT", meses=12, janela=1)
+    assert not a12.empty
+    comuns = a3.index.intersection(a12.index)
+    assert len(comuns) > 10
+    assert (a12.loc[comuns, "financeiro_milhoes"]
+            >= a3.loc[comuns, "financeiro_milhoes"] - 1e-6).all()
+
+
+def test_o_acumulado_COM_LFT_e_maior_que_o_sem():
+    """A LFT e mais da metade do financeiro leiloado -- se incluir nao mudar
+    nada, o recorte nao esta filtrando o que diz filtrar."""
+    sem = emissao.acumulado("sem LFT", meses=12, janela=1)
+    com = emissao.acumulado("tudo", meses=12, janela=1)
+    comuns = sem.index.intersection(com.index)
+    assert len(comuns) > 10
+    assert (com.loc[comuns, "financeiro_milhoes"]
+            > sem.loc[comuns, "financeiro_milhoes"]).all()
+
+
+def test_o_desenho_do_acumulado_faz_SO_a_serie_pedida():
+    """Ela pediu DV num grafico e financeiro no outro, e nao os dois nos dois.
+
+    O eixo da direita so existe quando ha DV para desenhar; pedir 'financeiro'
+    nao pode deixa-lo la vazio, que e o defeito que passa despercebido.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    dados = emissao.acumulado("sem LFT", meses=12, janela=1)
+
+    fig, ax = plt.subplots()
+    emissao.desenha_acumulado(dados, ax, "so DV", meses=12, series="dv")
+    rotulos = [t.get_text() for t in [ax.yaxis.label]
+               + [a.yaxis.label for a in fig.axes if a is not ax]]
+    plt.close(fig)
+    assert any("DV01" in r for r in rotulos), rotulos
+    assert not any("bilh" in r for r in rotulos), (
+        "pediu so DV e o eixo de reais apareceu: %s" % rotulos)
+
+    fig, ax = plt.subplots()
+    emissao.desenha_acumulado(dados, ax, "so financeiro", meses=12,
+                              series="financeiro")
+    rotulos = [t.get_text() for t in [ax.yaxis.label]
+               + [a.yaxis.label for a in fig.axes if a is not ax]]
+    plt.close(fig)
+    assert any("bilh" in r for r in rotulos), rotulos
+    assert not any("DV01" in r for r in rotulos), (
+        "pediu so financeiro e o eixo de DV apareceu: %s" % rotulos)
+
+
+def test_cada_acumulado_de_12_MESES_vem_LOGO_ABAIXO_do_seu_semanal():
+    """A ORDEM E O TESTE, e nao so a presenca.
+
+    O acumulado so se le como companheiro do semanal se estiver colado nele.
+    Solto no fim do grupo, ele vira mais um grafico e o leitor perde a ligacao
+    entre "esta semana" e "os ultimos doze meses do MESMO conjunto".
+    """
+    nomes = [g.id for g in painel_emissoes.registro()
+             if g.grupo == "Por semana"]
+    assert nomes == [
+        "emissao_semanal",
+        "emissao_acumulado_dv_12m",
+        "emissao_empilhado",
+        "emissao_acumulado_financeiro_12m",
+    ], nomes
+
+
+def test_o_acumulado_de_DV_nao_leva_LFT_e_o_de_financeiro_leva():
+    """A regra que as duas linhas de cima do arquivo explicam, travada aqui.
+
+    Le o TITULO de cada um, que e o que o leitor ve -- se um dia alguem trocar
+    o recorte e esquecer o titulo, a pagina passa a mentir e este teste cai.
+    """
+    porgrupo = {g.id: g for g in painel_emissoes.registro()}
+    dv = porgrupo["emissao_acumulado_dv_12m"]
+    fin = porgrupo["emissao_acumulado_financeiro_12m"]
+    assert "sem LFT" in dv.titulo, dv.titulo
+    assert "DV01" in dv.titulo, dv.titulo
+    assert "com LFT" in fin.titulo, fin.titulo
+    assert "12 meses" in dv.titulo and "12 meses" in fin.titulo
+
+
+def test_cada_acumulado_novo_desenha_A_SERIE_QUE_O_TITULO_PROMETE():
+    """Nao basta desenhar: tem de desenhar o que o titulo diz.
+
+    A primeira versao deste teste so exigia que a figura tivesse alguma linha,
+    e passava com a serie ERRADA ligada -- o titulo dizendo DV01 e o grafico
+    mostrando reais. Figura que levanta excecao o painel engole por desenho;
+    figura que mostra a grandeza errada ninguem engole, mas tambem ninguem ve.
+
+    O EIXO E A PROVA: pedir uma serie so nao pode deixar o eixo da outra
+    rotulado e vazio.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    porgrupo = {g.id: g for g in painel_emissoes.registro()}
+    esperado = {
+        "emissao_acumulado_dv_12m": ("DV01", "bilh"),
+        "emissao_acumulado_financeiro_12m": ("bilh", "DV01"),
+    }
+    for nome, (tem, nao_tem) in esperado.items():
+        fig = porgrupo[nome].figura(1)
+        rotulos = [ax.yaxis.label.get_text() for ax in fig.axes]
+        assert any(ax.lines or ax.collections for ax in fig.axes), (
+            f"{nome} saiu sem nenhuma linha nem area desenhada")
+        assert any(tem in r for r in rotulos), (nome, rotulos)
+        assert not any(nao_tem in r for r in rotulos), (
+            f"{nome} mostra a grandeza errada: {rotulos}")
+        plt.close(fig)
+
+
+def test_a_JANELA_do_acumulado_bate_com_o_que_o_titulo_promete():
+    """O titulo diz "12 meses"; a legenda diz "soma de N meses", e o N e o
+    MESMO que abre a janela movel do dado. Se os dois discordarem, o grafico
+    mostra tres meses com cara de doze.
+
+    ACHADO POR MUTACAO em 09/09/2026: trocar meses=12 por meses=3 na ligacao
+    da pagina nao deixava NENHUM teste vermelho -- o titulo e um texto literal
+    e continuava prometendo doze. Plausivel e errado, do tipo que so aparece
+    quando alguem compara com outra fonte.
+
+    O QUE ESTE TESTE NAO PEGA, e esta escrito para nao se supor demais: o
+    recorte do grafico de DV. Medido -- a LFT tem a coluna de DV inteiramente
+    nula, entao somar "sem LFT" ou "tudo" da a MESMA serie de DV. Ali o
+    recorte e questao de rotulo, e quem o guarda e o titulo.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    porgrupo = {g.id: g for g in painel_emissoes.registro()}
+    for nome in ("emissao_acumulado_dv_12m", "emissao_acumulado_financeiro_12m"):
+        g = porgrupo[nome]
+        assert "12 meses" in g.titulo, g.titulo
+        fig = g.figura(1)
+        rotulos = []
+        for ax in fig.axes:
+            marcas, textos = ax.get_legend_handles_labels()
+            rotulos += textos
+            if ax.get_legend() is not None:
+                rotulos += [x.get_text() for x in ax.get_legend().get_texts()]
+        plt.close(fig)
+        assert rotulos, f"{nome} saiu sem legenda; nao da para conferir a janela"
+        assert any("soma de 12 meses" in r for r in rotulos), (
+            f"{nome}: o titulo promete 12 meses e a legenda diz {rotulos}")

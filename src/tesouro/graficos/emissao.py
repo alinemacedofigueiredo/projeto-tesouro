@@ -40,6 +40,14 @@ RECORTES = {
     "LTN": ("LTN",),
     "LTN + NTN-F": ("LTN", "NTN-F"),
     "LFT": ("LFT",),
+    # OS DOIS RECORTES DOS ACUMULADOS DE 12 MESES, que espelham os semanais.
+    #
+    # A LFT ENTRA NUM E NAO NO OUTRO, e nao e descuido: ela nao tem DV01 --
+    # medido, a coluna e inteiramente nula para ela --, entao num grafico de DV
+    # ela nao tem o que somar. Num de financeiro ela e mais da metade do total,
+    # e deixa-la de fora esconderia o grosso do que o Tesouro leiloa.
+    "sem LFT": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa"),
+    "tudo": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa", "LFT"),
 }
 
 _COR_FINANCEIRO = "#3d9be9"
@@ -49,19 +57,27 @@ _COR_DV = "#c00000"
 # TRES APARENCIAS PARA TRES MOMENTOS. Um leilao aparece na tela tres vezes, e a
 # barra vai ficando mais solida conforme o numero fica mais firme:
 #
-#   ofertado -- so contorno, vazia por dentro. E um TETO: a quantidade anunciada,
-#               que historicamente cai para 83,9% dela, com taxa emprestada do
-#               leilao anterior;
-#   aceito   -- hachurada. A quantidade ja e final; a taxa publicada na hora pode
-#               ser preliminar;
+#   ofertado -- HACHURADA, e com contorno grosso sobre preenchimento fraco. E um
+#               TETO: a quantidade anunciada as 10h30, que historicamente cai
+#               para 83,9% dela, com taxa emprestada do leilao anterior;
+#   aceito   -- solida. O resultado saiu e a quantidade e final;
 #   planilha -- solida. Nao muda mais.
+#
+# A HACHURA SIGNIFICA "ESTE NUMERO AINDA VAI MUDAR", e nao "este numero veio da
+# API". Decisao dela em 09/09/2026: "so coloque hachurado os leiloes que ainda
+# nao saiu o resultado". Ate ali era o contrario -- a hachura marcava o ACEITO,
+# cuja quantidade ja nao muda, e o ofertado, que e o unico numero de verdade
+# provisorio, ficava so com o contorno esmaecido.
+#
+# O PRECO, aceito de propria vontade: 'aceito' fica visualmente IGUAL a
+# 'planilha'. Some da tela a distincao "a planilha do Tesouro ainda nao
+# confirmou" -- que e bookkeeping do Tesouro, e nao informacao sobre o numero.
 #
 # E hachura e contorno, e nao cor, porque no grafico empilhado a cor JA significa
 # papel -- roubar uma cor para significar momento criaria duas leituras para o
 # mesmo sinal.
-HACHURA_PROVISORIO = "///"
-HACHURA_ACEITO = "///"
-HACHURA_OFERTADO = ""
+HACHURA_ACEITO = ""
+HACHURA_OFERTADO = "///"
 
 ESTAGIO_MAIS_FIRME = "planilha"
 
@@ -74,9 +90,12 @@ ESTAGIO_MAIS_FIRME = "planilha"
 # ("aceito hoje (API) - muda quando a planilha sair"), e a frase competia com o
 # grafico. A explicacao mora no texto da pagina, que e onde se le texto; a legenda
 # so precisa dizer qual barra e qual.
+# SO O OFERTADO TEM ROTULO. Ate 09/09/2026 o 'aceito' tinha o seu, porque
+# tinha aparencia propria (hachura). Com a hachura passando a marcar o
+# ofertado, o aceito ficou identico a planilha -- e nomear na legenda uma
+# barra indistinguivel das outras manda o leitor procurar o que nao ha.
 _ROTULO_DO_ESTAGIO = {
     "ofertado": "ofertado hoje (teto)",
-    "aceito": "leil\u00e3o de hoje",
 }
 
 
@@ -495,7 +514,7 @@ def _aparencia(estagios, cor, opacidade=0.75):
     return {
         "color": [to_rgba(cor, OPACIDADE_DO_OFERTADO if e == "ofertado"
                           else opacidade) for e in estagios],
-        "hatch": [HACHURA_ACEITO if e == "aceito" else HACHURA_OFERTADO
+        "hatch": [HACHURA_OFERTADO if e == "ofertado" else HACHURA_ACEITO
                   for e in estagios],
         # O contorno forte na oferta e o que faz o fantasma parecer contorno, e nao
         # cor desbotada por acidente.
@@ -507,25 +526,26 @@ def _aparencia(estagios, cor, opacidade=0.75):
 
 
 def _legenda_dos_estagios(estagios):
-    """As entradas de legenda que explicam contorno e hachura.
+    """A entrada de legenda que explica o contorno e a hachura do ofertado.
 
-    Uma entrada por estagio provisorio PRESENTE, e nenhuma quando nao ha nenhum.
-    Listra sem legenda e enfeite: quem olha nao tem como saber que aquela barra pode
-    mudar de altura amanha.
+    UMA SO, e so quando ha oferta sem resultado na tela. Desde 09/09/2026 o
+    'aceito' nao tem aparencia propria -- ele ficou igual a planilha --, entao
+    nomea-lo aqui mandaria o leitor procurar uma barra que nao se distingue.
+
+    Hachura sem legenda e enfeite: quem olha nao tem como saber que aquela barra
+    pode mudar de altura amanha.
     """
     if estagios is None:
         return []
     from matplotlib.patches import Patch
 
     marcas = []
-    for estagio in ("ofertado", "aceito"):
+    for estagio in _ROTULO_DO_ESTAGIO:
         if estagio not in estagios:
             continue
         marcas.append(Patch(
-            facecolor=("#cccccc" if estagio == "ofertado" else "white"),
-            edgecolor="#555555",
-            hatch=HACHURA_ACEITO if estagio == "aceito" else HACHURA_OFERTADO,
-            linewidth=1.4 if estagio == "ofertado" else 0.4,
+            facecolor="#cccccc", edgecolor="#555555",
+            hatch=HACHURA_OFERTADO, linewidth=1.4,
             label=_ROTULO_DO_ESTAGIO[estagio]))
     return marcas
 
@@ -659,7 +679,7 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
         _alinha_zeros(ax, direita, financeiro, dv)
         direita.spines["top"].set_visible(False)
         direita.grid(False)
-    else:
+    elif series != "dv":
         ax.set_ylim(*_limites_simples(financeiro))
 
     _grade(ax)
@@ -788,24 +808,50 @@ def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
               bbox_to_anchor=(0.5, -0.14))
 
 
-def desenha_acumulado(dados, ax, rotulo, meses=3):
+def desenha_acumulado(dados, ax, rotulo, meses=3, series="ambos"):
     """A soma movel de N meses: area para o financeiro, linha para o DV.
 
     AREA E NAO BARRA porque isto e um nivel acumulado, e nao um evento: barra sugere
     "entrou tanto naquele dia", e o que a serie diz e "nos ultimos tres meses,
     tanto". O grafico de cima ja mostra o evento.
+
+    'series' escolhe o que desenhar: "ambos" (o padrao, como sempre foi), "dv"
+    ou "financeiro". Os dois acumulados de 12 meses que ela pediu em 09/09/2026
+    usam UM de cada -- DV no que espelha o semanal sem LFT, financeiro no que
+    espelha o empilhado com LFT.
+
+    QUANDO SE PEDE UMA SERIE SO, O EIXO DA OUTRA NAO PODE FICAR LA VAZIO: eixo
+    rotulado sem linha nenhuma e o defeito que ninguem nota, porque o grafico
+    sai bonito e diz uma grandeza que nao esta desenhada.
     """
+    if series not in ("ambos", "dv", "financeiro"):
+        raise LookupError(
+            f"series '{series}' nao existe: ambos, dv ou financeiro.")
+
     financeiro = dados["financeiro_milhoes"] / 1000
-    ax.fill_between(dados.index, 0, financeiro, color=_COR_FINANCEIRO, alpha=0.35,
-                    label=f"financeiro, soma de {meses} meses")
-    ax.plot(dados.index, financeiro, color=_COR_FINANCEIRO, lw=1.4)
-    ax.set_ylabel("R$ bilh\u00f5es")
+    if series in ("ambos", "financeiro"):
+        ax.fill_between(dados.index, 0, financeiro, color=_COR_FINANCEIRO,
+                        alpha=0.35,
+                        label=f"financeiro, soma de {meses} meses")
+        ax.plot(dados.index, financeiro, color=_COR_FINANCEIRO, lw=1.4)
+        ax.set_ylabel("R$ bilh\u00f5es")
+        _marca_pontos(ax, dados.index, financeiro,
+                      lambda v: estilo.num_br(v, 2), "#1f4e79",
+                      deslocamento=(-6, 8))
     ax.axhline(0, color="gray", lw=0.8)
-    _marca_pontos(ax, dados.index, financeiro, lambda v: estilo.num_br(v, 2),
-                  "#1f4e79", deslocamento=(-6, 8))
 
     direita = None
-    if dados["dv_milhoes"].notna().any():
+    if series == "dv":
+        # SEM EIXO GEMEO: com uma serie so, o DV vai no eixo principal. Um
+        # twinx aqui deixaria o eixo da esquerda rotulado e vazio.
+        dv = dados["dv_milhoes"] * 1000
+        ax.plot(dados.index, dv, color=_COR_DV, lw=1.8,
+                label=f"DV01, soma de {meses} meses")
+        ax.set_ylabel("DV01, R$ mil por ponto-base")
+        _marca_pontos(ax, dados.index, dv, lambda v: estilo.num_br(v, 0),
+                      _COR_DV, deslocamento=(8, 8))
+        ax.set_ylim(*_limites_simples(dv))
+    elif series == "ambos" and dados["dv_milhoes"].notna().any():
         dv = dados["dv_milhoes"] * 1000
         direita = ax.twinx()
         direita.plot(dados.index, dv, color=_COR_DV, lw=1.8,

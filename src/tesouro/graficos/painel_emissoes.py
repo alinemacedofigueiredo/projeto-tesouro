@@ -119,13 +119,16 @@ def _fig_empilhado_por_dia(recorte, com_compra, com_2a):
     return figura
 
 
-def _fig_acumulado(recorte, com_compra, com_2a, meses=3):
+def _fig_acumulado(recorte, com_compra, com_2a, meses=3, series="ambos",
+                   titulo=None):
     def figura(janela):
         fig = dashboard._figura(4.8)
         dados = emissao.acumulado(recorte, meses, janela, com_compra, com_2a)
         emissao.desenha_acumulado(
             dados, fig.subplots(),
-            f"{recorte} \u00b7 acumulado dos \u00faltimos {meses} meses", meses)
+            titulo or (f"{recorte} \u00b7 acumulado dos \u00faltimos "
+                       f"{meses} meses"),
+            meses, series)
         return fig
     return figura
 
@@ -285,12 +288,51 @@ def registro(com_compra=False, com_2a=True):
             "n\u00fameros. A barra \u00e9 <b>empilhada por papel</b>; a linha do DV \u00e9 "
             f"o total da semana. {nota_aceito} {_NOTA_DV} {_NOTA_SEMANAL}",
             True, JANELA_PADRAO, _fig_semanal(com_compra, com_2a)),
+    # O ACUMULADO DE DV VEM COLADO NO SEMANAL DE CIMA, e nao no fim do grupo.
+    # Os dois falam do MESMO conjunto de papeis -- sem LFT, que nao tem DV01 --
+    # e a leitura e olhar de um para o outro: o que entrou nesta semana, e o que
+    # os doze meses acumularam. Solto no fim, vira mais um grafico.
+    Grafico("emissao_acumulado_dv_12m", "Por semana",
+            "Acumulado de 12 meses \u00b7 DV01, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do DV01 emitido, no <b>mesmo "
+            "conjunto do gr\u00e1fico acima</b>. A janela \u00e9 de "
+            "calend\u00e1rio, e n\u00e3o de n\u00famero de leil\u00f5es: "
+            "\"12 meses\" quer dizer doze meses mesmo, inclusive quando o "
+            "Tesouro muda a frequ\u00eancia no meio do per\u00edodo. "
+            "\u00c1rea e linha, e n\u00e3o barra, porque isto \u00e9 um "
+            "n\u00edvel acumulado e n\u00e3o um evento. "
+            f"{_NOTA_DV}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("sem LFT", com_compra, com_2a, meses=12,
+                           series="dv",
+                           titulo="Acumulado de 12 meses \u00b7 DV01 emitido, "
+                                  "sem LFT")),
     Grafico("emissao_empilhado", "Por semana",
             "Financeiro da semana, por papel",
             "dv_emitido_por_leilao.csv",
             "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, e ela "
             f"\u00e9 mais da metade dele. {nota_aceito} {_NOTA_SEMANAL}",
             True, JANELA_PADRAO, _fig_empilhado(com_compra, com_2a)),
+    # E o acumulado de FINANCEIRO vem colado no empilhado, que e o grafico de
+    # financeiro -- e por isso este leva a LFT, igual a ele. A LFT nao tem
+    # DV01, entao ela entra aqui e fica de fora do acumulado de DV acima: os
+    # dois pares sao coerentes cada um consigo mesmo.
+    Grafico("emissao_acumulado_financeiro_12m", "Por semana",
+            "Acumulado de 12 meses \u00b7 financeiro, com LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do financeiro emitido, no "
+            "<b>mesmo conjunto do gr\u00e1fico acima</b> \u2014 com a LFT, "
+            "que \u00e9 mais da metade do que vai a leil\u00e3o. A janela "
+            "\u00e9 de calend\u00e1rio, e n\u00e3o de n\u00famero de "
+            "leil\u00f5es. \u00c1rea, e n\u00e3o barra, porque isto \u00e9 "
+            "um n\u00edvel acumulado e n\u00e3o um evento. "
+            f"{nota_aceito}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("tudo", com_compra, com_2a, meses=12,
+                           series="financeiro",
+                           titulo="Acumulado de 12 meses \u00b7 financeiro "
+                                  "emitido, com LFT")),
     Grafico("demanda_ntnb", "Demanda",
             "NTN-B \u00b7 ofertado e colocado",
             "dv_emitido_por_leilao.csv",
