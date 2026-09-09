@@ -37,13 +37,54 @@ def registros():
 
 
 @pytest.fixture(scope="module")
-def dados(registros):
-    return agenda.proximos(registros=registros, hoje=HOJE)
+def base_ate_hoje():
+    """O historico de taxas COMO ELE ERA EM 21/08, e nao como esta hoje.
+
+    ESTE E O CONSERTO DE UM LOOK-AHEAD, achado em 09/09/2026 quando os leiloes
+    de 27/08 a 08/09 entraram no projeto. O calendario ja era congelado e o
+    "hoje" ja era fixo -- mas o historico de taxas nao: agenda.proximos() le
+    leiloes_recentes.completo() do disco. Enquanto o dado vivo parava perto de
+    21/08 ninguem via; assim que passou, o teste comparava um dia de leilao de
+    21/08 com a taxa do leilao de 08/09.
+
+    Quatro testes ficaram vermelhos de uma vez, e um deles era justamente o que
+    diz "a invariante de verdade e que a taxa nao venha do FUTURO" -- ele
+    pegou. Os outros tres reclamavam de nao existir taxa velha, que e o mesmo
+    defeito visto de outro angulo: com taxa de 08/09 nada tem 45 dias.
+
+    NAO E DEFEITO DE PRODUCAO. La o "hoje" e hoje e a taxa vem sempre do
+    passado. Era a mistura de data congelada com dado vivo, dentro do teste.
+    """
+    from tesouro import leiloes_recentes
+
+    base = leiloes_recentes.completo("aceito")
+    return base[base["data_leilao"] <= pd.Timestamp(HOJE)]
+
+
+@pytest.fixture(scope="module")
+def dados(registros, base_ate_hoje):
+    return agenda.proximos(registros=registros, hoje=HOJE,
+                           base=base_ate_hoje)
 
 
 # --------------------------------------------------------------------------
 # Os dados
 # --------------------------------------------------------------------------
+
+def test_a_BASE_DO_TESTE_nao_conhece_o_futuro(base_ate_hoje):
+    """A guarda do proprio teste, e nao do codigo.
+
+    O defeito de 09/09/2026 nao estava na producao: estava aqui, em congelar a
+    DATA e deixar o HISTORICO vivo. Ficou latente por semanas e so apareceu
+    quando o dado passou de 21/08 -- e apareceu como quatro testes vermelhos
+    que pareciam falar de outra coisa.
+
+    Esta linha faz a mistura ficar impossivel de repetir em silencio.
+    """
+    assert len(base_ate_hoje) > 0, "a base congelada ficou vazia"
+    assert (base_ate_hoje["data_leilao"] <= pd.Timestamp(HOJE)).all(), (
+        "o historico do teste tem leilao depois do 'hoje' congelado")
+
 
 def test_a_agenda_olha_so_para_a_frente(dados):
     # Leilao que ja aconteceu nao e agenda: ele esta na pagina de emissoes, com
@@ -298,7 +339,7 @@ def test_o_grafico_da_LFT_usa_quantidade_e_escreve_o_financeiro(lft):
 # --------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def pagina(tmp_path_factory, registros, monkeypatch_module):
+def pagina(tmp_path_factory, registros, monkeypatch_module, base_ate_hoje):
     """A pagina montada a partir da AMOSTRA CONGELADA, e nao da API.
 
     O monkeypatch estava sendo pedido e nao usado: a fixture recebia 'registros' e
@@ -317,6 +358,17 @@ def pagina(tmp_path_factory, registros, monkeypatch_module):
         return registros, {"origem": "amostra congelada do teste"}
 
     monkeypatch_module.setattr(api_leiloes, "buscar", nao_va_a_rede)
+
+    # E O HISTORICO DE TAXAS TAMBEM CONGELADO, pelo mesmo motivo que a fixture
+    # 'dados' congela: painel_agenda.grava chama agenda.proximos(hoje=HOJE) sem
+    # base, e proximos() sem base le o disco -- que hoje vai muito alem de
+    # 21/08. Sem isto a PAGINA e os DADOS deste arquivo passavam a discordar, e
+    # o teste que compara os dois quebrava com "1 >= 2" sem que nada estivesse
+    # errado no codigo. Achado em 09/09/2026.
+    from tesouro import leiloes_recentes
+
+    monkeypatch_module.setattr(leiloes_recentes, "completo",
+                               lambda *a, **k: base_ate_hoje)
     destino = tmp_path_factory.mktemp("agenda") / painel_agenda.ARQUIVO
     return painel_agenda.grava(destino, hoje=HOJE).read_text(encoding="utf-8")
 

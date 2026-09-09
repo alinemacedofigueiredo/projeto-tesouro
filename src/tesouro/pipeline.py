@@ -184,6 +184,11 @@ def main(argumentos=None):
     # casos -- indistinguivel para quem le o log ou agenda o job.
     falhas = []
 
+    # Quantas linhas de leilao entraram pela API nesta rodada. Zero tambem
+    # quer dizer "nao coletei", e nos dois casos o DV por leilao precisa ser
+    # regravado aqui -- ver o guard mais abaixo.
+    entraram_leiloes = 0
+
     # A CONFERENCIA DA REFERENCIA VEM ANTES DE TUDO, e derruba a rodada: banda
     # quebrada nao pode virar grafico com banda errada. So o modo 'paf' passa
     # por aqui, porque so ele existe por causa de uma edicao a mao.
@@ -199,6 +204,35 @@ def main(argumentos=None):
         if "coleta_leiloes" in passos:
             from . import fetch_leiloes
             fetch_leiloes.baixar()
+            # E O RESULTADO DO DIA, PELA API -- sem isto a coleta de leiloes
+            # nao coleta leilao nenhum.
+            #
+            # fetch_leiloes.baixar() busca a PLANILHA HISTORICA do Tesouro, que
+            # trava no certificado do SERPRO e nao atualiza: ela imprime "ja
+            # existe, nada a fazer" e segue. O leilao novo entra por
+            # leilao_do_dia.rodar(), que vai a API e grava
+            # leiloes_recentes.csv -- o arquivo que rolagem.leiloes() junta a
+            # planilha para cobrir da fronteira dela ate hoje.
+            #
+            # O PIPELINE NUNCA CHAMOU ISSO. Medido em 09/09/2026: rodei o modo
+            # leiloes com a API oferecendo leiloes ate 08/09 e a rodada saiu
+            # verde, dizendo "concluido", com a pagina ainda em 25/08. O modo
+            # 'tudo' tinha o mesmo buraco desde sempre.
+            #
+            # refazer_graficos=False: quem redesenha e o pipeline, logo
+            # abaixo, e fazer duas vezes so gastaria o dobro do tempo.
+            from . import leilao_do_dia
+            try:
+                entraram_leiloes = (
+                    leilao_do_dia.rodar(refazer_graficos=False) or 0)
+            except Exception as erro:           # noqa: BLE001
+                # A API cai, e quando cai a planilha ainda serve. Mas em voz
+                # alta: sem isto, "concluido" significaria "as paginas foram
+                # regravadas sem o leilao de hoje" sem nada acusar.
+                mensagem = ("o resultado do dia NAO foi buscado, seguindo com "
+                            f"os leiloes ja em disco: {erro}")
+                print(f"ATENCAO: {mensagem}")
+                falhas.append(mensagem)
         if "coleta_rmd" in passos:
             from . import fetch_rmd
             ano, mes = opcoes.ano, opcoes.mes
@@ -270,10 +304,33 @@ def main(argumentos=None):
         from . import figuras
         figuras.gravar_todas()
 
-    if "leiloes_dv" in passos:
+    # SO REGRAVA O DV POR LEILAO SE leilao_do_dia NAO TIVER ACABADO DE
+    # GRAVA-LO. Ele grava com ate_o_estagio="ofertado", que inclui o leilao de
+    # hoje; leiloes_dv.gravar() sozinho usa "planilha", que so tem o que o
+    # Tesouro ja publicou -- e a planilha trava no certificado do SERPRO.
+    #
+    # Medido em 09/09/2026, no primeiro modo leiloes de verdade: 14.398 linhas
+    # gravadas por leilao_do_dia e 14.338 regravadas logo em seguida. Sessenta
+    # a menos, exatamente as que tinham acabado de entrar. As paginas de
+    # emissao desenham o provisorio com HACHURA, entao o efeito era o leilao de
+    # hoje sumir do grafico que existe para mostra-lo -- sem erro e sem aviso.
+    #
+    # O DEFEITO E MAIS VELHO QUE OS MODOS: quem rodasse leilao_do_dia e depois
+    # o pipeline ja perdia as linhas. Ligar os dois no mesmo comando so tornou
+    # o caso deterministico, e portanto visivel.
+    if "leiloes_dv" in passos and not entraram_leiloes:
         print("\n--- dv por leilao ---")
         from . import leiloes_dv
-        leiloes_dv.gravar()
+        # "ofertado", E NAO O DEFAULT "planilha": e o estagio que leilao_do_dia
+        # usa, e o default de leiloes_recentes.completo, que devolve so a
+        # planilha quando nao ha provisorio nenhum. Seguro sempre, e o unico
+        # que nao perde linha.
+        #
+        # Sem isto o guard acima so adiava o defeito um dia: na rodada
+        # seguinte leilao_do_dia diria "nada novo", devolveria zero, e esta
+        # linha apagaria com "planilha" o provisorio que a rodada de ontem
+        # tinha posto la.
+        leiloes_dv.gravar(ate_o_estagio="ofertado")
 
     print("\n--- dashboard ---")
     try:
