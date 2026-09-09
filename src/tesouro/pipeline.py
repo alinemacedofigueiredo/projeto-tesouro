@@ -16,10 +16,26 @@ from . import parse_leiloes, parse_rmd
 # OS QUATRO MODOS DE ATUALIZACAO, pedido dela em 08/09/2026.
 #
 # O pipeline era tudo-ou-nada: coletava as tres fontes e regravava as sete
-# paginas -- perto de trinta minutos -- mesmo para acrescentar um leilao. Os
-# modos existem porque as fontes tem CADENCIAS DIFERENTES: o RMD e mensal, o
-# leilao e de terca e quinta, e a banda do PAF muda quando o Tesouro revisa,
-# sem aviso e sem periodicidade.
+# paginas, mesmo para acrescentar um leilao. Os modos existem porque as fontes
+# tem CADENCIAS DIFERENTES: o RMD e mensal, o leilao e de terca e quinta, e a
+# banda do PAF muda quando o Tesouro revisa, sem aviso e sem periodicidade.
+#
+# QUANTO CADA UM LEVA, medido em 09/09/2026 (os tres primeiros com
+# --sem-coleta, o de leiloes com coleta de verdade):
+#
+#     paf       69 s
+#     leiloes  135 s
+#     rmd      171 s
+#     tudo     191 s
+#
+# A ECONOMIA DE TEMPO E MODESTA, e dizer outra coisa seria vender o que estes
+# modos nao entregam: eu tinha escrito aqui "perto de trinta minutos" sem ter
+# medido -- trinta minutos e a SUITE DE TESTES, nao o pipeline.
+#
+# O que os modos entregam de fato: nao tocar na Bloomberg quando ela nao e
+# necessaria (o terminal fica desligado quase sempre, e a tentativa ou demora
+# ou falha); nao ter de saber qual RMD baixar para acrescentar um leilao; e
+# nao regravar pagina que aquela fonte nao pode ter mudado.
 #
 # CADA MODO E O CONJUNTO DE PASSOS QUE AQUELA FONTE MOVE, e a lista abaixo e a
 # unica fonte da verdade sobre isso -- os testes leem daqui, e cada regra tem
