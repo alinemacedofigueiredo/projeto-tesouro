@@ -59,6 +59,14 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     # abaixo, que poe um stub proprio por cima deste.
     from tesouro.graficos import painel_paf
     alvos.append((painel_paf, "grava"))
+    # E O RESULTADO DO DIA, que entrou no pipeline em 09/09/2026. Ele vai a
+    # API do Tesouro, e o stub mora AQUI -- e nao em _stub_coletas -- porque
+    # tres testes deste arquivo montam a coleta a mao e nao chamam aquele
+    # auxiliar. Sem isto eles passaram a ir a rede de verdade: 5 a 6 segundos
+    # cada, e a suite so passando com a API no ar. Medido ao ligar.
+    from tesouro import leilao_do_dia
+    alvos.append((leilao_do_dia, "rodar"))
+
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:
@@ -305,3 +313,373 @@ def test_falha_do_dashboard_entra_nas_falhas_e_muda_o_codigo_de_saida(monkeypatc
     saida = capsys.readouterr().out
     assert "dashboard" in saida.lower()
     assert "paf_bandas.csv" in saida
+
+
+# ---------------------------------------------------------------------------
+# OS QUATRO MODOS DE ATUALIZACAO, pedido dela em 08/09/2026.
+#
+# O pipeline era tudo-ou-nada: coletava as tres fontes e regravava as sete
+# paginas, ~30 minutos, mesmo para acrescentar um leilao. Os modos existem
+# porque as fontes tem cadencias diferentes -- o RMD e mensal, o leilao e de
+# terca e quinta, e a banda do PAF muda quando o Tesouro revisa.
+#
+# A PROPRIEDADE QUE MAIS IMPORTA E A DO MODO LEILOES: ele nao pode tocar na
+# Bloomberg. O terminal so existe na maquina da mesa e fica desligado quase
+# sempre; um pipeline que tenta a Bloomberg para acrescentar um leilao ou
+# demora ou falha, e nos dois casos por nada.
+# ---------------------------------------------------------------------------
+
+def _stub_coletas(monkeypatch, chamadas):
+    """Stub das tres coletas, registrando quem foi chamado."""
+    from tesouro import fetch_bloomberg, fetch_leiloes, fetch_rmd
+
+    for modulo in (fetch_leiloes, fetch_rmd, fetch_bloomberg):
+        def stub(*args, _nome=modulo.__name__, **kwargs):
+            chamadas.append(_nome + ".baixar")
+        monkeypatch.setattr(modulo, "baixar", stub)
+
+
+def _rodar(monkeypatch, argumentos):
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import valida_referencia
+
+    def valida(*args, **kwargs):
+        chamadas.append("tesouro.valida_referencia.main")
+        return 0
+    monkeypatch.setattr(valida_referencia, "main", valida)
+    codigo = pipeline.main(argumentos)
+    return codigo, chamadas
+
+
+def test_o_modo_LEILOES_nao_toca_na_bloomberg_nem_no_rmd(monkeypatch):
+    """A propriedade de seguranca do modo, e a razao de ele existir.
+
+    A Bloomberg so responde na maquina da mesa com o terminal aberto. Puxa-la
+    para acrescentar um leilao ou demora ou falha, e o leilao nao depende dela.
+    """
+    codigo, chamadas = _rodar(monkeypatch, ["--modo", "leiloes"])
+    assert codigo == 0
+    assert "tesouro.fetch_bloomberg.baixar" not in chamadas
+    assert "tesouro.fetch_rmd.baixar" not in chamadas
+    assert "tesouro.parse_rmd.gravar_tudo" not in chamadas
+    assert "tesouro.fetch_leiloes.baixar" in chamadas
+
+
+def test_o_modo_LEILOES_regrava_so_as_paginas_que_um_leilao_muda(monkeypatch):
+    """O dashboard sai do RMD e nao muda com leilao -- regrava-lo seria gastar
+    a maior parte do tempo do pipeline para reescrever bytes iguais."""
+    _, chamadas = _rodar(monkeypatch, ["--modo", "leiloes"])
+    assert "tesouro.graficos.dashboard.grava_o_rmd" not in chamadas
+    for pagina in ("tesouro.graficos.painel_paf.grava",
+                   "tesouro.graficos.painel_emissoes.grava_todas",
+                   "tesouro.graficos.painel_agenda.grava"):
+        assert pagina in chamadas, pagina
+
+
+def test_o_modo_RMD_puxa_o_rmd_e_regrava_TODAS_as_paginas(monkeypatch):
+    """O RMD novo move a base de tudo -- inclusive a rolagem da pagina do PAF.
+
+    Por isso este modo e o unico que regrava as sete paginas: nao ha pagina
+    deste projeto que nao dependa do RMD por algum caminho.
+    """
+    _, chamadas = _rodar(monkeypatch,
+                         ["--modo", "rmd", "--ano", "2026", "--mes", "8"])
+    assert "tesouro.fetch_rmd.baixar" in chamadas
+    assert "tesouro.fetch_leiloes.baixar" not in chamadas
+    assert "tesouro.fetch_bloomberg.baixar" not in chamadas
+    for pagina in ("tesouro.graficos.dashboard.grava_o_rmd",
+                   "tesouro.graficos.painel_paf.grava",
+                   "tesouro.graficos.painel_emissoes.grava_todas",
+                   "tesouro.graficos.painel_agenda.grava"):
+        assert pagina in chamadas, pagina
+
+
+def test_o_modo_PAF_NAO_COLETA_NADA(monkeypatch):
+    """A banda do PAF entra a mao: ela le o informe e edita o CSV.
+
+    Nao ha nada para baixar, e o modo tem de dizer isso com o comportamento --
+    zero coleta -- e nao so com um texto no manual.
+    """
+    _, chamadas = _rodar(monkeypatch, ["--modo", "paf"])
+    assert not [c for c in chamadas if c.endswith(".baixar")], chamadas
+
+
+def test_o_modo_PAF_confere_a_referencia_ANTES_de_desenhar(monkeypatch):
+    """Banda quebrada nao pode virar grafico com banda errada -- e a regra da
+    spec, secao 6. Aqui ela vira ordem de execucao."""
+    _, chamadas = _rodar(monkeypatch, ["--modo", "paf"])
+    assert "tesouro.valida_referencia.main" in chamadas
+    assert (chamadas.index("tesouro.valida_referencia.main")
+            < chamadas.index("tesouro.graficos.painel_paf.grava"))
+
+
+def test_o_modo_PAF_para_quando_a_referencia_esta_quebrada(monkeypatch):
+    """E para de verdade: nao regrava pagina nenhuma e sai com codigo 1."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import valida_referencia
+
+    def reprovado(*args, **kwargs):
+        chamadas.append("tesouro.valida_referencia.main")
+        return 1
+    monkeypatch.setattr(valida_referencia, "main", reprovado)
+
+    codigo = pipeline.main(["--modo", "paf"])
+    assert codigo == 1
+    assert "tesouro.graficos.painel_paf.grava" not in chamadas
+    assert "tesouro.graficos.dashboard.grava_o_rmd" not in chamadas
+
+
+def test_o_modo_TUDO_faz_o_que_o_pipeline_SEMPRE_fez(monkeypatch):
+    """Compatibilidade: o modo 'tudo' e o pipeline antigo, etapa por etapa."""
+    _, chamadas = _rodar(monkeypatch, ["--modo", "tudo"])
+    geracao = [c for c in chamadas
+               if not c.endswith((".baixar", ".rodar"))
+               and c != "tesouro.valida_referencia.main"]
+    assert geracao == [
+        "tesouro.parse_leiloes.gravar",
+        "tesouro.parse_rmd.gravar_tudo",
+        "tesouro.parse_bloomberg.gravar",
+        "tesouro.dv.gravar_painel",
+        "tesouro.dv.gravar_decay",
+        "tesouro.dv.gravar_resultado",
+        "tesouro.figuras.gravar_todas",
+        "tesouro.leiloes_dv.gravar",
+        "tesouro.graficos.dashboard.grava_o_rmd",
+        "tesouro.graficos.painel_emissoes.grava_todas",
+        "tesouro.graficos.painel_paf.grava",
+        "tesouro.graficos.painel_agenda.grava",
+    ]
+
+
+def test_SEM_modo_o_pipeline_se_comporta_como_antes(monkeypatch):
+    """Quem ja tem o comando na cabeca ou num agendador nao pode ser quebrado.
+
+    'python -m tesouro.pipeline --sem-coleta' continua valendo e continua
+    fazendo tudo.
+    """
+    _, com_modo = _rodar(monkeypatch, ["--modo", "tudo", "--sem-coleta"])
+    _, sem_modo = _rodar(monkeypatch, ["--sem-coleta"])
+    assert sem_modo == com_modo
+
+
+def test_o_modo_LEILOES_respeita_o_sem_coleta(monkeypatch):
+    """--sem-coleta continua sendo a promessa mais forte: com ele, nenhum modo
+    toca a rede."""
+    _, chamadas = _rodar(monkeypatch, ["--modo", "leiloes", "--sem-coleta"])
+    assert not [c for c in chamadas if c.endswith(".baixar")], chamadas
+    assert "tesouro.graficos.painel_paf.grava" in chamadas
+
+
+def test_o_modo_RMD_PERGUNTA_qual_mes_quando_ninguem_diz(monkeypatch):
+    """Pedido dela, com estas palavras: "quando a pessoa decidir atualizar o
+    rmd tem q ter a opcao, qual rmd vc quer puxar?".
+
+    Sem isto o modo rmd caia no comportamento antigo -- imprimia "usando o RMD
+    ja presente em data/raw/rmd/" e nao baixava nada. Quem escolheu "atualizar
+    o RMD" num menu nao espera que nada seja baixado.
+    """
+    respostas = iter(["2026", "8"])
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    pedidos = []
+
+    def baixar(ano, mes):
+        pedidos.append((ano, mes))
+        chamadas.append("tesouro.fetch_rmd.baixar")
+    from tesouro import fetch_rmd
+    monkeypatch.setattr(fetch_rmd, "baixar", baixar)
+    monkeypatch.setattr(pipeline, "_e_interativo", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: next(respostas))
+
+    codigo = pipeline.main(["--modo", "rmd"])
+    assert codigo == 0
+    assert pedidos == [(2026, 8)], pedidos
+
+
+def test_o_modo_RMD_NAO_pergunta_quando_nao_ha_ninguem(monkeypatch):
+    """Num agendador nao ha quem responda, e um programa que espera input ali
+    trava calado. Sem terminal, o modo segue com o anexo que ja esta em disco
+    -- e diz isso."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    monkeypatch.setattr(pipeline, "_e_interativo", lambda: False)
+
+    def nao_pergunte(*a, **k):
+        raise AssertionError("perguntou sem ter a quem")
+    monkeypatch.setattr("builtins.input", nao_pergunte)
+
+    codigo = pipeline.main(["--modo", "rmd"])
+    assert codigo == 0
+
+
+def test_o_menu_aceita_o_NUMERO_e_o_NOME_do_modo():
+    """Ela vai digitar um dos dois, e nenhum e mais certo que o outro."""
+    for resposta, esperado in [("1", "rmd"), ("2", "leiloes"), ("3", "paf"),
+                               ("4", "tudo"), ("leiloes", "leiloes"),
+                               ("PAF", "paf"), ("  tudo  ", "tudo")]:
+        escolhido = pipeline.escolher_modo_no_menu(
+            entrada=lambda *a, _r=resposta: _r, saida=lambda *a: None)
+        assert escolhido == esperado, resposta
+
+
+def test_o_menu_INSISTE_em_vez_de_escolher_por_conta_propria():
+    """Uma resposta que nao serve nao pode virar "tudo" em silencio: os modos
+    fazem coisas bem diferentes, e o mais caro deles leva meia hora."""
+    respostas = iter(["9", "banana", "", "2"])
+    ditas = []
+    escolhido = pipeline.escolher_modo_no_menu(
+        entrada=lambda *a: next(respostas), saida=ditas.append)
+    assert escolhido == "leiloes"
+    assert sum("nao entendi" in d for d in ditas) == 3
+
+
+def test_o_menu_do_RMD_aceita_seguir_com_o_anexo_em_disco():
+    """Enter em branco e resposta valida: as vezes o anexo ja foi baixado a
+    mao, e ela so quer reprocessar."""
+    assert pipeline.escolher_rmd_no_menu(
+        entrada=lambda *a: "", saida=lambda *a: None) is None
+    respostas = iter(["2026", ""])
+    assert pipeline.escolher_rmd_no_menu(
+        entrada=lambda *a: next(respostas), saida=lambda *a: None) is None
+
+
+def test_o_menu_do_RMD_RECUSA_mes_impossivel():
+    """13 nao e mes. Sem esta guarda o pedido ia para o site do Tesouro e
+    voltava com erro de rede, que e um jeito confuso de dizer "digitei 13"."""
+    respostas = iter(["2026", "13"])
+    ditas = []
+    assert pipeline.escolher_rmd_no_menu(
+        entrada=lambda *a: next(respostas), saida=ditas.append) is None
+    assert any("1 a 12" in d for d in ditas), ditas
+
+
+def test_a_coleta_de_leiloes_PUXA_O_RESULTADO_DO_DIA_e_nao_so_a_planilha(
+        monkeypatch):
+    """O buraco que o modo 'leiloes' destapou em 09/09/2026.
+
+    O pipeline chamava fetch_leiloes.baixar(), que busca a PLANILHA HISTORICA
+    do Tesouro -- e essa planilha trava no certificado do SERPRO e nao
+    atualiza. O leilao novo so entra por leilao_do_dia.rodar(), que vai a API e
+    grava leiloes_recentes.csv, e o pipeline NUNCA chamava isso.
+
+    Medido: rodei "--modo leiloes" em 09/09 com a API oferecendo leiloes ate
+    08/09, e o pipeline disse "concluido" com a pagina ainda em 25/08. Rodada
+    verde que nao atualizou nada.
+
+    Vale para o modo 'tudo' tambem, que tinha o mesmo buraco desde sempre.
+    """
+    for modo in ("leiloes", "tudo"):
+        chamadas = []
+        _stub_gravacoes(monkeypatch, chamadas)
+        _stub_coletas(monkeypatch, chamadas)
+        from tesouro import leilao_do_dia
+
+        def rodar(*args, **kwargs):
+            chamadas.append("tesouro.leilao_do_dia.rodar")
+        monkeypatch.setattr(leilao_do_dia, "rodar", rodar)
+
+        pipeline.main(["--modo", modo])
+        assert "tesouro.leilao_do_dia.rodar" in chamadas, modo
+
+
+def test_o_resultado_do_dia_NAO_e_buscado_com_sem_coleta(monkeypatch):
+    """--sem-coleta continua prometendo nao tocar a rede, e leilao_do_dia e
+    rede."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import leilao_do_dia
+
+    def nao_deveria(*args, **kwargs):
+        raise AssertionError("foi a rede com --sem-coleta")
+    monkeypatch.setattr(leilao_do_dia, "rodar", nao_deveria)
+
+    assert pipeline.main(["--modo", "leiloes", "--sem-coleta"]) == 0
+
+
+def test_a_falha_do_resultado_do_dia_NAO_derruba_a_rodada(monkeypatch):
+    """A API do Tesouro cai, e quando cai a planilha ainda serve.
+
+    Mas nao pode passar em silencio: quem le o log tem de ver que o leilao de
+    hoje pode estar faltando. Mesma regra da Bloomberg e da agenda.
+    """
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import leilao_do_dia
+
+    def caiu(*args, **kwargs):
+        raise ConnectionError("apiapex fora do ar")
+    monkeypatch.setattr(leilao_do_dia, "rodar", caiu)
+
+    codigo = pipeline.main(["--modo", "leiloes"])
+    assert codigo == 1, "falha de coleta tem de mudar o codigo de saida"
+    assert "tesouro.graficos.painel_paf.grava" in chamadas, (
+        "as paginas continuam sendo regravadas com o dado que ha")
+
+
+def test_o_pipeline_NAO_APAGA_o_dv_provisorio_que_acabou_de_gravar(monkeypatch):
+    """Medido em 09/09/2026, rodando o modo leiloes de verdade:
+
+        gravado: dv_emitido_por_leilao.csv (14398 linhas)   <- leilao_do_dia
+        gravado: dv_emitido_por_leilao.csv (14338 linhas)   <- o pipeline
+
+    Sessenta linhas a menos: exatamente as que tinham acabado de entrar.
+    leilao_do_dia grava com ate_o_estagio="ofertado", que inclui o leilao de
+    hoje; leiloes_dv.gravar() sozinho usa "planilha", que so tem o que o
+    Tesouro ja publicou -- e a planilha trava no certificado do SERPRO.
+
+    As paginas de emissao desenham o provisorio com HACHURA; regravar por cima
+    sem ele nao quebra nada em voz alta, so faz o leilao de hoje sumir do
+    grafico que existe para mostra-lo.
+
+    O DEFEITO E MAIS VELHO QUE O MODO: quem rodasse leilao_do_dia e depois o
+    pipeline ja perdia as linhas. Ligar os dois no mesmo comando tornou o caso
+    deterministico, e por isso visivel.
+    """
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import leilao_do_dia
+    monkeypatch.setattr(leilao_do_dia, "rodar",
+                        lambda *a, **k: chamadas.append(
+                            "tesouro.leilao_do_dia.rodar") or 60)
+
+    pipeline.main(["--modo", "leiloes"])
+    assert "tesouro.leiloes_dv.gravar" not in chamadas, (
+        "o pipeline regravou por cima do DV que ja tinha o leilao de hoje")
+
+
+def test_o_pipeline_REGRAVA_o_dv_no_MESMO_estagio_de_leilao_do_dia(monkeypatch):
+    """O outro lado, e o que faltava para a correcao valer na rodada seguinte.
+
+    Sem novidade, leilao_do_dia devolve zero e nao grava o DV -- entao o
+    pipeline precisa grava-lo. Mas gravar com o default "planilha" apagaria de
+    novo o provisorio que uma rodada ANTERIOR tinha posto la: o guard sozinho
+    adiava o defeito de um dia em vez de corrigi-lo.
+
+    "ofertado" e o estagio que leilao_do_dia usa e o default de
+    leiloes_recentes.completo, que devolve so a planilha quando nao ha
+    provisorio nenhum. Ou seja: e seguro sempre, e e o unico que nao perde
+    linha.
+    """
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import leilao_do_dia, leiloes_dv
+    monkeypatch.setattr(leilao_do_dia, "rodar",
+                        lambda *a, **k: chamadas.append(
+                            "tesouro.leilao_do_dia.rodar") or 0)
+    estagios = []
+    monkeypatch.setattr(leiloes_dv, "gravar",
+                        lambda ate_o_estagio="planilha", **k:
+                        estagios.append(ate_o_estagio))
+
+    pipeline.main(["--modo", "leiloes"])
+    assert estagios == ["ofertado"], estagios

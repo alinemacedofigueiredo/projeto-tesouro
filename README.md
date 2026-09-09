@@ -29,6 +29,15 @@ Sem acesso à internet (ver `docs/como-baixar.md`):
     $env:PYTHONPATH="src"; python -m tesouro.pipeline --sem-coleta   # PowerShell
     PYTHONPATH=src python -m tesouro.pipeline --sem-coleta           # bash
 
+**Para o dia a dia, rode sem argumento nenhum:**
+
+    $env:PYTHONPATH="src"; python -m tesouro.pipeline
+
+Ele pergunta o que atualizar — o RMD do mês, os leilões do dia, a banda do PAF
+que você acabou de editar, ou tudo — e faz só o que aquela fonte move. O passo
+a passo de cada caso, o que conferir depois e o que fazer quando falha estão em
+**`docs/como-atualizar.md`**, que é o documento de operação deste projeto.
+
 O pipeline grava vinte e dois CSVs em `data/processed/` — dezessete da
 camada de dados (RMD e leilões) e cinco do DV01/decay (taxa e VNA da
 Bloomberg, painel de DV por papel, decay e resultado mensal). O dicionário
