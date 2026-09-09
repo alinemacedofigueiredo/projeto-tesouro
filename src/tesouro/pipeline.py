@@ -358,12 +358,21 @@ def main(argumentos=None):
         from .graficos import painel_emissoes
         if "emissoes" in passos:
             painel_emissoes.grava_todas()
-        # Os nomes saem da tabela de combinacoes, e nao do retorno da funcao: o
+        # Os nomes saem das tabelas do painel, e nao do retorno da funcao: o
         # pipeline nao precisa do valor de volta para dizer o que gravou, e
         # depender dele acoplaria o log ao formato do retorno.
+        #
+        # A DO HISTORICO ENTRA AQUI TAMBEM. Ela e gravada por grava_todas desde
+        # 09/09/2026 e o log nao a citava, porque so iterava COMBINACOES --
+        # entao ela era escrita em silencio. O manual deste projeto ensina a
+        # conferir o que o log diz que gravou; pagina que nao aparece no log
+        # nao da para conferir.
         if "emissoes" in passos:
             for _, _, arquivo, rotulo in painel_emissoes.COMBINACOES:
                 print(f"pagina de emissoes gravada: {arquivo} ({rotulo})")
+            print(f"pagina de emissoes gravada: "
+                  f"{painel_emissoes.ARQUIVO_HISTORICO} "
+                  f"({painel_emissoes.ROTULO_HISTORICO})")
 
         from .graficos import painel_paf
         # LISTA VAZIA COM --sem-coleta, e nao None: com None a pagina iria a
