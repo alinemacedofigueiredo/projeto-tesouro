@@ -27,11 +27,46 @@ def test_os_eixos_contem_o_PROJETADO_mesmo_longe_da_banda():
     assert min(linhas) <= 45, "a banda 46-50 continua tendo de caber"
 
 
-def test_os_eixos_tem_passo_regular():
+def test_os_eixos_tem_passo_regular_FORA_do_ponto_de_hoje():
+    """A grade continua regular; o ponto de hoje e a unica excecao.
+
+    Ate 08/09/2026 este teste exigia passo regular em TODA a grade. Deixou de
+    ser verdade por decisao dela: o ponto exato do ritmo de hoje entra como
+    linha e coluna proprias, e portanto quebra o passo em UM lugar. O teste
+    passa a dizer isso -- tirado o ponto, o resto anda de 1 em 1 e de
+    PASSO_TOTAL em PASSO_TOTAL.
+    """
     linhas, colunas = simulacao.eixos("prefixado_pct", 21.10, 9947, 2026)
-    assert all(b - a == 1 for a, b in zip(linhas, linhas[1:]))
+    grade_l = [x for x in linhas if x != 21.10]
+    grade_c = [x for x in colunas if x != 9947]
+    assert all(b - a == 1 for a, b in zip(grade_l, grade_l[1:])), grade_l
     assert all(b - a == simulacao.PASSO_TOTAL
-               for a, b in zip(colunas, colunas[1:]))
+               for a, b in zip(grade_c, grade_c[1:])), grade_c
+
+
+def test_a_linha_e_a_coluna_de_hoje_entram_ORDENADAS():
+    """No lugar delas na grade, e nao no fim.
+
+    Uma linha de 21,10% depois da de 25% faria o leitor procurar. O teste pega
+    tanto o ponto ausente quanto o ponto anexado fora de ordem.
+    """
+    linhas, colunas = simulacao.eixos("prefixado_pct", 21.10, 9947, 2026)
+    assert 21.10 in linhas, linhas
+    assert 9947 in colunas, colunas
+    assert linhas == sorted(linhas), linhas
+    assert colunas == sorted(colunas), colunas
+
+
+def test_o_ponto_de_hoje_NAO_DUPLICA_a_linha_quando_cai_em_cima_da_grade():
+    """Caso sintetico: o ritmo leva a um valor redondo.
+
+    Nenhum indicador de hoje projeta exatamente 22% de R$ 9.900 bi, mas nada
+    impede -- e uma linha repetida sairia como duas linhas iguais na pagina,
+    que parece defeito de dado.
+    """
+    linhas, colunas = simulacao.eixos("prefixado_pct", 22.0, 9900, 2026)
+    assert linhas.count(22.0) == 1, linhas
+    assert colunas.count(9900.0) == 1, colunas
 
 
 def test_os_eixos_contem_PROJETADO_abaixo_da_banda():
@@ -95,9 +130,14 @@ def test_dados_simulacao_tem_a_forma_dos_eixos():
 
 
 def test_a_marca_cai_na_celula_do_projetado():
-    """Arredondando CADA EIXO ao ponto mais proximo da sua grade,
-    independentemente do outro -- e nao a menor distancia no plano, que
-    exigiria comparar pontos percentuais com bilhoes de reais.
+    """A marca E o ponto projetado, e a distancia ate ele e zero.
+
+    Ate 08/09/2026 a marca era o vizinho mais proximo da grade, e este teste
+    tolerava meio ponto percentual e meio passo de total. As tolerancias
+    ficaram: elas continuam pegando marca posta na celula errada, e agora com
+    folga de sobra, porque o ponto exato entrou na grade e a distancia caiu a
+    zero. Some com isso a pergunta de qual eixo arredondar primeiro, que nao
+    tinha resposta boa.
     """
     d = simulacao.dados_simulacao("prefixado_pct", registros=[])
     linha, coluna = d.attrs["marca"]
@@ -106,18 +146,19 @@ def test_a_marca_cai_na_celula_do_projetado():
     assert linha in d.index and coluna in d.columns
 
 
-def test_a_celula_marcada_NAO_e_o_ritmo_atual():
-    """A armadilha desta pagina, medida em 26/08/2026.
+def test_o_ritmo_atual_vem_da_FONTE_e_nao_da_celula():
+    """O nome antigo era "a celula marcada NAO e o ritmo atual", e envelheceu.
 
-    A celula marcada mostra quanto emitir para cair no ponto ARREDONDADO da
-    grade -- nao o que se emite hoje. No indice de precos a celula marcada da
-    0,3 contra um ritmo de 2,04: SETE VEZES. Quem ler a marca como "o que
-    emitimos hoje" sai com um numero muito errado, sem que nenhuma conta esteja
-    errada.
+    Ele descrevia a armadilha de 26/08/2026: com a grade so em passos
+    inteiros, a celula marcada mostrava quanto emitir para cair no ponto
+    ARREDONDADO, e no indice de precos dava 0,3 contra um ritmo de 2,04. Desde
+    08/09 o ponto exato entrou na grade e os dois passaram a coincidir -- ver
+    test_a_celula_marcada_E_o_ritmo_de_hoje.
 
-    Este teste nao exige que os dois sejam diferentes -- eles podem coincidir
-    por sorte. Exige que os dois ESTEJAM DISPONIVEIS separadamente, para a
-    tabela poder mostrar cada um no seu lugar.
+    O CORPO NUNCA FOI SOBRE ISSO, e por isso nao quebrou: ele ja dizia, no
+    proprio docstring, que os dois podiam coincidir. O que ele exige e que
+    ritmo_atual venha de rolagem.pace, e nao de uma copia da celula -- se
+    virasse alias, a coincidencia acima seria tautologia e nao afirmacao.
     """
     d = simulacao.dados_simulacao("indice_precos_pct", registros=[])
     linha, coluna = d.attrs["marca"]
@@ -388,34 +429,32 @@ def test_o_rodape_amarra_o_VALOR_da_celula_as_COORDENADAS_DELA(tabelas):
     9.947", que e' falso: aquele parentese descreve o PONTO PROJETADO exato,
     que cai fora da grade, e nao a celula destacada.
 
-    Este teste exige as duas coisas juntas: as coordenadas que aparecem tem
-    de ser as DA CELULA (marca_linha, marca_coluna), e o valor da celula tem
-    de vir a poucos caracteres delas -- nao solto em qualquer parte do
-    rodape, onde bateria por acidente contra qualquer numero parecido.
+    DESDE 08/09/2026 OS DOIS PARES DE COORDENADAS VIRARAM UM SO: o ponto
+    exato entrou na grade, entao a celula marcada esta EM (projetado_pct,
+    projetado_total) e nao mais no vizinho arredondado. O defeito que este
+    teste guarda nao sumiu com isso -- so deixou de ter duas coordenadas para
+    confundir. O que ele exige continua sendo: o valor que o rodape anuncia
+    tem de estar junto das coordenadas a que o rodape o atribui.
+
+    A JANELA E DENTRO DO RODAPE, e nao no HTML inteiro: a tabela acima repete
+    esses mesmos numeros nos rotulos, e procurar solto bateria por acidente.
     """
     for chave, d in tabelas.items():
         html = simulacao.tabela(d)
+        rodape = html[html.index('<p class="rodape">'):]
         marca_linha, marca_coluna = d.attrs["marca"]
-        valor_marca = d.at[marca_linha, marca_coluna]
+        valor = simulacao._numero_br(d.at[marca_linha, marca_coluna])
 
-        coord = (f"{simulacao._numero_br(marca_linha, 0)}% de R$ "
-                 f"{simulacao._numero_br(marca_coluna, 0)} bi")
-        assert coord in html, (
-            f"{chave}: as coordenadas DA CELULA marcada tem de aparecer no "
-            f"rodape, e nao so as do ponto projetado exato")
+        coord = (f"{simulacao._numero_br(d.attrs['projetado_pct'])}% de R$ "
+                 f"{simulacao._numero_br(d.attrs['projetado_total'], 0)} bi")
+        assert coord in rodape, (
+            f"{chave}: as coordenadas do ponto de hoje tem de aparecer no "
+            f"rodape")
 
-        pos = html.index(coord)
-        janela = html[pos:pos + 160]
-        valor = simulacao._numero_br(valor_marca)
-        assert valor in janela, (
+        pos = rodape.index(coord)
+        assert valor in rodape[pos:pos + 220], (
             f"{chave}: o valor da celula ({valor}) tem de estar junto das "
             f"coordenadas dela ({coord}), e nao solto no rodape")
-
-        # E as coordenadas do ponto PROJETADO exato continuam presentes,
-        # separadas -- so nao podem ser as que acompanham o valor da celula.
-        proj = (f"{simulacao._numero_br(d.attrs['projetado_pct'])}% de R$ "
-                f"{simulacao._numero_br(d.attrs['projetado_total'], 0)} bi")
-        assert proj in html, f"{chave}: o ponto projetado exato tem de constar"
 
 
 def test_o_rodape_declara_a_PREMISSA_de_juros():
@@ -448,3 +487,74 @@ def test_o_rodape_diz_se_o_CALENDARIO_e_publicado_ou_estimado():
     html = simulacao.tabela(d)
     rodape = html[html.index('class="rodape"'):]
     assert "estimado" in rodape
+
+
+def test_a_celula_marcada_E_o_ritmo_de_hoje():
+    """A identidade que a linha e a coluna exatas criam.
+
+    Com a grade so em passos inteiros, a celula marcada era a mais PROXIMA do
+    ponto projetado, e nao ele -- e a diferenca chegava a 63% no indice de
+    precos (4,87 contra 2,04 bi por leilao, medido em 08/09/2026). Com o ponto
+    exato dentro da grade, a celula marcada passa a responder pelo ritmo de
+    hoje, e a tabela se explica sozinha.
+
+    NAO E TAUTOLOGIA: o valor da celula vem de emissao_a_partir_dos_termos, que
+    INVERTE a conta -- dado o alvo, quanto emitir. O ritmo vem de rolagem.pace,
+    que le os ultimos leiloes. Que os dois coincidam e afirmacao sobre o motor,
+    e quebrar a inversao deixa este teste vermelho.
+    """
+    hoje = pd.Timestamp("2026-08-26")
+    for chave in rolagem.INDEXADOR_DA_CHAVE:
+        d = simulacao.dados_simulacao(chave, hoje=hoje, registros=[])
+        linha, coluna = d.attrs["marca"]
+        assert d.at[linha, coluna] == pytest.approx(
+            d.attrs["ritmo_atual"], abs=0.01), (
+            "%s: a celula marcada da %.3f e o ritmo de hoje e %.3f"
+            % (chave, d.at[linha, coluna], d.attrs["ritmo_atual"]))
+
+
+def test_a_linha_de_hoje_sai_com_DUAS_CASAS_e_as_da_grade_com_zero():
+    """22,52% nao pode virar 23% no rotulo.
+
+    A linha existe justamente porque 22,52 e 23 pedem emissoes muito
+    diferentes; escreve-la arredondada desfaria o motivo de ela existir.
+
+    ROTULO DERIVADO, e nao numero cravado: o teste monta o rotulo esperado a
+    partir da propria marca, entao ele nao envelhece a cada RMD -- so quebra se
+    a formatacao mudar.
+    """
+    d = simulacao.dados_simulacao("indice_precos_pct",
+                                  hoje=pd.Timestamp("2026-08-26"),
+                                  registros=[])
+    html = simulacao.tabela(d)
+    exato = d.attrs["marca"][0]
+    assert f">{simulacao._numero_br(exato, 2)}%<" in html, (
+        "a linha de hoje tem de sair com duas casas")
+    outra = next(x for x in d.index if x != exato)
+    assert f">{simulacao._numero_br(outra, 0)}%<" in html, (
+        "as linhas da grade continuam sem casa decimal")
+
+
+def test_a_linha_e_a_coluna_de_hoje_ficam_MARCADAS_na_tabela():
+    """Quem le tem de ver que aquelas duas nao sao da grade regular."""
+    d = simulacao.dados_simulacao("indice_precos_pct",
+                                  hoje=pd.Timestamp("2026-08-26"),
+                                  registros=[])
+    html = simulacao.tabela(d)
+    assert 'class="pct hoje"' in html, "a linha de hoje precisa da marca"
+    assert 'class="n hoje"' in html, "a coluna de hoje precisa da marca"
+
+
+def test_o_rodape_NAO_diz_MAIS_que_a_celula_difere_do_ritmo():
+    """A ressalva do arredondamento morreu com a linha exata.
+
+    Enquanto a celula marcada era a vizinha da grade, o rodape precisava
+    avisar que ela NAO era o que se emite hoje. Agora ela e -- e manter o aviso
+    seria a pagina desmentindo a propria tabela.
+    """
+    d = simulacao.dados_simulacao("indice_precos_pct",
+                                  hoje=pd.Timestamp("2026-08-26"),
+                                  registros=[])
+    html = simulacao.tabela(d)
+    assert "a grade arredonda" not in html, (
+        "a ressalva do arredondamento nao vale mais")

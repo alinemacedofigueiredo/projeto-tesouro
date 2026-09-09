@@ -741,3 +741,31 @@ def test_a_pagina_continua_cabendo_no_limiar(tmp_path):
     tamanho = caminho.stat().st_size
     assert tamanho > 20_000, "a pagina com tres blocos nao pode encolher"
     assert tamanho < 10 * 1024 * 1024
+
+
+def test_a_tabela_do_RITMO_abre_o_bloco_da_projecao(pagina):
+    """Pedido dela em 08/09/2026: a pagina tem de dizer de que ritmo a
+    projecao saiu, e nao so onde ela chega.
+
+    A ORDEM E O TESTE: o ritmo vem ANTES da tabela do veredito, dentro do
+    mesmo bloco recolhivel. Posto depois, ele leria como nota de rodape; posto
+    em outro bloco, quem abrisse so a projecao nao veria a premissa.
+    """
+    corpo = pagina[pagina.index("</header>"):pagina.rindex("</main>")]
+    assert 'id="tabela-ritmo"' in corpo, "a tabela do ritmo nao entrou"
+
+    bloco = corpo[corpo.index('class="secao secao-projecao"'):]
+    bloco = bloco[:bloco.index("</details>")]
+    assert 'id="tabela-ritmo"' in bloco, (
+        "a tabela do ritmo tem de estar DENTRO do bloco da projecao")
+    assert bloco.index('id="tabela-ritmo"') < bloco.index("id='tabela-projecao'"), (
+        "o ritmo vem antes do veredito")
+
+
+def test_o_CSS_da_tabela_do_ritmo_entrou_na_pagina(pagina):
+    """Sem isto a tabela sai sem alinhamento numerico e sem a regra do total.
+
+    A pagina e autocontida: se a folha nao for injetada, nada quebra em voz
+    alta -- a tabela so sai feia, que e o defeito que ninguem nota.
+    """
+    assert ".ritmo tr.total" in pagina

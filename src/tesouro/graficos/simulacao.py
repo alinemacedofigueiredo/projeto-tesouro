@@ -56,6 +56,24 @@ def eixos(chave, projetado_pct, projetado_total, ano):
         int(max(est_hi + PASSO_TOTAL,
                 math.ceil(projetado_total / PASSO_TOTAL) * PASSO_TOTAL)) + 1,
         PASSO_TOTAL))
+
+    # O PONTO EXATO ENTRA NA GRADE, ORDENADO -- decisao dela em 08/09/2026.
+    #
+    # Sem ele a celula marcada era a mais PROXIMA do ponto projetado, e a
+    # distancia nao era decorativa: medido em 08/09, o indice de precos
+    # projetava 22,52% e a grade marcava 23%, trocando 2,04 por 4,87 bi por
+    # leilao -- 63% de diferenca numa tabela cuja pergunta e "quanto emitir".
+    # O prefixado errava 8,6% e a taxa flutuante 8,5%.
+    #
+    # Com o ponto dentro da grade, o cruzamento da linha com a coluna VALE o
+    # ritmo de hoje, porque a celula inverte a mesma conta que a projecao fez.
+    # Ver test_a_celula_marcada_E_o_ritmo_de_hoje.
+    #
+    # ORDENADO, e nao no fim: uma linha de 22,52% depois da de 25% faria o
+    # leitor procurar. O set colapsa o caso em que o ponto cai em cima de um
+    # valor da grade -- ali ha uma linha so, que e as duas coisas.
+    linhas = sorted({float(x) for x in linhas} | {float(projetado_pct)})
+    colunas = sorted({float(x) for x in colunas} | {float(projetado_total)})
     return linhas, colunas
 
 
@@ -112,12 +130,11 @@ def dados_simulacao(chave, hoje=None, ate=None, registros=None):
     matriz.attrs["indexador"] = indexador
     matriz.attrs["rotulo"] = _ROTULO[chave]
     matriz.attrs["banda"] = (float(b["minimo"]), float(b["maximo"]))
-    # CADA EIXO ARREDONDA SOZINHO, ao ponto mais proximo da sua propria grade.
-    # A menor distancia no plano exigiria comparar pontos percentuais com
-    # bilhoes de reais, e portanto uma escala inventada.
-    matriz.attrs["marca"] = (
-        min(linhas, key=lambda x: abs(x - projetado_pct)),
-        min(colunas, key=lambda x: abs(x - projetado_total)))
+    # A MARCA E O PONTO EXATO, e nao mais o vizinho mais proximo da grade:
+    # desde 08/09/2026 ele E uma linha e uma coluna. Some com isso a pergunta
+    # de qual eixo arredondar primeiro, que nao tinha resposta boa -- comparar
+    # pontos percentuais com bilhoes de reais pedia uma escala inventada.
+    matriz.attrs["marca"] = (float(projetado_pct), float(projetado_total))
     matriz.attrs["ritmo_atual"] = float(rolagem.pace(hoje)[indexador]) / 1000
     matriz.attrs["projetado_pct"] = projetado_pct
     matriz.attrs["projetado_total"] = projetado_total
@@ -175,7 +192,8 @@ def tabela(dados):
         f'<th colspan="{len(dados.columns)}" class="n">Total da d\u00edvida, '
         f'R$ bi</th></tr>'
         '<tr><th>% do papel</th>'
-        + "".join(f'<th class="n">{_numero_br(c, 0)}</th>'
+        + "".join(f'<th class="{"n hoje" if c == marca_coluna else "n"}">'
+                  f'{_numero_br(c, 0)}</th>'
                   for c in dados.columns)
         + "</tr>")
 
@@ -195,8 +213,15 @@ def tabela(dados):
             # unica desalinhada da grade (achado da revisao).
             classe_td = "n marca" if e_marca else "n"
             celulas.append(f'<td class="{classe_td}">{texto}</td>')
+        # A LINHA DE HOJE SAI COM DUAS CASAS, e as da grade com zero. Ela
+        # existe justamente porque 22,52% e 23% pedem emissoes muito
+        # diferentes -- escreve-la arredondada desfaria o motivo de ela
+        # existir.
+        e_hoje = pct == marca_linha
         linhas.append(
-            f'<tr{classe_tr}><th class="pct">{_numero_br(pct, 0)}%</th>'
+            f'<tr{classe_tr}>'
+            f'<th class="{"pct hoje" if e_hoje else "pct"}">'
+            f'{_numero_br(pct, 2 if e_hoje else 0)}%</th>'
             + "".join(celulas) + "</tr>")
 
     fronteira = dados.attrs.get("fronteira_do_calendario")
@@ -204,9 +229,6 @@ def tabela(dados):
               f"{fronteira:%d/%m/%Y} e estimado depois"
               if fronteira is not None
               else ", de calend\u00e1rio inteiramente estimado")
-
-    coord_marca = (f"{_numero_br(marca_linha, 0)}% de R$ "
-                   f"{_numero_br(marca_coluna, 0)} bi")
 
     rodape = (
         f"{dados.attrs['rotulo']}: banda de {_numero_br(lo, 0)} a "
@@ -216,14 +238,14 @@ def tabela(dados):
         f"{dados.attrs['data_da_curva']:%d/%m/%Y} (Selic impl\u00edcita "
         f"{_numero_br(100 * dados.attrs['selic'])}% a.a., infla\u00e7\u00e3o "
         f"impl\u00edcita {_numero_br(100 * dados.attrs['inflacao'])}% a.a.). "
-        f"A c\u00e9lula destacada \u00e9 a mais pr\u00f3xima do ponto para "
-        f"onde o ritmo de hoje leva "
+        f"A linha e a coluna destacadas s\u00e3o o ponto EXATO para onde o "
+        f"ritmo de hoje leva "
         f"({_numero_br(dados.attrs['projetado_pct'])}% de R$ "
-        f"{_numero_br(dados.attrs['projetado_total'], 0)} bi). Ela responde "
-        f"por <b>{coord_marca}</b>: R$ {_numero_br(valor_marca)} bi por "
-        f"leil\u00e3o \u2014 e <b>n\u00e3o</b> o que se emite hoje, que \u00e9 "
-        f"R$ {_numero_br(dados.attrs['ritmo_atual'])} bi por leil\u00e3o. Os "
-        f"dois diferem porque a grade arredonda os dois eixos. "
+        f"{_numero_br(dados.attrs['projetado_total'], 0)} bi), e n\u00e3o um "
+        f"arredondamento da grade. A c\u00e9lula onde as duas se cruzam vale "
+        f"<b>R$ {_numero_br(valor_marca)} bi por leil\u00e3o</b> \u2014 que "
+        f"\u00e9 o que se emite hoje. As outras c\u00e9lulas dizem quanto "
+        f"passaria a ser preciso emitir para chegar a cada outro alvo. "
         f"N\u00famero negativo quer dizer que nem parando de emitir se "
         f"chega ao alvo: faltaria resgatar. "
         f"<b>As tr\u00eas tabelas s\u00e3o independentes:</b> cada uma "
@@ -249,4 +271,5 @@ _CSS = """
 .simulacao tr.na-banda { background: #f6f8fb; }
 .simulacao span.negativo { color: #b03030; }
 .simulacao td.marca { outline: 2px solid #2b6cb0; font-weight: 600; }
+.simulacao th.hoje { background: #eaf1f8; color: #2b6cb0; }
 """
