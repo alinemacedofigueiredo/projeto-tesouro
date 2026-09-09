@@ -53,12 +53,20 @@ def test_a_rolagem_reproduz_os_meses_FECHADOS_do_RMD():
     # sem dizer por que, e a revisao da branch pegou.
     datas = list(piv.index)[-25:]
 
-    # LIMITES MEDIDOS SOBRE OS 24, e nao herdados dos 12. O pior mes de cada
-    # indexador em 25/08/2026: prefixado 0,248% (jul/2024), indice de precos
-    # 0,950% (ago/2024), taxa flutuante 0,191% (set/2025). Os limites ficam
-    # pouco acima disso -- os antigos (1,5% no prefixado contra 0,25% medido)
-    # davam folga de seis vezes, e folga demais e teste que nao pega nada.
-    LIMITE = {"Prefixado": 0.004, "\u00cdndice Pre\u00e7os": 0.011,
+    # LIMITES MEDIDOS SOBRE OS 24, e nao herdados dos 12. Ficam pouco acima do
+    # pior mes medido -- folga demais e teste que nao pega nada.
+    #
+    # O PREFIXADO APERTOU EM 09/09/2026 PORQUE O CODIGO MELHOROU, e nao para
+    # caber num numero escolhido: o resgate passou a sair pela face de 1.000
+    # (ver fluxos._resgate) e o pior mes caiu de 0,339% para 0,120%. O limite
+    # acompanha, mantendo a mesma proporcao de folga que os outros dois ja
+    # tinham -- cerca de 1,6 vezes o pior mes.
+    #
+    #                    pior mes medido    limite
+    #   prefixado             0,120%        0,200%
+    #   indice de precos      0,950%        1,100%
+    #   taxa flutuante        0,191%        0,250%
+    LIMITE = {"Prefixado": 0.002, "\u00cdndice Pre\u00e7os": 0.011,
               "Taxa Flutuante": 0.0025}
     for t0, t1 in zip(datas[:-1], datas[1:]):
         obtido = rolagem.estoque_em(t1, de=t0)

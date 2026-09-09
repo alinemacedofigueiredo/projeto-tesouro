@@ -185,3 +185,68 @@ def test_o_cupom_da_ntn_c_2031_cai_em_01_01_e_nao_em_15_01():
     assert fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-07-01"))
     assert not fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-01-15"))
     assert not fluxos.paga_cupom_em("NTN-C", venc, pd.Timestamp("2027-04-01"))
+
+
+# --------------------------------------------------------------------------
+# O RESGATE SAI PELO PRECO FINAL. Apontado por ela em 09/09/2026:
+#
+#   "quando uma ntn-f vence, e o estoque x preco final, todo mundo que tem o
+#    papel vai receber o mesmo valor. que conta vc faz para a ntn-f que vence?"
+#
+# A conta era `financeiro_milhoes` -- o valor de MERCADO na data-base do RMD.
+# Para prefixado abaixo do par isso subtrai MENOS do que o papel paga: a NTN-F
+# 2031 estava com PU de 929,83 contra face de 1.000.
+#
+# E o codigo ja sabia a face: quinze linhas abaixo, o cupom da NTN-F e
+# calculado sobre 1.000. Uma coisa no cupom e outra no principal.
+#
+# SO LTN E NTN-F. LFT e NTN-B tem nominal por VNA -- trocar o resgate delas por
+# quantidade seria trocar um numero certo por um errado.
+# --------------------------------------------------------------------------
+
+def test_o_resgate_do_PREFIXADO_sai_pela_face_de_mil():
+    """Quantidade x 1.000, e nao o financeiro do quadro de estoque."""
+    import pandas as pd
+
+    from tesouro import config
+
+    ev = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                     parse_dates=["data", "vencimento"])
+    base = ev["data"].max()
+    u = ev[(ev["data"] == base) & (ev["financeiro_milhoes"] > 0)]
+    pre = u[u["titulo"].isin(["LTN", "NTN-F"])]
+    venc = pre["vencimento"].min()
+
+    do_mes = pre[pre["vencimento"] == venc]
+    face = float(do_mes["quantidade_mil"].sum())
+    mercado = float(do_mes["financeiro_milhoes"].sum())
+    assert abs(face - mercado) > 1.0, (
+        "este vencimento nao serve de caso: face e mercado sao quase iguais")
+
+    p = fluxos.pagos(venc - pd.Timedelta(days=1), venc)
+    principal = float(p[p["indexador"] == "Prefixado"]["principal_milhoes"].sum())
+    assert principal == pytest.approx(face, rel=1e-9), (
+        f"resgatou {principal:.1f} (mercado {mercado:.1f}) e devia ser "
+        f"{face:.1f}")
+
+
+def test_o_resgate_da_LFT_e_da_NTN_B_CONTINUA_pelo_financeiro():
+    """Elas nao tem face de 1.000 -- o nominal vem do VNA. Trocar aqui seria
+    trocar um numero certo por um errado."""
+    import pandas as pd
+
+    from tesouro import config
+
+    ev = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+                     parse_dates=["data", "vencimento"])
+    base = ev["data"].max()
+    u = ev[(ev["data"] == base) & (ev["financeiro_milhoes"] > 0)]
+    lft = u[u["titulo"] == "LFT"]
+    venc = lft["vencimento"].min()
+
+    do_mes = lft[lft["vencimento"] == venc]
+    esperado = float(do_mes["financeiro_milhoes"].sum())
+    p = fluxos.pagos(venc - pd.Timedelta(days=1), venc)
+    principal = float(
+        p[p["indexador"] == "Taxa Flutuante"]["principal_milhoes"].sum())
+    assert principal == pytest.approx(esperado, rel=1e-9)
