@@ -125,7 +125,21 @@ def desenha_composicao(dados, bandas, ax):
             ax.fill_between([inicio, fim],
                             b.loc[ano, "minimo"], b.loc[ano, "maximo"],
                             color=cor, alpha=0.12, linewidth=0, zorder=1)
-            if pd.notna(b.loc[ano, "minimo_original"]):
+            # SO PONTILHA QUANDO A BANDA MUDOU DE VALOR -- a mesma regra de
+            # _banda_do_paf, que ja fazia isso e explicava por que. Ate
+            # 08/09/2026 esta funcao pontilhava sempre que existisse linha
+            # "revisado" no CSV, e o Tesouro publica essa linha para os SETE
+            # indicadores mesmo quando so alguns mudam: em 2018 e 2024 ela
+            # repetiu os mesmos numeros, e em 2026 o cambio repetiu 3-7. O
+            # resultado era um pontilhado exatamente sobre a borda da faixa.
+            #
+            # Duas funcoes da mesma pagina respondiam diferente a mesma
+            # pergunta. Alguem ja tinha corrigido uma delas.
+            if pd.isna(b.loc[ano, "minimo_original"]):
+                continue
+            mudou = (b.loc[ano, "minimo_original"] != b.loc[ano, "minimo"]
+                     or b.loc[ano, "maximo_original"] != b.loc[ano, "maximo"])
+            if mudou:
                 for nivel in ("minimo_original", "maximo_original"):
                     ax.plot([inicio, fim], [b.loc[ano, nivel]] * 2,
                             color=cor, lw=0.8, ls=":", zorder=2)

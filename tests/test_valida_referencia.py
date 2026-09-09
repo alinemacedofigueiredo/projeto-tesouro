@@ -116,11 +116,19 @@ def test_o_ano_aberto_nao_tem_realizado(bom):
     assert list(abertos) == [bom["ano"].max()]
 
     # E o setimo nao tem realizado em nenhum ano, que e o combinado.
-    # Dezessete linhas: 2016 a 2026, mais as seis revisoes (out/16, set/18, ago/20,
-    # mai/21, dez/24, set/25).
+    #
+    # A CONTAGEM SAIU DAQUI. Dizia "dezessete linhas" e listava as seis
+    # revisoes por extenso, num teste que e sobre o ANO ABERTO NAO TER
+    # REALIZADO -- assunto nenhum a ver. Envelhecia a cada revisao do PAF, e a
+    # de 26/08/2026 a levou para dezoito. Vira relacao: uma linha por ano, mais
+    # uma por revisao, que e a forma do arquivo e vale em qualquer versao dele.
     vincendo = bom[bom["indicador"] == "vincendo_12m_pct"]
-    assert len(vincendo) == 17
-    assert sorted(vincendo["ano"].unique()) == list(range(2016, 2027))
+    anos = sorted(vincendo["ano"].unique())
+    assert anos == list(range(min(anos), max(anos) + 1)), (
+        "os anos do vincendo tem de ser uma faixa continua, sem buraco")
+    revisoes = (vincendo["versao"] == "revisado").sum()
+    assert len(vincendo) == len(anos) + revisoes, (
+        "cada ano entra uma vez, e cada revisao acrescenta uma linha")
     assert vincendo["realizado"].isna().all()
 
 

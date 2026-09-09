@@ -397,8 +397,10 @@ def test_a_coluna_da_banda_avisa_quando_ela_foi_REVISADA():
     abaixo da tabela a pagina afirma, em negrito, que em 14 de 14 casos a revisao
     pos o realizado DENTRO. As duas coisas juntas, sem aviso, enganam.
 
-    Em 2026 nao houve revisao, entao a celula do dado real sai limpa; o caso
-    revisado e montado a mao para o ramo nao ficar sem teste.
+    O CASO SINTETICO CONTINUA, e agora o real tambem: em 26/08/2026 o Tesouro
+    revisou 2026, entao a tabela de hoje passou a trazer o aviso de verdade.
+    Ate aqui este teste afirmava o contrario -- "em 2026 nao houve revisao" --
+    e ficou vermelho no dia em que houve, que e o que se espera dele.
     """
     sem_revisao = pd.Series({"minimo": 21.0, "maximo": 25.0,
                              "minimo_original": 21.0, "maximo_original": 25.0,
@@ -412,8 +414,14 @@ def test_a_coluna_da_banda_avisa_quando_ela_foi_REVISADA():
     assert "revisada" in celula
     assert "20,00 a 24,00" in celula, "a banda ORIGINAL tem de aparecer"
 
-    # E o dado de verdade de 2026 nao traz o aviso, porque nao houve revisao.
-    assert "revisada" not in banda.tabela(banda.dados_hoje(), "t")
+    # E O DADO DE VERDADE TRAZ O AVISO, porque 2026 foi revisado. Este e o
+    # ramo que importa: o sintetico acima prova que a funcao sabe avisar, e
+    # este prova que ela AVISA no dado que a pagina publica.
+    real = banda.tabela(banda.dados_hoje(), "t")
+    assert "revisada" in real, (
+        "2026 foi revisado em 26/08 e a tabela tem de dizer isso")
+    assert "21,00 a 25,00" in real, (
+        "a banda ORIGINAL do prefixado tem de aparecer junto do aviso")
 
 
 def test_o_rodape_diz_MEDIA_e_nao_MAXIMO_do_erro_de_emissao():

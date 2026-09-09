@@ -16,15 +16,23 @@ def test_os_eixos_contem_a_BANDA_inteira():
 
 
 def test_os_eixos_contem_o_PROJETADO_mesmo_longe_da_banda():
-    """O caso da taxa flutuante: banda 46-50, projetado 53,24%.
+    """O caso da taxa flutuante: banda 49-53 (revisada), projetado 53,24%.
 
     A versao anterior da spec fixava a grade e nao marcava nada quando o
     projetado caia fora -- deixando justamente a tabela do indicador FORA da
     banda, que e a mais interessante, sem a marca do ritmo atual.
+
+    A BANDA VEM DO CSV, e nao do numero cravado que estava aqui: dizia 46-50 e
+    ficou vermelho quando o Tesouro revisou para 49-53 em 26/08/2026. O que o
+    teste protege e a grade CONTER a banda e o projetado, e nao qual banda e.
     """
+    lo, hi = 49.0, 53.0
+    b = paf.bandas("taxa_flutuante_pct").loc[2026]
+    assert (float(b["minimo"]), float(b["maximo"])) == (lo, hi), (
+        "a banda de 2026 mudou no CSV; confira a revisao antes de mexer aqui")
     linhas, _ = simulacao.eixos("taxa_flutuante_pct", 53.24, 9947, 2026)
     assert max(linhas) >= 54, f"53,24% tem de caber; linhas foram {linhas}"
-    assert min(linhas) <= 45, "a banda 46-50 continua tendo de caber"
+    assert min(linhas) <= lo - 1, f"a banda {lo:.0f}-{hi:.0f} tem de caber"
 
 
 def test_os_eixos_tem_passo_regular_FORA_do_ponto_de_hoje():

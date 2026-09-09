@@ -12,9 +12,14 @@ from tesouro.graficos import estilo, estoque, paf
 # ---------------------------------------------------------------------------
 
 def test_a_banda_de_2026_do_prefixado_bate_com_a_planilha_do_paf():
+    # REVISADA EM 26/08/2026, de 21-25 para 20-24. A vigente e a revisada,
+    # porque e a que vale agora; a original fica guardada ao lado, e e ela que
+    # o desenho pontilha.
     b = paf.bandas("prefixado_pct")
-    assert b.loc[2026, "minimo"] == 21.0
-    assert b.loc[2026, "maximo"] == 25.0
+    assert b.loc[2026, "minimo"] == 20.0
+    assert b.loc[2026, "maximo"] == 24.0
+    assert b.loc[2026, "minimo_original"] == 21.0
+    assert b.loc[2026, "maximo_original"] == 25.0
     # Da planilha do PAF sai a banda, e so: o que aconteceu vem do nosso dado.
     assert "realizado" not in b.columns
 
@@ -32,12 +37,19 @@ def test_a_revisao_de_2025_vira_a_banda_vigente_e_guarda_a_original():
     assert pd.isna(b.loc[2023, "minimo_original"])
 
 
-def test_os_oito_anos_revisados_estao_todos_presentes():
-    # A aba 5.7 do RMD guarda so quatro revisoes; a planilha do PAF guarda oito.
-    # E por isso que a fonte da banda e referencia/paf_bandas.csv e nao a 5.7.
+def test_a_planilha_do_paf_guarda_MAIS_revisoes_que_a_aba_5_7():
+    # O NOME DIZIA "oito" e a lista tambem, e as duas envelheceram na primeira
+    # revisao seguinte: a de 2026 fez nove. A contagem nunca foi o assunto --
+    # o assunto e POR QUE a fonte da banda e referencia/paf_bandas.csv e nao a
+    # aba 5.7 do RMD, que guarda so quatro revisoes.
     b = paf.bandas("prefixado_pct")
     revisados = sorted(b.index[b["minimo_original"].notna()])
-    assert revisados == [2008, 2015, 2016, 2018, 2020, 2021, 2024, 2025]
+    assert len(revisados) > 4, (
+        "se a planilha nao guardar mais que a aba 5.7, ela perde a razao de "
+        "ser a fonte")
+    # E os anos conhecidos ate 08/09/2026 continuam la -- revisao nao some.
+    assert set(revisados) >= {2008, 2015, 2016, 2018, 2020, 2021, 2024, 2025,
+                              2026}
 
 
 def test_o_paf_falha_alto_quando_a_referencia_esta_quebrada(tmp_path):
@@ -201,8 +213,30 @@ def test_o_desenho_marca_a_banda_original_dos_anos_revisados():
     estoque.desenha_composicao(dados, bandas, ax)
     finas = [l for l in ax.lines if l.get_linestyle() == ":"]
     plt.close(fig)
-    # Oito anos revisados, quatro indexadores, duas linhas cada (piso e teto).
-    assert len(finas) == 64
+
+    # CONTAGEM DERIVADA DO DADO, e nao cravada. Ela dizia 64 -- oito anos, quatro
+    # indexadores, duas linhas -- e envelhecia a cada revisao do PAF: a de 2026
+    # a levaria para 72 sem nada de errado ter acontecido.
+    #
+    # E A REGRA MUDOU JUNTO, em 08/09/2026. O Tesouro publica linha "revisado"
+    # para os SETE indicadores mesmo quando so alguns mudam de valor: em 2026
+    # foram tres de sete, e o cambio repetiu 3-7. Desenhar a original desses
+    # poe um pontilhado exatamente sobre a borda da faixa -- que e o que
+    # _banda_do_paf ja evitava, com comentario explicando, enquanto
+    # desenha_composicao nao. Duas regras para a mesma pergunta na mesma
+    # pagina; agora e uma.
+    esperado = 0
+    for indicador in paf.COMPOSICAO:
+        b = paf.bandas(indicador)
+        for ano in b.index:
+            if pd.isna(b.loc[ano, "minimo_original"]):
+                continue
+            if (b.loc[ano, "minimo_original"] != b.loc[ano, "minimo"]
+                    or b.loc[ano, "maximo_original"] != b.loc[ano, "maximo"]):
+                esperado += 2
+    assert len(finas) == esperado, (
+        "pontilhado so onde a banda MUDOU: esperava %d, achei %d"
+        % (esperado, len(finas)))
 
 
 # ---------------------------------------------------------------------------
