@@ -683,3 +683,28 @@ def test_o_pipeline_REGRAVA_o_dv_no_MESMO_estagio_de_leilao_do_dia(monkeypatch):
 
     pipeline.main(["--modo", "leiloes"])
     assert estagios == ["ofertado"], estagios
+
+
+def test_o_log_cita_TODAS_as_paginas_de_emissao(monkeypatch, capsys):
+    """Pagina gravada em silencio nao da para conferir.
+
+    A do historico entrou em 09/09/2026 e o log so citava as tres combinacoes,
+    porque iterava COMBINACOES -- e ela nao esta la. O manual deste projeto
+    ensina a conferir o que o log diz que gravou; sem a linha, nao ha o que
+    conferir.
+
+    LE A LISTA, e nao uma contagem: se entrar uma quarta combinacao, o teste
+    exige a linha dela sozinho.
+    """
+    from tesouro.graficos import painel_emissoes
+
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    pipeline.main(["--modo", "leiloes", "--sem-coleta"])
+    saida = capsys.readouterr().out
+
+    for _, _, arquivo, _ in painel_emissoes.COMBINACOES:
+        assert arquivo in saida, arquivo
+    assert painel_emissoes.ARQUIVO_HISTORICO in saida, (
+        "a pagina do historico foi gravada sem aparecer no log")

@@ -119,13 +119,16 @@ def _fig_empilhado_por_dia(recorte, com_compra, com_2a):
     return figura
 
 
-def _fig_acumulado(recorte, com_compra, com_2a, meses=3):
+def _fig_acumulado(recorte, com_compra, com_2a, meses=3, series="ambos",
+                   titulo=None):
     def figura(janela):
         fig = dashboard._figura(4.8)
         dados = emissao.acumulado(recorte, meses, janela, com_compra, com_2a)
         emissao.desenha_acumulado(
             dados, fig.subplots(),
-            f"{recorte} \u00b7 acumulado dos \u00faltimos {meses} meses", meses)
+            titulo or (f"{recorte} \u00b7 acumulado dos \u00faltimos "
+                       f"{meses} meses"),
+            meses, series)
         return fig
     return figura
 
@@ -139,22 +142,48 @@ def _fig_lft(com_compra, com_2a):
     return figura
 
 
-def _fig_semanal(com_compra, com_2a):
+def _fig_semanal(com_compra, com_2a, periodo="W", rotulo=None):
     def figura(janela):
         fig = dashboard._figura(5.8)
-        dados = emissao.por_semana_por_familia(janela, com_compra, com_2a)
+        dados = emissao.por_semana_por_familia(janela, com_compra, com_2a,
+                                               periodo)
         emissao.desenha_dois_eixos_empilhado(
             dados, fig.subplots(),
-            "Soma da semana \u00b7 financeiro por papel e DV total, sem LFT")
+            rotulo or ("Soma da semana \u00b7 financeiro por papel e DV "
+                       "total, sem LFT"),
+            periodo=periodo)
         return fig
     return figura
 
 
-def _fig_empilhado(com_compra, com_2a):
+def _fig_anual(coluna, rotulo, familias=None, unidade=None, escala=1000.0,
+               casas=0, agrupado=False):
+    """Barra ANUAL empilhada por papel. Sempre venda e compra, com 2a volta.
+
+    EMPILHADA por correcao dela em 09/09/2026. Eu tinha lido "o mensal esta
+    poluido" como "o empilhamento polui", e feito estes com uma soma so. O que
+    poluia era a QUANTIDADE DE BARRAS -- 309 contra 26. Com 26 barras largas o
+    empilhamento cabe, e mostra a composicao, que e o que se quer ver a 25 anos
+    de distancia.
+    """
+    def figura(janela):
+        fig = dashboard._figura(4.8)
+        dados = emissao.por_familia(coluna, janela, True, True, periodo="Y",
+                                    agrupado=agrupado)
+        emissao.desenha_empilhado(
+            dados, fig.subplots(), periodo="Y", familias=familias,
+            unidade=unidade, escala=escala, casas=casas,
+            ate=emissao.ultima_data(True, True), rotulo=rotulo)
+        return fig
+    return figura
+
+
+def _fig_empilhado(com_compra, com_2a, periodo="W"):
     def figura(janela):
         fig = dashboard._figura(5.6)
-        dados = emissao.financeiro_semanal_por_papel(janela, com_compra, com_2a)
-        emissao.desenha_empilhado(dados, fig.subplots())
+        dados = emissao.financeiro_semanal_por_papel(janela, com_compra, com_2a,
+                                                     periodo)
+        emissao.desenha_empilhado(dados, fig.subplots(), periodo)
         return fig
     return figura
 
@@ -285,12 +314,51 @@ def registro(com_compra=False, com_2a=True):
             "n\u00fameros. A barra \u00e9 <b>empilhada por papel</b>; a linha do DV \u00e9 "
             f"o total da semana. {nota_aceito} {_NOTA_DV} {_NOTA_SEMANAL}",
             True, JANELA_PADRAO, _fig_semanal(com_compra, com_2a)),
+    # O ACUMULADO DE DV VEM COLADO NO SEMANAL DE CIMA, e nao no fim do grupo.
+    # Os dois falam do MESMO conjunto de papeis -- sem LFT, que nao tem DV01 --
+    # e a leitura e olhar de um para o outro: o que entrou nesta semana, e o que
+    # os doze meses acumularam. Solto no fim, vira mais um grafico.
+    Grafico("emissao_acumulado_dv_12m", "Por semana",
+            "Acumulado de 12 meses \u00b7 DV01, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do DV01 emitido, no <b>mesmo "
+            "conjunto do gr\u00e1fico acima</b>. A janela \u00e9 de "
+            "calend\u00e1rio, e n\u00e3o de n\u00famero de leil\u00f5es: "
+            "\"12 meses\" quer dizer doze meses mesmo, inclusive quando o "
+            "Tesouro muda a frequ\u00eancia no meio do per\u00edodo. "
+            "\u00c1rea e linha, e n\u00e3o barra, porque isto \u00e9 um "
+            "n\u00edvel acumulado e n\u00e3o um evento. "
+            f"{_NOTA_DV}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("sem LFT", com_compra, com_2a, meses=12,
+                           series="dv",
+                           titulo="Acumulado de 12 meses \u00b7 DV01 emitido, "
+                                  "sem LFT")),
     Grafico("emissao_empilhado", "Por semana",
             "Financeiro da semana, por papel",
             "dv_emitido_por_leilao.csv",
             "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, e ela "
             f"\u00e9 mais da metade dele. {nota_aceito} {_NOTA_SEMANAL}",
             True, JANELA_PADRAO, _fig_empilhado(com_compra, com_2a)),
+    # E o acumulado de FINANCEIRO vem colado no empilhado, que e o grafico de
+    # financeiro -- e por isso este leva a LFT, igual a ele. A LFT nao tem
+    # DV01, entao ela entra aqui e fica de fora do acumulado de DV acima: os
+    # dois pares sao coerentes cada um consigo mesmo.
+    Grafico("emissao_acumulado_financeiro_12m", "Por semana",
+            "Acumulado de 12 meses \u00b7 financeiro, com LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do financeiro emitido, no "
+            "<b>mesmo conjunto do gr\u00e1fico acima</b> \u2014 com a LFT, "
+            "que \u00e9 mais da metade do que vai a leil\u00e3o. A janela "
+            "\u00e9 de calend\u00e1rio, e n\u00e3o de n\u00famero de "
+            "leil\u00f5es. \u00c1rea, e n\u00e3o barra, porque isto \u00e9 "
+            "um n\u00edvel acumulado e n\u00e3o um evento. "
+            f"{nota_aceito}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("tudo", com_compra, com_2a, meses=12,
+                           series="financeiro",
+                           titulo="Acumulado de 12 meses \u00b7 financeiro "
+                                  "emitido, com LFT")),
     Grafico("demanda_ntnb", "Demanda",
             "NTN-B \u00b7 ofertado e colocado",
             "dv_emitido_por_leilao.csv",
@@ -362,7 +430,9 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
                               registro(com_compra, com_2a),
                               GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}",
                               extras=[(a, f"\u00b7 {r}")
-                                      for _, _, a, r in COMBINACOES],
+                                      for _, _, a, r in COMBINACOES]
+                                     + [(ARQUIVO_HISTORICO,
+                                         f"\u00b7 {ROTULO_HISTORICO}")],
                               familia="emissoes.html")
     html = escrito.read_text(encoding="utf-8")
     # LOGO DEPOIS DO CABECALHO, e dentro do <main>. Duas coisas, nesta ordem:
@@ -381,10 +451,139 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     return escrito
 
 
+ARQUIVO_HISTORICO = "emissoes-historico.html"
+ROTULO_HISTORICO = "hist\u00f3rico completo, por m\u00eas"
+
+# DUAS JANELAS: a serie inteira e o zoom de 2014, pedido dela em 09/09/2026.
+# Nao se oferece "20 leiloes" aqui -- seria repetir, mal, a pagina que ja
+# existe. Esta pagina existe justamente para a janela que foi CORTADA de la em
+# 20/08/2026, por custar 5,9 MB dos 9,67 daquele arquivo.
+#
+# A DE 2014 E FIXA, e nao "ultimos 12 anos". Se fosse relativa, no ano que vem
+# o rotulo diria 2014 e o grafico mostraria 2015 -- rotulo descolado do dado,
+# que e o defeito que este projeto pegou tres vezes so em 09/09.
+JANELAS_DO_HISTORICO = [
+    ("completa", None),
+    ("2014 em diante", (pd.Timestamp("2014-01-01"), None)),
+]
+
+
+def registro_historico():
+    """Os quatro graficos do grupo "Por semana", em versao MENSAL.
+
+    PEDIDO DELA em 09/09/2026, na combinacao venda e compra com 2a volta, para
+    o prazo maximo possivel.
+
+    POR QUE MENSAL, e nao semanal como na pagina irma: a serie tem 25,7 anos
+    (02/01/2001 em diante). Sao 1.287 barras semanais, que numa figura de
+    ~1.100 px dao MENOS DE UM PIXEL cada -- exatamente o borrao que motivou o
+    corte da janela completa. Mensal sao 309 barras, cerca de 3,5 px: deixa-se
+    de ver meses e passa-se a ver EPOCAS, que e a leitura certa a 25 anos de
+    distancia. A troca foi sugestao dela.
+
+    Os dois acumulados de 12 meses NAO mudam de periodo: eles ja sao uma soma
+    movel de calendario sobre a serie diaria, e linha e area aguentam 2.200
+    pontos sem virar borrao -- ali o prazo longo ajuda em vez de atrapalhar.
+    """
+    nota = _nota_aceito(com_compra=True, com_2a=True)
+    mensal = ("Aqui cada barra \u00e9 um <b>m\u00eas</b>, e a janela \u00e9 o "
+              "hist\u00f3rico inteiro \u2014 de 2001 a hoje. Na p\u00e1gina "
+              "irm\u00e3 a barra \u00e9 uma semana e a janela \u00e9 curta; "
+              "esta existe para a dist\u00e2ncia longa, em que se enxergam "
+              "\u00e9pocas e n\u00e3o leil\u00f5es.")
+    return [
+    # OS ANUAIS VEM PRIMEIRO: do grosso para o fino. Vinte e seis barras antes
+    # de trezentas e nove -- e sem empilhamento por papel, que era o que ela
+    # achou poluido no mensal. Nao e menos barra: e menos coisa por barra.
+    Grafico("historico_anual_financeiro", "Por ano",
+            "Financeiro emitido por ano, com LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma de cada ano, <b>aberta por papel</b>. A LFT entra: "
+            "\u00e9 gr\u00e1fico de financeiro s\u00f3, e ela \u00e9 mais da "
+            f"metade dele. {nota}",
+            True, JANELA_PADRAO,
+            _fig_anual("financeiro_milhoes",
+                       "Financeiro emitido por ano, com LFT",
+                       unidade="R$ bilh\u00f5es", casas=0)),
+    Grafico("historico_anual_financeiro_agrupado", "Por ano",
+            "Financeiro emitido por ano, por indexador",
+            "dv_emitido_por_leilao.csv",
+            "O mesmo de cima com <b>tr\u00eas faixas</b>: LTN e NTN-F juntas "
+            "em <b>prefixado</b>, e as duas NTN-B numa s\u00f3. A pergunta "
+            "aqui n\u00e3o \u00e9 qual papel, \u00e9 quanto de cada "
+            f"<b>indexador</b>. {nota}",
+            True, JANELA_PADRAO,
+            _fig_anual("financeiro_milhoes",
+                       "Financeiro emitido por ano, por indexador",
+                       familias=emissao.ORDEM_DOS_GRUPOS,
+                       unidade="R$ bilh\u00f5es", casas=0, agrupado=True)),
+    Grafico("historico_anual_dv", "Por ano",
+            "DV01 emitido por ano, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma de cada ano, <b>aberta por papel</b>. Sem a LFT, que n\u00e3o tem DV01 \u2014 "
+            f"incluir n\u00e3o mudaria o n\u00famero e mentiria no r\u00f3tulo. "
+            f"{nota} {_NOTA_DV}",
+            True, JANELA_PADRAO,
+            _fig_anual("dv_milhoes", "DV01 emitido por ano, sem LFT",
+                       familias=[f for f in emissao.ORDEM_FAMILIAS
+                                 if f != "LFT"],
+                       unidade="DV01, R$ milh\u00f5es por ponto-base",
+                       escala=1.0, casas=1)),
+    Grafico("historico_mensal", "Por m\u00eas",
+            "Soma do m\u00eas \u00b7 financeiro por papel e DV total, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "Sem a LFT: o gr\u00e1fico tem dois eixos e ela s\u00f3 tem um dos "
+            f"dois n\u00fameros. {nota} {_NOTA_DV} {mensal}",
+            True, JANELA_PADRAO,
+            _fig_semanal(True, True, periodo="M",
+                         rotulo="Soma do m\u00eas \u00b7 financeiro por papel "
+                                "e DV total, sem LFT")),
+    Grafico("historico_acumulado_dv_12m", "Por m\u00eas",
+            "Acumulado de 12 meses \u00b7 DV01, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do DV01 emitido, no <b>mesmo "
+            f"conjunto do gr\u00e1fico acima</b>. {nota} {_NOTA_DV}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("sem LFT", True, True, meses=12, series="dv",
+                           titulo="Acumulado de 12 meses \u00b7 DV01 emitido, "
+                                  "sem LFT")),
+    Grafico("historico_empilhado", "Por m\u00eas",
+            "Financeiro do m\u00eas, por papel",
+            "dv_emitido_por_leilao.csv",
+            "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, "
+            f"e ela \u00e9 mais da metade dele. {nota} {mensal}",
+            True, JANELA_PADRAO, _fig_empilhado(True, True, periodo="M")),
+    Grafico("historico_acumulado_financeiro_12m", "Por m\u00eas",
+            "Acumulado de 12 meses \u00b7 financeiro, com LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do financeiro emitido, no "
+            "<b>mesmo conjunto do gr\u00e1fico acima</b> \u2014 com a LFT. "
+            f"{nota}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("tudo", True, True, meses=12, series="financeiro",
+                           titulo="Acumulado de 12 meses \u00b7 financeiro "
+                                  "emitido, com LFT")),
+    ]
+
+
+def grava_historico(caminho=None):
+    """Grava a pagina do historico completo e devolve o caminho."""
+    from .. import config
+
+    caminho = caminho or (config.PROCESSED_DIR / ARQUIVO_HISTORICO)
+    return dashboard.grava(
+        caminho, JANELAS_DO_HISTORICO, registro_historico(),
+        ["Por ano", "Por m\u00eas"],
+        f"Emiss\u00f5es e DV01 \u00b7 {ROTULO_HISTORICO}",
+        extras=[(a, f"\u00b7 {r}") for _, _, a, r in COMBINACOES]
+               + [(ARQUIVO_HISTORICO, f"\u00b7 {ROTULO_HISTORICO}")],
+        familia="emissoes.html")
+
+
 def grava_todas(recortes=None):
     """Grava as tres combinacoes. Devolve a lista de caminhos."""
     return [grava(None, recortes, com_compra, com_2a)
-            for com_compra, com_2a, _, _ in COMBINACOES]
+            for com_compra, com_2a, _, _ in COMBINACOES] + [grava_historico()]
 
 
 _CSS_PROVISORIO = """

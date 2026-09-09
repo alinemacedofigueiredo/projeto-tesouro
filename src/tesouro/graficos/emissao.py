@@ -29,7 +29,22 @@ from . import estilo
 ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
 
 _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
-                "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-C"}
+                "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-C",
+                # Os grupos, para o anual agrupado. A cor de "Prefixado" e a da
+                # LTN e a de "NTN-B" e a da NTN-B curta -- as duas maiores de
+                # cada grupo -- para o agrupado ler como o detalhado.
+                "Prefixado": "LTN", "NTN-B": "Indice Precos"}
+
+# COMO AS FAMILIAS SE JUNTAM no grafico por INDEXADOR. Pedido dela: cinco
+# faixas em 26 barras ainda era mais detalhe do que se le a essa distancia;
+# tres bastam para a pergunta "quanto de cada indexador".
+#
+# INDEXADOR E A PALAVRA DELA. Eu tinha escrito "regime de juros", que inventei
+# -- e vocabulario proprio no lugar do vocabulario do dominio faz o leitor
+# traduzir para conferir contra o RMD, que fala em indexador.
+GRUPO_DA_FAMILIA = {"LFT": "LFT", "LTN": "Prefixado", "NTN-F": "Prefixado",
+                    "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-B"}
+ORDEM_DOS_GRUPOS = ["LFT", "Prefixado", "NTN-B"]
 
 # Os recortes que ganham grafico proprio de dois eixos.
 RECORTES = {
@@ -40,7 +55,48 @@ RECORTES = {
     "LTN": ("LTN",),
     "LTN + NTN-F": ("LTN", "NTN-F"),
     "LFT": ("LFT",),
+    # OS DOIS RECORTES DOS ACUMULADOS DE 12 MESES, que espelham os semanais.
+    #
+    # A LFT ENTRA NUM E NAO NO OUTRO, e nao e descuido: ela nao tem DV01 --
+    # medido, a coluna e inteiramente nula para ela --, entao num grafico de DV
+    # ela nao tem o que somar. Num de financeiro ela e mais da metade do total,
+    # e deixa-la de fora esconderia o grosso do que o Tesouro leiloa.
+    "sem LFT": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa"),
+    "tudo": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa", "LFT"),
 }
+
+# EM QUE PERIODO A SERIE E SOMADA. "W" e o de sempre; "M" entrou em
+# 09/09/2026 para a pagina do historico completo.
+#
+# A ESCOLHA E DE LEGIBILIDADE, MEDIDA. A serie tem 25,7 anos (02/01/2001 em
+# diante): por semana sao 1.287 barras, que numa figura de ~1.100 px dao menos
+# de um pixel cada -- e o borrao que fez a janela "completa" ser cortada da
+# pagina de emissoes em 20/08/2026. Por mes sao 309, cerca de 3,5 px cada:
+# deixa-se de ver meses e passa-se a ver epocas, que e a leitura certa nessa
+# distancia.
+#
+# O ROTULO ANDA JUNTO DO DADO. Eixo dizendo "na semana" num grafico mensal e o
+# mesmo defeito de um titulo prometendo 12 meses com dado de 3: texto literal
+# descolado da conta, que ninguem confere porque parece decoracao.
+_PALAVRA_DO_PERIODO = {"W": "semana", "M": "m\u00eas", "Y": "ano"}
+
+
+def ultima_data(com_compra=False, com_segunda_volta=True):
+    """O ultimo dia de leilao que existe no dado.
+
+    Existe para a marca do ano parcial sair do DADO e nao de uma data cravada:
+    no dia em que o ano fechar, a marca some sozinha.
+    """
+    return _base(com_compra, com_segunda_volta)["data_leilao"].max()
+
+
+def _por_periodo(datas, periodo="W"):
+    """A coluna de agrupamento, no periodo pedido."""
+    if periodo not in _PALAVRA_DO_PERIODO:
+        raise LookupError(
+            f"periodo '{periodo}' nao existe: {sorted(_PALAVRA_DO_PERIODO)}.")
+    return datas.dt.to_period(periodo).dt.start_time
+
 
 _COR_FINANCEIRO = "#3d9be9"
 _COR_DV = "#c00000"
@@ -49,19 +105,27 @@ _COR_DV = "#c00000"
 # TRES APARENCIAS PARA TRES MOMENTOS. Um leilao aparece na tela tres vezes, e a
 # barra vai ficando mais solida conforme o numero fica mais firme:
 #
-#   ofertado -- so contorno, vazia por dentro. E um TETO: a quantidade anunciada,
-#               que historicamente cai para 83,9% dela, com taxa emprestada do
-#               leilao anterior;
-#   aceito   -- hachurada. A quantidade ja e final; a taxa publicada na hora pode
-#               ser preliminar;
+#   ofertado -- HACHURADA, e com contorno grosso sobre preenchimento fraco. E um
+#               TETO: a quantidade anunciada as 10h30, que historicamente cai
+#               para 83,9% dela, com taxa emprestada do leilao anterior;
+#   aceito   -- solida. O resultado saiu e a quantidade e final;
 #   planilha -- solida. Nao muda mais.
+#
+# A HACHURA SIGNIFICA "ESTE NUMERO AINDA VAI MUDAR", e nao "este numero veio da
+# API". Decisao dela em 09/09/2026: "so coloque hachurado os leiloes que ainda
+# nao saiu o resultado". Ate ali era o contrario -- a hachura marcava o ACEITO,
+# cuja quantidade ja nao muda, e o ofertado, que e o unico numero de verdade
+# provisorio, ficava so com o contorno esmaecido.
+#
+# O PRECO, aceito de propria vontade: 'aceito' fica visualmente IGUAL a
+# 'planilha'. Some da tela a distincao "a planilha do Tesouro ainda nao
+# confirmou" -- que e bookkeeping do Tesouro, e nao informacao sobre o numero.
 #
 # E hachura e contorno, e nao cor, porque no grafico empilhado a cor JA significa
 # papel -- roubar uma cor para significar momento criaria duas leituras para o
 # mesmo sinal.
-HACHURA_PROVISORIO = "///"
-HACHURA_ACEITO = "///"
-HACHURA_OFERTADO = ""
+HACHURA_ACEITO = ""
+HACHURA_OFERTADO = "///"
 
 ESTAGIO_MAIS_FIRME = "planilha"
 
@@ -74,9 +138,12 @@ ESTAGIO_MAIS_FIRME = "planilha"
 # ("aceito hoje (API) - muda quando a planilha sair"), e a frase competia com o
 # grafico. A explicacao mora no texto da pagina, que e onde se le texto; a legenda
 # so precisa dizer qual barra e qual.
+# SO O OFERTADO TEM ROTULO. Ate 09/09/2026 o 'aceito' tinha o seu, porque
+# tinha aparencia propria (hachura). Com a hachura passando a marcar o
+# ofertado, o aceito ficou identico a planilha -- e nomear na legenda uma
+# barra indistinguivel das outras manda o leitor procurar o que nao ha.
 _ROTULO_DO_ESTAGIO = {
     "ofertado": "ofertado hoje (teto)",
-    "aceito": "leil\u00e3o de hoje",
 }
 
 
@@ -110,11 +177,16 @@ def _base(com_compra=False, com_segunda_volta=True):
     return d
 
 
-def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True):
+def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True,
+            periodo=None):
     """Financeiro e DV somados por DIA DE LEILAO, para um recorte de papel.
 
     Um dia de leilao pode ter varios vertices do mesmo papel; aqui eles somam, que e
     a leitura de "quanto entrou naquele dia".
+
+    'periodo' agrega mais grosso -- "M" por mes, "Y" por ano. O padrao None
+    mantem o dia de leilao, e portanto mantem identicas as paginas que ja
+    existem. Entrou em 09/09/2026 para os dois graficos anuais.
     """
     if recorte not in RECORTES:
         raise LookupError(
@@ -124,7 +196,9 @@ def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True):
     d = _base(com_compra, com_segunda_volta)
     d = d[d["familia"].isin(RECORTES[recorte])]
 
-    saida = d.groupby("data_leilao").agg(
+    chave = ("data_leilao" if periodo is None
+             else _por_periodo(d["data_leilao"], periodo))
+    saida = d.groupby(chave).agg(
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
         leiloes=("titulo", "size"),
@@ -140,26 +214,27 @@ def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True):
     return estilo.recorta(saida, janela)
 
 
-def por_semana(janela=None, com_compra=False, com_segunda_volta=True):
-    """Financeiro e DV somados por SEMANA, sem a LFT.
+def por_semana(janela=None, com_compra=False, com_segunda_volta=True,
+               periodo="W"):
+    """Financeiro e DV somados por SEMANA -- ou por mes, com periodo="M".
 
     Sem a LFT porque o grafico tem os dois eixos e ela so tem um dos dois numeros --
     inclui-la faria o financeiro e o DV falarem de conjuntos diferentes de papel.
     """
     d = _base(com_compra, com_segunda_volta)
     d = d[d["familia"] != "LFT"]
-    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+    semana = _por_periodo(d["data_leilao"], periodo)
     saida = d.groupby(semana).agg(
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
         estagio=("estagio", _menos_firme),
     )
-    saida.index.name = "semana"
+    saida.index.name = _PALAVRA_DO_PERIODO[periodo]
     return estilo.recorta(saida, janela)
 
 
 def por_semana_por_familia(janela=None, com_compra=False,
-                           com_segunda_volta=True):
+                           com_segunda_volta=True, periodo="W"):
     """A soma da semana, com o financeiro aberto por familia. Sem LFT.
 
     Sem a LFT pelo mesmo motivo de por_semana(): o grafico tem dois eixos e ela so
@@ -168,7 +243,7 @@ def por_semana_por_familia(janela=None, com_compra=False,
     """
     d = _base(com_compra, com_segunda_volta)
     d = d[d["familia"] != "LFT"]
-    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+    semana = _por_periodo(d["data_leilao"], periodo)
 
     piv = d.pivot_table(index=semana, columns="familia",
                         values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
@@ -184,25 +259,43 @@ def por_semana_por_familia(janela=None, com_compra=False,
         estagio=("estagio", _menos_firme),
     )
     saida = piv.join(resto)
-    saida.index.name = "semana"
+    saida.index.name = _PALAVRA_DO_PERIODO[periodo]
     return estilo.recorta(saida, janela)
 
 
 def financeiro_semanal_por_papel(janela=None, com_compra=False,
-                                 com_segunda_volta=True):
+                                 com_segunda_volta=True, periodo="W"):
     """Financeiro por semana, uma coluna por familia -- para a barra empilhada.
 
     Aqui a LFT ENTRA: e um grafico de financeiro so, e ela e mais da metade dele.
+
+    E o caso particular de por_familia() com a coluna do financeiro. O nome
+    ficou porque a pagina de emissoes inteira o usa.
+    """
+    return por_familia("financeiro_milhoes", janela, com_compra,
+                       com_segunda_volta, periodo)
+
+
+def por_familia(coluna, janela=None, com_compra=False, com_segunda_volta=True,
+                periodo="W", agrupado=False):
+    """QUALQUER grandeza aberta por familia de papel, somada no periodo.
+
+    Ate 09/09/2026 so o financeiro se abria assim. O DV precisou do mesmo
+    quando ela mandou empilhar tambem os graficos anuais -- e duplicar a funcao
+    trocando uma coluna criaria duas versoes da mesma conta.
     """
     d = _base(com_compra, com_segunda_volta)
-    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+    semana = _por_periodo(d["data_leilao"], periodo)
+    if agrupado:
+        d = d.assign(familia=d["familia"].map(GRUPO_DA_FAMILIA))
     piv = d.pivot_table(index=semana, columns="familia",
-                        values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
-    piv.index.name = "semana"
-    for familia in ORDEM_FAMILIAS:
+                        values=coluna, aggfunc="sum").fillna(0.0)
+    piv.index.name = _PALAVRA_DO_PERIODO[periodo]
+    ordem = ORDEM_DOS_GRUPOS if agrupado else ORDEM_FAMILIAS
+    for familia in ordem:
         if familia not in piv.columns:
             piv[familia] = 0.0
-    piv = piv[ORDEM_FAMILIAS]
+    piv = piv[ordem]
     piv["estagio"] = d.groupby(semana)["estagio"].apply(_menos_firme).reindex(
         piv.index).fillna(ESTAGIO_MAIS_FIRME)
     return estilo.recorta(piv, janela)
@@ -458,16 +551,24 @@ def quantidade_e_taxa(recorte, janela=None, com_segunda_volta=True):
 
 
 def _estagios(dados):
-    """A lista de estagios, uma por barra. None quando tudo ja e definitivo.
+    """A lista de estagios, uma por barra. None quando nada esta em oferta.
 
-    Devolve None -- e nao uma lista de "planilha" -- para que o SVG do historico
-    continue byte a byte o mesmo de antes de a API existir. A reprodutibilidade e
-    testada, e passar hatch=["",""] em vez de hatch=None ja muda o arquivo.
+    Devolve None -- e nao uma lista -- para que o SVG continue byte a byte o
+    mesmo de antes de a API existir. A reprodutibilidade e testada, e passar
+    hatch=["",""] em vez de hatch=None ja muda o arquivo.
+
+    O CORTE E "HA OFERTA?", e nao "ha algo fora da planilha". Ate 09/09/2026
+    era o segundo, porque o 'aceito' tinha aparencia propria. Ela viu a pagina e
+    perguntou por que as colunas eram diferentes: eram as que a API ja trouxe e
+    a planilha do Tesouro ainda nao confirmou -- distincao que e bookkeeping do
+    Tesouro, e nao informacao sobre o numero. Com o aceito indistinguivel da
+    planilha, um dia sem oferta pendente nao precisa de aparencia por barra
+    nenhuma.
     """
     if "estagio" not in dados.columns:
         return None
     marcas = dados["estagio"].fillna(ESTAGIO_MAIS_FIRME).astype(str)
-    if (marcas == ESTAGIO_MAIS_FIRME).all():
+    if not (marcas == "ofertado").any():
         return None
     return list(marcas)
 
@@ -495,47 +596,75 @@ def _aparencia(estagios, cor, opacidade=0.75):
     return {
         "color": [to_rgba(cor, OPACIDADE_DO_OFERTADO if e == "ofertado"
                           else opacidade) for e in estagios],
-        "hatch": [HACHURA_ACEITO if e == "aceito" else HACHURA_OFERTADO
+        "hatch": [HACHURA_OFERTADO if e == "ofertado" else HACHURA_ACEITO
                   for e in estagios],
-        # O contorno forte na oferta e o que faz o fantasma parecer contorno, e nao
-        # cor desbotada por acidente.
-        "edgecolor": [to_rgba(cor, 1.0) if e == "ofertado" else
-                      ("#333333" if e == "aceito" else "none") for e in estagios],
-        "linewidth": [1.6 if e == "ofertado" else (0.4 if e == "aceito" else 0.0)
+        # O contorno forte na oferta e o que faz o fantasma parecer contorno, e
+        # nao cor desbotada por acidente.
+        #
+        # E SO A OFERTA TEM CONTORNO. Ate 09/09/2026 o 'aceito' levava um
+        # contorno escuro fino (0,4) contra nenhum da planilha -- sobra da regra
+        # antiga, em que ele tambem era hachurado. Resultado saido, quantidade
+        # final: nao ha o que distinguir, e distinguir mesmo assim faz quem le
+        # procurar um sentido que nao existe.
+        "edgecolor": [to_rgba(cor, 1.0) if e == "ofertado" else "none"
                       for e in estagios],
+        "linewidth": [1.6 if e == "ofertado" else 0.0 for e in estagios],
     }
 
 
 def _legenda_dos_estagios(estagios):
-    """As entradas de legenda que explicam contorno e hachura.
+    """A entrada de legenda que explica o contorno e a hachura do ofertado.
 
-    Uma entrada por estagio provisorio PRESENTE, e nenhuma quando nao ha nenhum.
-    Listra sem legenda e enfeite: quem olha nao tem como saber que aquela barra pode
-    mudar de altura amanha.
+    UMA SO, e so quando ha oferta sem resultado na tela. Desde 09/09/2026 o
+    'aceito' nao tem aparencia propria -- ele ficou igual a planilha --, entao
+    nomea-lo aqui mandaria o leitor procurar uma barra que nao se distingue.
+
+    Hachura sem legenda e enfeite: quem olha nao tem como saber que aquela barra
+    pode mudar de altura amanha.
     """
     if estagios is None:
         return []
     from matplotlib.patches import Patch
 
     marcas = []
-    for estagio in ("ofertado", "aceito"):
+    for estagio in _ROTULO_DO_ESTAGIO:
         if estagio not in estagios:
             continue
         marcas.append(Patch(
-            facecolor=("#cccccc" if estagio == "ofertado" else "white"),
-            edgecolor="#555555",
-            hatch=HACHURA_ACEITO if estagio == "aceito" else HACHURA_OFERTADO,
-            linewidth=1.4 if estagio == "ofertado" else 0.4,
+            facecolor="#cccccc", edgecolor="#555555",
+            hatch=HACHURA_OFERTADO, linewidth=1.4,
             label=_ROTULO_DO_ESTAGIO[estagio]))
     return marcas
 
 
-def _largura(indice):
+# TETO DA LARGURA DA BARRA, em dias.
+#
+# O de sempre e 5: com serie diaria ou semanal, uma barra mais larga que isso
+# vira bloco assim que um trecho fica esparso -- e o espacamento MEDIO, que e o
+# que a conta usa, superestima o espacamento LOCAL nesses trechos.
+#
+# O MENSAL PRECISA DE OUTRO, e o defeito apareceu olhando o desenho: com
+# espacamento de ~30 dias, 0,75 dele daria ~22, e o teto de 5 cortava para um
+# sexto do vao. A pagina do historico saia como rendilhado, e a composicao por
+# papel -- que e o assunto do grafico empilhado -- sumia. Aqui o espacamento e
+# regular por construcao (um ponto por mes), entao o risco que o teto de 5
+# existe para evitar nao se aplica.
+TETO_DIARIO = 5.0
+TETO_MENSAL = 22.0
+# 26 barras num vao de 365 dias sairiam com 5 -- um pente. Mesmo defeito do
+# mensal, e mesma razao para o teto proprio: aqui o espacamento e regular por
+# construcao, um ponto por ano.
+TETO_ANUAL = 270.0
+
+_TETO_DO_PERIODO = {"W": TETO_DIARIO, "M": TETO_MENSAL, "Y": TETO_ANUAL}
+
+
+def _largura(indice, maximo=TETO_DIARIO):
     """Largura da barra em dias, para o eixo de datas nao virar um borrao."""
     if len(indice) < 2:
         return 3.0
     dias = (indice.max() - indice.min()).days / max(len(indice) - 1, 1)
-    return max(0.8, min(dias * 0.75, 5.0))
+    return max(0.8, min(dias * 0.75, maximo))
 
 
 def _alinha_zeros(esquerda, direita, dados_esq, dados_dir):
@@ -659,7 +788,7 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
         _alinha_zeros(ax, direita, financeiro, dv)
         direita.spines["top"].set_visible(False)
         direita.grid(False)
-    else:
+    elif series != "dv":
         ax.set_ylim(*_limites_simples(financeiro))
 
     _grade(ax)
@@ -736,7 +865,8 @@ def _grade(ax, eixo="y"):
         ax.grid(axis="x", which="major", alpha=0.14, lw=0.6)
 
 
-def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
+def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None,
+                                 periodo="W"):
     """Como desenha_dois_eixos, mas com a barra ABERTA POR FAMILIA de papel.
 
     A barra somada de "LTN + NTN-F" esconde qual dos dois moveu o dia, e eles tem
@@ -745,7 +875,7 @@ def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
     risco do dia e um so.
     """
     familias = familias or [f for f in ORDEM_FAMILIAS if f in dados.columns]
-    largura = _largura(dados.index)
+    largura = _largura(dados.index, _TETO_DO_PERIODO.get(periodo, TETO_DIARIO))
     estagios = _estagios(dados)
 
     base = pd.Series(0.0, index=dados.index)
@@ -788,24 +918,50 @@ def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
               bbox_to_anchor=(0.5, -0.14))
 
 
-def desenha_acumulado(dados, ax, rotulo, meses=3):
+def desenha_acumulado(dados, ax, rotulo, meses=3, series="ambos"):
     """A soma movel de N meses: area para o financeiro, linha para o DV.
 
     AREA E NAO BARRA porque isto e um nivel acumulado, e nao um evento: barra sugere
     "entrou tanto naquele dia", e o que a serie diz e "nos ultimos tres meses,
     tanto". O grafico de cima ja mostra o evento.
+
+    'series' escolhe o que desenhar: "ambos" (o padrao, como sempre foi), "dv"
+    ou "financeiro". Os dois acumulados de 12 meses que ela pediu em 09/09/2026
+    usam UM de cada -- DV no que espelha o semanal sem LFT, financeiro no que
+    espelha o empilhado com LFT.
+
+    QUANDO SE PEDE UMA SERIE SO, O EIXO DA OUTRA NAO PODE FICAR LA VAZIO: eixo
+    rotulado sem linha nenhuma e o defeito que ninguem nota, porque o grafico
+    sai bonito e diz uma grandeza que nao esta desenhada.
     """
+    if series not in ("ambos", "dv", "financeiro"):
+        raise LookupError(
+            f"series '{series}' nao existe: ambos, dv ou financeiro.")
+
     financeiro = dados["financeiro_milhoes"] / 1000
-    ax.fill_between(dados.index, 0, financeiro, color=_COR_FINANCEIRO, alpha=0.35,
-                    label=f"financeiro, soma de {meses} meses")
-    ax.plot(dados.index, financeiro, color=_COR_FINANCEIRO, lw=1.4)
-    ax.set_ylabel("R$ bilh\u00f5es")
+    if series in ("ambos", "financeiro"):
+        ax.fill_between(dados.index, 0, financeiro, color=_COR_FINANCEIRO,
+                        alpha=0.35,
+                        label=f"financeiro, soma de {meses} meses")
+        ax.plot(dados.index, financeiro, color=_COR_FINANCEIRO, lw=1.4)
+        ax.set_ylabel("R$ bilh\u00f5es")
+        _marca_pontos(ax, dados.index, financeiro,
+                      lambda v: estilo.num_br(v, 2), "#1f4e79",
+                      deslocamento=(-6, 8))
     ax.axhline(0, color="gray", lw=0.8)
-    _marca_pontos(ax, dados.index, financeiro, lambda v: estilo.num_br(v, 2),
-                  "#1f4e79", deslocamento=(-6, 8))
 
     direita = None
-    if dados["dv_milhoes"].notna().any():
+    if series == "dv":
+        # SEM EIXO GEMEO: com uma serie so, o DV vai no eixo principal. Um
+        # twinx aqui deixaria o eixo da esquerda rotulado e vazio.
+        dv = dados["dv_milhoes"] * 1000
+        ax.plot(dados.index, dv, color=_COR_DV, lw=1.8,
+                label=f"DV01, soma de {meses} meses")
+        ax.set_ylabel("DV01, R$ mil por ponto-base")
+        _marca_pontos(ax, dados.index, dv, lambda v: estilo.num_br(v, 0),
+                      _COR_DV, deslocamento=(8, 8))
+        ax.set_ylim(*_limites_simples(dv))
+    elif series == "ambos" and dados["dv_milhoes"].notna().any():
         dv = dados["dv_milhoes"] * 1000
         direita = ax.twinx()
         direita.plot(dados.index, dv, color=_COR_DV, lw=1.8,
@@ -864,23 +1020,89 @@ def desenha_lft(dados, ax, meses_da_media=3):
               bbox_to_anchor=(0.5, -0.10))
 
 
-def desenha_empilhado(dados, ax):
-    """Financeiro da semana, empilhado por familia de papel."""
-    largura = _largura(dados.index)
+def _ano_parcial(indice, ate):
+    """O ano do indice que ainda nao fechou, ou None."""
+    if ate is None:
+        return None
+    ate = pd.Timestamp(ate)
+    anos = pd.DatetimeIndex(indice).year
+    if anos.max() == ate.year and (ate.month, ate.day) != (12, 31):
+        return ate.year
+    return None
+
+
+def _eixo_anual(ax, indice, ate=None):
+    """Um rotulo por ano, e asterisco no que ainda nao fechou."""
+    parcial = _ano_parcial(indice, ate)
+    anos = pd.DatetimeIndex(indice).year
+    ax.set_xticks(list(indice))
+    ax.set_xticklabels([f"{a}*" if a == parcial else str(a) for a in anos],
+                       rotation=45, ha="right")
+
+
+def _com_a_marca_do_parcial(rotulo, indice, ate=None):
+    parcial = _ano_parcial(indice, ate)
+    if parcial is None:
+        return rotulo
+    # CURTO, por pedido dela em 09/09/2026. A versao anterior explicava que o
+    # ano parcial "nao se compara com os anos fechados" -- a explicacao competia
+    # com o grafico, e quem le a data ja entende. O ASTERISCO FICA: ele e o que
+    # liga o titulo ao rotulo do eixo, e sem ele o "2026*" da barra nao teria
+    # a que se referir.
+    return f"{rotulo} \u2014 *{parcial} at\u00e9 {pd.Timestamp(ate):%d/%m/%Y}"
+
+
+def desenha_empilhado(dados, ax, periodo="W", familias=None, unidade=None,
+                      escala=1000.0, casas=2, ate=None, rotulo=None):
+    """Financeiro do periodo, empilhado por familia de papel.
+
+    Os parametros extras entraram em 09/09/2026 para os graficos ANUAIS, e
+    todos tem padrao que reproduz o comportamento antigo -- ha teste exigindo
+    que as paginas semanais saiam identicas.
+
+    'escala' e 'unidade' andam JUNTAS. A funcao nasceu para reais e divide por
+    mil; em DV isso daria numero mil vezes menor com o rotulo certo, que e
+    plausivel e errado do pior tipo -- o grafico fica bonito e a ordem de
+    grandeza esta errada.
+
+    'ate' marca o ano corrente com asterisco quando ele ainda nao fechou. Sem
+    isso a ultima barra PARECE QUEDA e e so o ano nao ter acabado: medido em
+    09/09/2026, 1.235,7 bi contra 1.727,0 de 2025, uma "queda" de 28% que e so
+    setembro. Nao se usa hachura nem opacidade, que nestes graficos ja
+    significam "resultado ainda nao saiu".
+    """
+    familias = list(familias or ORDEM_FAMILIAS)
+    largura = _largura(dados.index, _TETO_DO_PERIODO.get(periodo, TETO_DIARIO))
     estagios = _estagios(dados)
     base = pd.Series(0.0, index=dados.index)
-    for familia in ORDEM_FAMILIAS:
-        altura = dados[familia] / 1000
+    for familia in familias:
+        altura = dados[familia] / escala
         ax.bar(dados.index, altura, bottom=base, width=largura, label=familia,
                **_aparencia(estagios, estilo.COR[_COR_FAMILIA[familia]], 1.0))
         base = base + altura
 
-    ax.set_ylabel("R$ bilh\u00f5es aceitos na semana")
+    ax.set_ylabel(unidade or (
+        f"R$ bilh\u00f5es aceitos {'na' if periodo == 'W' else 'no'} "
+        f"{_PALAVRA_DO_PERIODO[periodo]}"))
     ax.axhline(0, color="gray", lw=0.8)
-    _marca_pontos(ax, dados.index, base, lambda v: estilo.num_br(v, 2),
-                  "#333333", deslocamento=(-6, 8))
+    # SEM NUMERO SOLTO NO ANUAL. _marca_pontos escreve o ULTIMO ponto e os
+    # extremos: nos graficos de dia e de semana isso ajuda, porque sao centenas
+    # de barras finas e o ultimo valor e o que se foi ver. No anual sao 26
+    # barras com o eixo legivel -- e o "ultimo ponto" e justamente o ano
+    # PARCIAL, que e o numero que menos se quer destacado. Ela apontou o 1.236
+    # e perguntou o que ele marcava; marcava 2026, que ainda nao acabou.
+    if periodo != "Y":
+        _marca_pontos(ax, dados.index, base,
+                      lambda v: estilo.num_br(v, casas), "#333333",
+                      deslocamento=(-6, 8))
     _grade(ax)
-    _eixo_do_tempo(ax, dados.index)
+    if periodo == "Y":
+        _eixo_anual(ax, dados.index, ate)
+    else:
+        _eixo_do_tempo(ax, dados.index)
+    if rotulo:
+        ax.set_title(_com_a_marca_do_parcial(rotulo, dados.index, ate),
+                     fontsize=11, weight="bold", loc="left", pad=10)
     marcas, rotulos = ax.get_legend_handles_labels()
     extras = _legenda_dos_estagios(estagios)
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],

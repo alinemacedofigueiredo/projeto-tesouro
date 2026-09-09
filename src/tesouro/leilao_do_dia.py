@@ -82,7 +82,11 @@ def _guardar_e_desenhar(tabela, estagio, refazer_graficos):
         for caminho_html in painel_emissoes.grava_todas():
             print(f"   {caminho_html}")
 
-    marca = "contorno claro" if estagio == "ofertado" else "hachura"
+    # A HACHURA MARCA O OFERTADO desde 09/09/2026, e nao mais o aceito. Esta
+    # linha dizia o contrario, e mensagem de log que descreve errado o grafico e
+    # pior que mensagem nenhuma.
+    marca = ("contorno e hachura" if estagio == "ofertado"
+             else "barra solida, como o resto")
     print(f"\nPronto. {entraram} linha(s) entraram como {estagio.upper()} -- "
           f"aparecem com {marca} nos graficos.")
     if estagio == "ofertado":
