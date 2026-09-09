@@ -5,7 +5,7 @@ import matplotlib
 matplotlib.use("Agg")
 import pytest
 
-from tesouro.graficos import emissao, estilo, painel_emissoes
+from tesouro.graficos import dashboard, emissao, estilo, painel_emissoes
 
 
 def test_sao_tres_combinacoes_e_cada_uma_tem_arquivo_proprio():
@@ -1168,11 +1168,22 @@ def test_a_pagina_do_historico_GRAVA_e_esta_na_barra(tmp_path):
     escrito = painel_emissoes.grava_historico(destino)
     html = escrito.read_text(encoding="utf-8")
     assert len(html) > 100_000, "a pagina saiu vazia demais para ter grafico"
-    # As irmas continuam alcancaveis a partir dela. A TUPLA E
-    # (com_compra, com_2a, arquivo, rotulo) -- desempacotar na ordem errada faz
-    # o teste procurar href="False" e acusar a pagina por erro proprio.
-    for _, _, arquivo, _ in painel_emissoes.COMBINACOES:
-        assert f'href="{arquivo}"' in html, arquivo
+
+    # AS IRMAS FICARAM A DOIS CLIQUES, e isso e escolha e nao esquecimento.
+    #
+    # Ate 09/09/2026 esta pagina era um EXTRA da familia de emissoes, e a barra
+    # dela listava as tres combinacoes. Ao virar primeiro nivel ela saiu dos
+    # extras -- estar nos dois lugares a faria aparecer duas vezes na mesma
+    # faixa, que e o defeito que o parametro 'familia' de barra_das_paginas
+    # existe para evitar.
+    #
+    # O que fica: "o que ja foi emitido" continua na barra, e de la se alcanca
+    # qualquer uma das tres. Um clique a mais, sem duplicata.
+    assert 'href="emissoes.html"' in html, (
+        "a entrada da familia de emissoes sumiu da barra")
+    for arquivo, _ in dashboard.PAGINAS:
+        if arquivo != painel_emissoes.ARQUIVO_HISTORICO:
+            assert f'href="{arquivo}"' in html, arquivo
 
 
 def test_a_pagina_do_historico_cabe_no_limiar_de_dez_megabytes(tmp_path):
@@ -1498,3 +1509,34 @@ def test_a_janela_de_2014_corta_a_serie_de_verdade():
     assert pd.DatetimeIndex(zoom.index).year.min() == 2014
     assert pd.DatetimeIndex(zoom.index).year.max() == (
         pd.DatetimeIndex(inteira.index).year.max()), "o zoom vai ate hoje"
+
+
+def test_a_pagina_do_historico_esta_na_BARRA_DO_TOPO():
+    """Ate 09/09/2026 ela so era alcancavel de dentro da familia de emissoes:
+    quem estava no dashboard tinha de passar por emissoes.html para achar. Ela
+    responde outra pergunta -- 25 anos -- e merece o primeiro nivel."""
+    from tesouro.graficos import dashboard
+
+    arquivos = [a for a, _ in dashboard.PAGINAS]
+    assert painel_emissoes.ARQUIVO_HISTORICO in arquivos, arquivos
+
+
+def test_a_pagina_do_historico_aparece_UMA_VEZ_SO_na_barra(tmp_path):
+    """Primeiro nivel E extra ao mesmo tempo sairia duas vezes na mesma faixa.
+
+    E o defeito que a propria barra ja teve com emissoes.html, e que o
+    parametro 'familia' existe para evitar -- o docstring dela conta.
+    """
+    destino = tmp_path / painel_emissoes.ARQUIVO_HISTORICO
+    html = painel_emissoes.grava_historico(destino).read_text(encoding="utf-8")
+    barra = html[html.index('<div id="paginas">'):html.index("</div>",
+                                                             html.index('<div id="paginas">'))]
+    assert barra.count(painel_emissoes.ARQUIVO_HISTORICO) <= 1, barra
+
+    # E a partir de uma das irmas ela e link, uma vez so.
+    outro = tmp_path / "emissoes.html"
+    html2 = painel_emissoes.grava(outro, com_compra=False, com_2a=True).read_text(
+        encoding="utf-8")
+    barra2 = html2[html2.index('<div id="paginas">'):html2.index("</div>",
+                                                                 html2.index('<div id="paginas">'))]
+    assert barra2.count(f'href="{painel_emissoes.ARQUIVO_HISTORICO}"') == 1, barra2

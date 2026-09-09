@@ -228,7 +228,7 @@ def tabelas():
                           "taxa_flutuante_pct")}
 
 
-def test_dados_simulacao_bate_CELULA_A_CELULA_com_emissao_necessaria(tabelas):
+def test_dados_simulacao_bate_NAS_CELULAS_DE_BORDA_com_emissao_necessaria(tabelas):
     """A TRAVA desta otimizacao: os numeros nao podem mudar.
 
     dados_simulacao agora calcula os termos que nao dependem do alvo (estoque
@@ -238,23 +238,50 @@ def test_dados_simulacao_bate_CELULA_A_CELULA_com_emissao_necessaria(tabelas):
     assinatura, e por baixo refaz esses termos sozinha, celula a celula --
     exatamente o caminho caro de antes da otimizacao.
 
-    Comparar as duas, para TODAS as celulas das TRES tabelas, prova que
-    reusar os termos nao mudou nenhum numero: se dados_simulacao vazasse um
-    termo de uma tabela para outra, ou parasse de repassar 'hoje'/'ate'
-    corretamente, alguma celula divergiria aqui. A igualdade e EXATA -- as
-    duas contas fazem os MESMOS floats na MESMA ordem de operacoes -- e nao
-    aproximada, porque uma tolerancia esconderia justamente o tipo de desvio
-    minusculo que uma reordenacao de operacoes de ponto flutuante produziria.
+    Comparar as duas prova que reusar os termos nao mudou nenhum numero: se
+    dados_simulacao vazasse um termo de uma tabela para outra, ou parasse de
+    repassar 'hoje'/'ate' corretamente, a celula divergiria aqui. A igualdade e
+    EXATA -- as duas contas fazem os MESMOS floats na MESMA ordem de operacoes
+    -- e nao aproximada, porque uma tolerancia esconderia justamente o tipo de
+    desvio minusculo que uma reordenacao de operacoes de ponto flutuante
+    produziria.
+
+    AMOSTRA, E NAO TODAS AS CELULAS -- decisao dela em 09/09/2026, e o motivo
+    nao e "menos cobertura serve".
+
+    A FALHA QUE ISTO GUARDA E SISTEMATICA, e nao pontual: os termos reusados
+    (estoque de hoje, juros ate 'ate', vencimentos, contagem de leiloes) sao os
+    MESMOS para a tabela inteira. Se um vazar, ou se 'hoje'/'ate' se perderem,
+    TODAS as celulas daquela tabela divergem -- nao uma. Percorrer 56 celulas
+    para pegar um defeito que aparece na primeira e trabalho repetido.
+
+    A AMOSTRA E ESCOLHIDA, e nao aleatoria: os quatro cantos (as pontas dos
+    dois eixos), a celula MARCADA -- o cruzamento da linha e da coluna exatas,
+    que sao as unicas fora da grade regular -- e as bordas dessa linha e dessa
+    coluna. E onde um defeito de indice ou de ponta apareceria.
+
+    O QUE SE PERDE, dito para nao se descobrir depois: um defeito que
+    dependesse do VALOR especifico de pct ou total numa celula interior
+    passaria. Como a formula e a mesma expressao para todas, isso exigiria um
+    defeito dentro de emissao_a_partir_dos_termos sensivel ao valor -- estreito,
+    mas nao impossivel.
+
+    MEDIDO: 168 chamadas de emissao_necessaria, ~500 s, 26% da suite inteira.
+    Com a amostra sao 24.
     """
     for chave, d in tabelas.items():
         indexador = d.attrs["indexador"]
         hoje, ate = d.attrs["hoje"], d.attrs["ate"]
-        for pct in d.index:
-            for total in d.columns:
-                esperado = rolagem.emissao_necessaria(
-                    indexador, pct, total, hoje=hoje, ate=ate,
-                    registros=[]) / 1000
-                assert d.at[pct, total] == esperado, (chave, pct, total)
+        marca_linha, marca_coluna = d.attrs["marca"]
+        linhas = [d.index.min(), d.index.max(), marca_linha]
+        colunas = [d.columns.min(), d.columns.max(), marca_coluna]
+        alvos = {(p, c) for p in linhas for c in colunas}
+        assert len(alvos) >= 8, (chave, alvos)
+        for pct, total in sorted(alvos):
+            esperado = rolagem.emissao_necessaria(
+                indexador, pct, total, hoje=hoje, ate=ate,
+                registros=[]) / 1000
+            assert d.at[pct, total] == esperado, (chave, pct, total)
 
 
 def test_o_indexador_bate_com_a_chave_pedida(tabelas):

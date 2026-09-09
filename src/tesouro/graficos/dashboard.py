@@ -738,6 +738,14 @@ PAGINAS_DO_RMD = [
 PAGINAS = [(arquivo, rotulo) for arquivo, rotulo, _, _ in PAGINAS_DO_RMD] + [
     ("paf.html", "contra o PAF"),
     ("emissoes.html", "o que j\u00e1 foi emitido"),
+    # PRIMEIRO NIVEL desde 09/09/2026, e nao mais um extra da familia de
+    # emissoes: ela responde outra pergunta -- 25 anos, por mes e por ano --
+    # e quem estava no dashboard tinha de passar por emissoes.html para achar.
+    #
+    # E SO AQUI: primeiro nivel E extra ao mesmo tempo sairia duas vezes na
+    # mesma faixa, que e o defeito que o parametro 'familia' de
+    # barra_das_paginas existe para evitar.
+    ("emissoes-historico.html", "o hist\u00f3rico completo"),
     ("calendario.html", "o calend\u00e1rio"),
 ]
 

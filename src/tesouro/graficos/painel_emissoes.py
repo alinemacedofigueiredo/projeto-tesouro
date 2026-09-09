@@ -430,9 +430,7 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
                               registro(com_compra, com_2a),
                               GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}",
                               extras=[(a, f"\u00b7 {r}")
-                                      for _, _, a, r in COMBINACOES]
-                                     + [(ARQUIVO_HISTORICO,
-                                         f"\u00b7 {ROTULO_HISTORICO}")],
+                                      for _, _, a, r in COMBINACOES],
                               familia="emissoes.html")
     html = escrito.read_text(encoding="utf-8")
     # LOGO DEPOIS DO CABECALHO, e dentro do <main>. Duas coisas, nesta ordem:
@@ -575,9 +573,11 @@ def grava_historico(caminho=None):
         caminho, JANELAS_DO_HISTORICO, registro_historico(),
         ["Por ano", "Por m\u00eas"],
         f"Emiss\u00f5es e DV01 \u00b7 {ROTULO_HISTORICO}",
-        extras=[(a, f"\u00b7 {r}") for _, _, a, r in COMBINACOES]
-               + [(ARQUIVO_HISTORICO, f"\u00b7 {ROTULO_HISTORICO}")],
-        familia="emissoes.html")
+        # SEM EXTRAS E SEM FAMILIA: ela e primeiro nivel agora, entao a barra
+        # a marca em negrito sozinha e "o que ja foi emitido" continua sendo
+        # link -- que e a verdade, porque dali nao se esta dentro daquela
+        # familia.
+        extras=None, familia=None)
 
 
 def grava_todas(recortes=None):

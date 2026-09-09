@@ -394,7 +394,16 @@ def _rodape_automatico(dados):
             f"com a curva de "
             f"{p['data_da_curva']:%d/%m/%Y} (Selic impl\u00edcita "
             f"{_numero(100 * p['selic'])}% a.a., infla\u00e7\u00e3o impl\u00edcita "
-            f"{_numero(100 * p['inflacao'])}% a.a.). O estoque projetado sai como "
+            f"{_numero(100 * p['inflacao'])}% a.a.). "
+            # O QUE A PREMISSA FAZ, e nao so quanto ela vale. Pedido dela em
+            # 09/09/2026. O numero ja estava aqui, solto: quem lia via uma
+            # premissa sem saber sobre o que ela age. A inflacao implicita e o
+            # que CORRIGE O VNA da NTN-B da data-base ate a data-alvo -- cinco
+            # meses com o dado de hoje, distancia em que premissa pesa.
+            f"A infla\u00e7\u00e3o impl\u00edcita \u00e9 anualizada e "
+            f"corrige o <b>VNA</b> entre {p['de']:%d/%m/%Y} e "
+            f"{p['ate']:%d/%m/%Y}; a Selic impl\u00edcita corrige o da LFT no "
+            f"mesmo per\u00edodo. O estoque projetado sai como "
             "N\u00daMERO, e n\u00e3o como faixa: quem domina o erro \u00e9 "
             "o RITMO de emiss\u00e3o, que errou EM M\u00c9DIA \u00b1153 bi "
             "(26% da largura da banda) nos dez anos de backtest \u2014 "

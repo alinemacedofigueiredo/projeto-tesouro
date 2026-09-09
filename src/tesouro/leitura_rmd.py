@@ -23,8 +23,63 @@ from . import config
 from .conversoes import data_da_celula, limpar_nulo, mes_para_data, para_milhoes
 
 
+# OS MESES COMO O TESOURO ESCREVE no nome do anexo: "Anexo RMD_Julho_26.xlsx".
+# Sem acento na chave porque a comparacao normaliza -- e porque este arquivo e
+# ASCII puro, regra do projeto.
+_MESES = {"janeiro": 1, "fevereiro": 2, "marco": 3, "abril": 4, "maio": 5,
+          "junho": 6, "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10,
+          "novembro": 11, "dezembro": 12}
+
+
+def _sem_acento(texto):
+    import unicodedata
+
+    return "".join(c for c in unicodedata.normalize("NFD", texto)
+                   if unicodedata.category(c) != "Mn")
+
+
+def mes_do_nome(nome):
+    """(ano, mes) lidos do NOME do arquivo, ou None se nao der para ler.
+
+    Aceita o ano com dois ou quatro digitos, que e como o Tesouro alterna:
+    "Anexo RMD_Julho_26.xlsx" e "..._2026.xlsx" tem de dar o mesmo.
+    """
+    import re
+
+    limpo = _sem_acento(nome).lower()
+    mes = next((n for m, n in _MESES.items() if m in limpo), None)
+    if mes is None:
+        return None
+    anos = re.findall(r"(?<!\d)(\d{4}|\d{2})(?!\d)", limpo)
+    if not anos:
+        return None
+    ano = int(anos[-1])
+    return (ano if ano > 100 else 2000 + ano), mes
+
+
 def caminho_do_rmd(diretorio=None):
-    """Devolve o .xlsx de RMD mais recente disponivel em data/raw/rmd/."""
+    """Devolve o anexo do RMD mais recente em data/raw/rmd/.
+
+    MAIS RECENTE PELO MES DO NOME, e nao pela data de modificacao do arquivo.
+    Decisao dela em 09/09/2026.
+
+    O criterio antigo era `max(..., key=st_mtime)`: o carimbo que o sistema
+    poe quando o arquivo foi gravado pela ultima vez -- que NAO E o mes do RMD.
+    Bastava o anexo de junho ser reescrito (abrir e salvar sem querer, um
+    backup restaurar, o antivirus mexer) para o carimbo dele passar na frente e
+    O PROJETO INTEIRO voltar a junho. Sem excecao e sem aviso, publicando o mes
+    errado com o cabecalho dizendo o certo -- porque o cabecalho tambem sai do
+    arquivo lido.
+
+    Dentro do OneDrive isso era rotina, e a folga medida em 26/08/2026 entre os
+    dois carimbos era de doze dias. Fora dele virou acidente; o criterio e que
+    continuava sendo o carimbo. Os testes ja escolhiam pelo nome
+    (tests/anexo.py); esta e a producao alcancando o que eles ja faziam.
+
+    FALHA EM VOZ ALTA quando nenhum nome se deixa ler: silencio aqui seria o
+    pior caso, porque o projeto leria um arquivo qualquer e publicaria como se
+    fosse o mes corrente.
+    """
     diretorio = Path(diretorio) if diretorio else config.RMD_DIR
     candidatos = sorted(diretorio.glob("*.xlsx"))
     if not candidatos:
@@ -33,7 +88,15 @@ def caminho_do_rmd(diretorio=None):
             f"'python -m tesouro.fetch_rmd <ano> <mes>' ou coloque o "
             f"arquivo na pasta manualmente"
         )
-    return max(candidatos, key=lambda p: p.stat().st_mtime)
+    datados = [(mes_do_nome(p.name), p) for p in candidatos]
+    datados = [(d, p) for d, p in datados if d is not None]
+    if not datados:
+        raise LookupError(
+            f"nenhum anexo em {diretorio} tem mes reconhecivel no nome. "
+            f"Esperava algo como 'Anexo RMD_Julho_26.xlsx'; achei "
+            f"{[p.name for p in candidatos]}"
+        )
+    return max(datados, key=lambda par: par[0])[1]
 
 
 def abrir(caminho=None):

@@ -777,3 +777,27 @@ def test_o_CSS_da_tabela_do_ritmo_entrou_na_pagina(pagina):
     alta -- a tabela so sai feia, que e o defeito que ninguem nota.
     """
     assert ".ritmo tr.total" in pagina
+
+
+def test_o_rodape_diz_que_a_inflacao_implicita_CORRIGE_O_VNA_e_entre_que_datas():
+    """Pedido dela em 09/09/2026: "deixa no rodape que esta considerando tanto
+    de inflacao anualizada entre tal e tal data para o vna".
+
+    O rodape ja declarava a inflacao implicita, mas nao dizia PARA QUE ela
+    serve nem SOBRE QUE PERIODO corre. Quem le via um numero de premissa solto;
+    o que ele faz e corrigir o VNA da NTN-B do fim do RMD ate a data-alvo, que
+    hoje sao cinco meses -- distancia em que premissa pesa.
+
+    AS DATAS SAEM DA PROJECAO, e nao cravadas: sao as mesmas 'de' e 'ate' que o
+    rodape ja usa duas linhas acima, entao nao ha como uma envelhecer sem a
+    outra.
+    """
+    d = banda.dados_projecao(registros=[])
+    html = banda.tabela(d, "tabela-projecao")
+    p = d.attrs["premissa"]
+
+    assert "VNA" in html, "o rodape nao diz o que a inflacao implicita corrige"
+    for data in (p["de"], p["ate"]):
+        assert f"{data:%d/%m/%Y}" in html, data
+    # E a inflacao continua declarada em numero.
+    assert f"{banda._numero(100 * p['inflacao'])}%" in html
