@@ -113,7 +113,7 @@ def recorta(df, janela):
     'janela' vem em cinco formas:
       None                       -> a serie inteira
       um numero de anos          -> os ultimos N anos
-      um par (de, ate)           -> o intervalo pedido na linha de comando
+      um par (de, ate)           -> o intervalo pedido; 'ate' None vai ate o fim
       Ultimos(n)                 -> as ultimas N linhas, seja qual for a data
       DesdeJaneiro(k)            -> desde 1o de janeiro de k anos atras (0 = no ano)
 
@@ -141,6 +141,12 @@ def recorta(df, janela):
 
     if isinstance(janela, tuple):
         de, ate = janela
+        # FIM ABERTO: 'ate' None quer dizer "ate a ponta da serie". Entrou em
+        # 09/09/2026 para a janela fixa de 2014 da pagina do historico. A
+        # alternativa seria cravar uma data futura qualquer, que e numero
+        # magico esperando envelhecer.
+        if ate is None:
+            ate = df.index.max()
         recorte = df[(df.index >= de) & (df.index <= ate)]
         # Recorte vazio falhava la na frente, dentro do matplotlib, com "Axis limits
         # cannot be NaN or Inf" e outras tres mensagens que nao dizem o que houve.

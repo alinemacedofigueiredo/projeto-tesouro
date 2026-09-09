@@ -20,7 +20,7 @@ O que voce quer atualizar?
   1. rmd      o RMD novo saiu (mensal) -- baixa o anexo e regrava tudo
   2. leiloes  houve leilao -- baixa os resultados e regrava PAF, emissoes e agenda
   3. paf      voce editou referencia/paf_bandas.csv -- confere e redesenha as bandas
-  4. tudo     atualiza as tres fontes e regrava as sete paginas
+  4. tudo     atualiza as tres fontes e regrava todas as paginas
 
 numero (ou o nome do modo):
 ```
@@ -40,9 +40,9 @@ programa que espera resposta onde não há ninguém trava calado.
 | modo | quando | o que baixa | o que regrava | tempo medido |
 |---|---|---|---|---|
 | `leiloes` | terça e quinta, depois do resultado sair | resultados dos leilões (API) | paf, emissões, agenda | **135 s** |
-| `rmd` | uma vez por mês, quando sai o RMD | o anexo do mês | as sete páginas | **171 s** |
+| `rmd` | uma vez por mês, quando sai o RMD | o anexo do mês | todas as páginas | **171 s** |
 | `paf` | quando o Tesouro revisa a banda | nada | dashboard e paf | **69 s** |
-| `tudo` | quando você não tem certeza | as três fontes | as sete páginas | **191 s** |
+| `tudo` | quando você não tem certeza | as três fontes | todas as páginas | **191 s** |
 
 Medidos em 09/09/2026 nesta máquina. Os três últimos com `--sem-coleta`; o de
 leilões com coleta de verdade.

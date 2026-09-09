@@ -185,13 +185,44 @@ def test_cada_estagio_ganha_a_sua_aparencia():
     # grafico empilhado.
     assert a["color"][3][3] == emissao.OPACIDADE_DO_OFERTADO
     assert a["color"][0][3] > emissao.OPACIDADE_DO_OFERTADO
-    # SO O OFERTADO E HACHURADO. O indice 3 e o ofertado e o 2 e o aceito --
-    # se algum dia isto voltar a marcar o aceito, este teste cai.
+    # SO O OFERTADO E HACHURADO. O indice 3 e o ofertado e o 2 e o aceito.
     assert a["hatch"] == ["", "", "", emissao.HACHURA_OFERTADO]
     assert emissao.HACHURA_OFERTADO, "o ofertado precisa de alguma hachura"
     assert not emissao.HACHURA_ACEITO, "o aceito nao pode mais ter hachura"
-    # E so a oferta tem contorno grosso, que e o que a faz ler como contorno.
-    assert a["linewidth"][3] > a["linewidth"][2] > a["linewidth"][0]
+    # E SO O OFERTADO TEM CONTORNO. Ate 09/09/2026 o aceito levava um contorno
+    # escuro fino (0,4) contra nenhum da planilha, e era o que sobrava da regra
+    # antiga -- ela viu na pagina e perguntou por que as colunas eram
+    # diferentes. Resultado saido, quantidade final: nao ha o que distinguir.
+    assert a["linewidth"][3] > 0
+    assert a["linewidth"][2] == a["linewidth"][0] == 0.0
+    assert a["edgecolor"][2] == a["edgecolor"][0]
+
+
+def test_o_ACEITO_fica_IDENTICO_a_planilha_em_tudo():
+    """Nao basta a hachura e o contorno: qualquer chave que os separe reaparece
+    como coluna diferente na tela."""
+    d = _dia_com_os_tres_estagios()
+    a = emissao._aparencia(emissao._estagios(d), "#3d9be9")
+    for chave, valores in a.items():
+        assert valores[2] == valores[0], (chave, valores[2], valores[0])
+
+
+def test_SEM_OFERTA_o_grafico_sai_como_antes_da_API():
+    """Se so o ofertado se distingue, entao um dia com resultado ja saido nao
+    precisa de aparencia por barra nenhuma.
+
+    E o que o proprio docstring de _estagios promete: "a aparencia antiga e nada
+    mais". Ate 09/09 ele so cumpria isso quando TUDO era planilha; com o aceito
+    tendo virado indistinguivel, passa a valer tambem com aceito na tela.
+    """
+    d = _dia_com_os_tres_estagios()
+    d.loc[d["estagio"] == "ofertado", "estagio"] = "aceito"
+    assert emissao._estagios(d) is None
+    assert set(emissao._aparencia(emissao._estagios(d), "#3d9be9")) == {"color"}
+
+    # E com oferta na tela ele volta a distinguir.
+    d2 = _dia_com_os_tres_estagios()
+    assert emissao._estagios(d2) is not None
 
 
 def test_sem_provisorio_nao_ha_marca_nenhuma():
@@ -1063,10 +1094,30 @@ def test_o_ROTULO_DO_EIXO_acompanha_o_periodo():
 # semanais nao se leriam nessa distancia.
 # --------------------------------------------------------------------------
 
-def test_a_pagina_do_historico_tem_OS_QUATRO_graficos_na_ordem():
-    """Os mesmos quatro do grupo "Por semana", em versao mensal."""
+def test_a_pagina_do_historico_tem_OS_SETE_graficos_na_ordem():
+    """A ORDEM E O TESTE, e ela tem duas regras, nao uma.
+
+    DO GROSSO PARA O FINO: os dois anuais primeiro -- 26 barras, uma soma so --
+    e depois os mensais, 309 barras abertas por papel. Foi ela quem pediu os
+    anuais depois de achar o mensal poluido, e o que poluia era o
+    EMPILHAMENTO, nao a quantidade de barras.
+
+    E CADA ACUMULADO COLADO NO SEU: o de DV logo abaixo do que mostra DV, o de
+    financeiro logo abaixo do que mostra financeiro. Solto no fim do grupo, o
+    acumulado vira mais um grafico e some a ligacao com o de cima.
+
+    O ANUAL POR INDEXADOR vem colado no anual detalhado, pelo mesmo motivo: e o
+    mesmo dado com tres faixas em vez de cinco, e le-se um olhando o outro.
+
+    Eram dois testes parciais -- um exigia os quatro mensais, outro que os
+    anuais viessem primeiro. Com a lista inteira num lugar so, a ordem tem uma
+    fonte da verdade.
+    """
     nomes = [g.id for g in painel_emissoes.registro_historico()]
     assert nomes == [
+        "historico_anual_financeiro",
+        "historico_anual_financeiro_agrupado",
+        "historico_anual_dv",
         "historico_mensal",
         "historico_acumulado_dv_12m",
         "historico_empilhado",
@@ -1093,10 +1144,23 @@ def test_os_graficos_do_historico_dizem_que_sao_MENSAIS():
         assert "semana" not in g.titulo.lower(), g.titulo
 
 
-def test_a_pagina_do_historico_usa_UMA_janela_so():
-    """A janela e o prazo maximo. Oferecer "20 leiloes" aqui seria repetir, mal,
-    a pagina que ja existe."""
-    assert painel_emissoes.JANELAS_DO_HISTORICO == [("completa", None)]
+def test_a_pagina_do_historico_NAO_oferece_as_janelas_curtas():
+    """Oferecer "20 leiloes" aqui seria repetir, mal, a pagina que ja existe.
+
+    Ate 09/09/2026 este teste cravava UMA janela, e a contagem envelheceu no
+    mesmo dia, quando ela pediu o zoom de 2014. A regra que ele guardava
+    continua valendo, e agora esta escrita como regra: as janelas curtas -- as
+    que contam leiloes ou partem de janeiro -- nao entram nesta pagina, que
+    existe para a distancia longa.
+    """
+    from tesouro.graficos import estilo
+
+    for _, janela in painel_emissoes.JANELAS_DO_HISTORICO:
+        assert not isinstance(janela, estilo.Ultimos), janela
+        assert not isinstance(janela, estilo.DesdeJaneiro), janela
+    # E nenhuma delas e uma contagem de anos, que e a forma "ultimos N anos".
+    assert not any(isinstance(j, int)
+                   for _, j in painel_emissoes.JANELAS_DO_HISTORICO)
 
 
 def test_a_pagina_do_historico_GRAVA_e_esta_na_barra(tmp_path):
@@ -1171,3 +1235,266 @@ def test_o_grafico_MENSAL_do_historico_usa_o_teto_afrouxado():
         assert larguras, f"{nome} saiu sem barra nenhuma"
         assert max(larguras) > 20, (
             f"{nome}: barras estranguladas, maior largura {max(larguras)}")
+
+
+# --------------------------------------------------------------------------
+# OS DOIS GRAFICOS ANUAIS, pedido dela em 09/09/2026: "um grafico anual da soma
+# de dv, e da soma de financeiro... igual voce fez o mensal agora, mas ainda
+# achei poluido".
+#
+# O que poluia era o EMPILHAMENTO por papel, e nao a quantidade de barras: sao
+# 26 anos contra 309 meses. Aqui a barra e uma soma so, e sao dois graficos --
+# escolha dela -- em vez de um com dois eixos.
+#
+# A LFT ENTRA NO DE FINANCEIRO E NAO NO DE DV, como nos acumulados: ela nao tem
+# DV01.
+# --------------------------------------------------------------------------
+
+def test_a_agregacao_ANUAL_da_uma_barra_por_ano():
+    """Relacao, e nao contagem cravada: a serie ganha um ano por ano."""
+    import pandas as pd
+
+    anual = emissao.por_dia("tudo", periodo="Y")
+    assert len(anual) > 20, "a serie tem 25 anos"
+    anos = pd.DatetimeIndex(anual.index).year
+    assert len(set(anos)) == len(anual), "ha mais de uma barra no mesmo ano"
+    assert list(anos) == sorted(anos)
+
+
+def test_a_agregacao_ANUAL_conserva_o_financeiro():
+    """Trocar a janela nao pode criar nem sumir com dinheiro."""
+    diario = emissao.por_dia("tudo")
+    anual = emissao.por_dia("tudo", periodo="Y")
+    assert anual["financeiro_milhoes"].sum() == pytest.approx(
+        diario["financeiro_milhoes"].sum(), rel=1e-9)
+
+
+def test_o_ANUAL_de_financeiro_leva_LFT_e_o_de_DV_nao():
+    """A mesma regra dos acumulados, pela mesma razao medida."""
+    com = emissao.por_dia("tudo", periodo="Y")
+    sem = emissao.por_dia("sem LFT", periodo="Y")
+    assert com["financeiro_milhoes"].sum() > sem["financeiro_milhoes"].sum()
+    # E o DV e o MESMO nos dois, porque a LFT nao tem DV nenhum para somar.
+    assert com["dv_milhoes"].sum() == pytest.approx(
+        sem["dv_milhoes"].sum(), rel=1e-9)
+
+
+def test_a_largura_da_barra_ANUAL_nao_fica_estrangulada():
+    """Sem teto proprio, 26 barras num vao de 365 dias saem com 5 -- um pente.
+
+    E o mesmo defeito do mensal, achado olhando o desenho.
+    """
+    import pandas as pd
+
+    anual = pd.date_range("2001-01-01", "2026-01-01", freq="YS")
+    assert emissao._largura(anual) == 5.0, "o padrao nao pode mudar"
+    larga = emissao._largura(anual, maximo=emissao.TETO_ANUAL)
+    assert larga > 200, larga
+    espacamento = (anual.max() - anual.min()).days / (len(anual) - 1)
+    assert larga < espacamento, "barra mais larga que o vao encavala as vizinhas"
+
+
+def test_o_ANO_PARCIAL_sai_MARCADO_no_grafico():
+    """A armadilha deste grafico, e a unica dele.
+
+    2026 vai ate 08/09 e soma 1.235,7 bi contra 1.727,0 de 2025. Ao lado da
+    outra, essa barra PARECE QUEDA e e so o ano nao ter acabado -- plausivel e
+    errado, do tipo que ninguem confere porque o grafico esta certo.
+
+    A DATA SAI DO DADO, e nao cravada: no dia em que o ano fechar, a marca tem
+    de sumir sozinha.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
+    dados = emissao.por_dia("tudo", periodo="Y")
+    ate = emissao.ultima_data()
+    parcial = pd.Timestamp(dados.index.max()).year == ate.year and (
+        ate.month, ate.day) != (12, 31)
+    assert parcial, (
+        "hoje o ultimo ano esta incompleto; se isto mudar, o teste precisa de "
+        "outro caso")
+
+    dados = emissao.por_familia("financeiro_milhoes", periodo="Y")
+    fig, ax = plt.subplots()
+    emissao.desenha_empilhado(dados, ax, periodo="Y", ate=ate,
+                              rotulo="financeiro por ano")
+    rotulos = [r.get_text() for r in ax.get_xticklabels()]
+    # loc="left" E A CONVENCAO DA PAGINA, e ax.get_title() sem argumento
+    # devolve o titulo CENTRAL -- que esta vazio. A primeira versao deste teste
+    # perguntou pelo lugar errado e acusou o codigo por erro proprio.
+    titulo = ax.get_title(loc="left")
+    plt.close(fig)
+    assert any("*" in r for r in rotulos), rotulos
+    assert f"{ate:%d/%m/%Y}" in titulo, titulo
+
+
+# --------------------------------------------------------------------------
+# OS ANUAIS SAO EMPILHADOS POR PAPEL. Correcao dela em 09/09/2026.
+#
+# EU TINHA CONCLUIDO ERRADO. Quando ela disse que o mensal estava "poluido", eu
+# li que o problema era o EMPILHAMENTO e fiz os anuais com uma soma so. Ela
+# corrigiu: o que poluia era a QUANTIDADE DE BARRAS -- 309 contra 26. Com 26
+# barras largas, o empilhamento cabe e mostra a composicao, que e o que se quer
+# ver a 25 anos de distancia.
+#
+# A licao, que vale para o proximo palpite: "poluido" descrevia o desenho, e eu
+# converti em causa sem perguntar. Duas causas cabiam na mesma palavra.
+# --------------------------------------------------------------------------
+
+def test_por_familia_abre_QUALQUER_grandeza_por_papel():
+    """Ate aqui so o financeiro se abria por familia; o DV precisa do mesmo."""
+    fin = emissao.por_familia("financeiro_milhoes", periodo="Y")
+    dv = emissao.por_familia("dv_milhoes", periodo="Y")
+    assert set(emissao.ORDEM_FAMILIAS) <= set(fin.columns)
+    assert set(emissao.ORDEM_FAMILIAS) <= set(dv.columns)
+    # E cada uma soma o que promete.
+    diario = emissao.por_dia("tudo")
+    assert fin[list(emissao.ORDEM_FAMILIAS)].sum().sum() == pytest.approx(
+        diario["financeiro_milhoes"].sum(), rel=1e-9)
+
+
+def test_os_DOIS_anuais_sao_EMPILHADOS_por_papel():
+    """Barra empilhada tem uma faixa por familia; barra simples tem uma so.
+
+    Conta os retangulos: com cinco familias e 26 anos, o empilhado desenha
+    muito mais do que 26.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    d = {g.id: g for g in painel_emissoes.registro_historico()}
+    for nome in ("historico_anual_financeiro", "historico_anual_dv"):
+        fig = d[nome].figura(None)
+        barras = [p for ax in fig.axes for p in ax.patches]
+        plt.close(fig)
+        assert len(barras) > 26 * 2, (
+            f"{nome} desenhou {len(barras)} retangulos; empilhado por familia "
+            f"desenha varios por ano")
+
+
+def test_o_anual_de_DV_nao_desenha_a_faixa_da_LFT():
+    """A LFT nao tem DV01: uma faixa dela num grafico de DV seria uma faixa de
+    altura zero com nome, que e pior que nao ter."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    d = {g.id: g for g in painel_emissoes.registro_historico()}
+    fig = d["historico_anual_dv"].figura(None)
+    rotulos = [t.get_text() for ax in fig.axes
+               if ax.get_legend() is not None
+               for t in ax.get_legend().get_texts()]
+    plt.close(fig)
+    assert rotulos, "o grafico saiu sem legenda de familia"
+    assert "LFT" not in rotulos, rotulos
+
+    fig = d["historico_anual_financeiro"].figura(None)
+    rotulos = [t.get_text() for ax in fig.axes
+               if ax.get_legend() is not None
+               for t in ax.get_legend().get_texts()]
+    plt.close(fig)
+    assert "LFT" in rotulos, ("o de financeiro leva a LFT", rotulos)
+
+
+def test_o_anual_de_DV_sai_na_unidade_de_DV():
+    """Escala e rotulo andam juntos: o empilhado divide por mil por padrao,
+    porque nasceu para reais. Em DV isso daria numero mil vezes menor com o
+    rotulo certo -- plausivel e errado."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    d = {g.id: g for g in painel_emissoes.registro_historico()}
+    fig = d["historico_anual_dv"].figura(None)
+    rotulo = fig.axes[0].yaxis.label.get_text()
+    alturas = [abs(p.get_height()) for p in fig.axes[0].patches]
+    plt.close(fig)
+    assert "DV01" in rotulo, rotulo
+    assert "bilh" not in rotulo, rotulo
+    # O DV anual chega a centenas de milhoes por ponto-base; dividido por mil
+    # por engano, nao passaria de um.
+    assert max(alturas) > 10, max(alturas)
+
+
+def test_desenha_barra_anual_NAO_EXISTE_MAIS():
+    """Ela nasceu e morreu no mesmo dia, quando os anuais viraram empilhados.
+
+    Funcao morta ao lado da viva engana quem le depois -- foi o caso da
+    HACHURA_PROVISORIO, que ficou meses definida e sem uso.
+    """
+    assert not hasattr(emissao, "desenha_barra_anual")
+
+
+# --------------------------------------------------------------------------
+# OS ANUAIS SEM NUMERO SOLTO, E A JANELA DE 2014. Pedido dela em 09/09/2026:
+# "no anual de financeiro tem um numero (1236), nao sei o que ele esta
+# marcando, pode tirar. e faz esse mesmo grafico com um zoom de 2014 ate hoje".
+#
+# O numero era o _marca_pontos, que escreve o ULTIMO ponto e os extremos. Nos
+# graficos de dia e de semana ele ajuda: sao centenas de barras finas e o
+# ultimo valor e o que se foi ver. No anual sao 26 barras rotuladas, com eixo
+# legivel -- e o "ultimo ponto" e justamente 2026*, o ano PARCIAL, que e o
+# numero que menos se quer destacado.
+# --------------------------------------------------------------------------
+
+def test_os_anuais_NAO_ESCREVEM_numero_solto_sobre_as_barras():
+    """Ela apontou o 1.236 e perguntou o que ele marcava. Marcava o ano que
+    ainda nao acabou."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    d = {g.id: g for g in painel_emissoes.registro_historico()}
+    for nome in ("historico_anual_financeiro", "historico_anual_dv"):
+        fig = d[nome].figura(None)
+        textos = [t.get_text() for ax in fig.axes for t in ax.texts]
+        plt.close(fig)
+        assert textos == [], (nome, textos)
+
+
+def test_os_MENSAIS_continuam_com_a_marca():
+    """Nao foi para tirar de todo lado: la sao centenas de barras finas, e o
+    ultimo valor e o que se foi ver."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    d = {g.id: g for g in painel_emissoes.registro_historico()}
+    fig = d["historico_empilhado"].figura(None)
+    textos = [t.get_text() for ax in fig.axes for t in ax.texts]
+    plt.close(fig)
+    assert textos, "o mensal perdeu a marca junto, e nao era para perder"
+
+
+def test_a_pagina_do_historico_tem_a_janela_de_2014():
+    """Duas janelas: a serie inteira e o zoom de 2014."""
+    rotulos = [r for r, _ in painel_emissoes.JANELAS_DO_HISTORICO]
+    assert rotulos == ["completa", "2014 em diante"], rotulos
+
+
+def test_a_janela_de_2014_e_FIXA_e_nao_relativa():
+    """Se fosse "ultimos 12 anos", no ano que vem o rotulo diria 2014 e o
+    grafico mostraria 2015 -- rotulo mentindo, que e o defeito que este projeto
+    ja pegou tres vezes hoje."""
+    import pandas as pd
+
+    _, janela = painel_emissoes.JANELAS_DO_HISTORICO[1]
+    de, ate = janela
+    assert pd.Timestamp(de) == pd.Timestamp("2014-01-01"), de
+    assert ate is None, "o fim e a ponta da serie, e nao uma data cravada"
+
+
+def test_a_janela_de_2014_corta_a_serie_de_verdade():
+    import pandas as pd
+
+    _, janela = painel_emissoes.JANELAS_DO_HISTORICO[1]
+    inteira = emissao.por_familia("financeiro_milhoes", periodo="Y")
+    zoom = emissao.por_familia("financeiro_milhoes", janela, periodo="Y")
+    assert len(zoom) < len(inteira)
+    assert pd.DatetimeIndex(zoom.index).year.min() == 2014
+    assert pd.DatetimeIndex(zoom.index).year.max() == (
+        pd.DatetimeIndex(inteira.index).year.max()), "o zoom vai ate hoje"

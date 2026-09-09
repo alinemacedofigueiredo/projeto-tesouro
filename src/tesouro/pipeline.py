@@ -72,7 +72,7 @@ _EXPLICACAO = {
                "emissoes e agenda",
     "paf": "voce editou referencia/paf_bandas.csv -- confere e redesenha "
            "as bandas",
-    "tudo": "atualiza as tres fontes e regrava as sete paginas",
+    "tudo": "atualiza as tres fontes e regrava todas as paginas",
 }
 
 

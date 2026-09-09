@@ -156,6 +156,28 @@ def _fig_semanal(com_compra, com_2a, periodo="W", rotulo=None):
     return figura
 
 
+def _fig_anual(coluna, rotulo, familias=None, unidade=None, escala=1000.0,
+               casas=0, agrupado=False):
+    """Barra ANUAL empilhada por papel. Sempre venda e compra, com 2a volta.
+
+    EMPILHADA por correcao dela em 09/09/2026. Eu tinha lido "o mensal esta
+    poluido" como "o empilhamento polui", e feito estes com uma soma so. O que
+    poluia era a QUANTIDADE DE BARRAS -- 309 contra 26. Com 26 barras largas o
+    empilhamento cabe, e mostra a composicao, que e o que se quer ver a 25 anos
+    de distancia.
+    """
+    def figura(janela):
+        fig = dashboard._figura(4.8)
+        dados = emissao.por_familia(coluna, janela, True, True, periodo="Y",
+                                    agrupado=agrupado)
+        emissao.desenha_empilhado(
+            dados, fig.subplots(), periodo="Y", familias=familias,
+            unidade=unidade, escala=escala, casas=casas,
+            ate=emissao.ultima_data(True, True), rotulo=rotulo)
+        return fig
+    return figura
+
+
 def _fig_empilhado(com_compra, com_2a, periodo="W"):
     def figura(janela):
         fig = dashboard._figura(5.6)
@@ -432,10 +454,18 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
 ARQUIVO_HISTORICO = "emissoes-historico.html"
 ROTULO_HISTORICO = "hist\u00f3rico completo, por m\u00eas"
 
-# UMA JANELA SO, e e o prazo maximo. Oferecer "20 leiloes" aqui seria repetir,
-# mal, a pagina que ja existe -- esta pagina existe justamente para a janela que
-# foi CORTADA de la em 20/08/2026, por custar 5,9 MB dos 9,67 daquele arquivo.
-JANELAS_DO_HISTORICO = [("completa", None)]
+# DUAS JANELAS: a serie inteira e o zoom de 2014, pedido dela em 09/09/2026.
+# Nao se oferece "20 leiloes" aqui -- seria repetir, mal, a pagina que ja
+# existe. Esta pagina existe justamente para a janela que foi CORTADA de la em
+# 20/08/2026, por custar 5,9 MB dos 9,67 daquele arquivo.
+#
+# A DE 2014 E FIXA, e nao "ultimos 12 anos". Se fosse relativa, no ano que vem
+# o rotulo diria 2014 e o grafico mostraria 2015 -- rotulo descolado do dado,
+# que e o defeito que este projeto pegou tres vezes so em 09/09.
+JANELAS_DO_HISTORICO = [
+    ("completa", None),
+    ("2014 em diante", (pd.Timestamp("2014-01-01"), None)),
+]
 
 
 def registro_historico():
@@ -462,6 +492,43 @@ def registro_historico():
               "esta existe para a dist\u00e2ncia longa, em que se enxergam "
               "\u00e9pocas e n\u00e3o leil\u00f5es.")
     return [
+    # OS ANUAIS VEM PRIMEIRO: do grosso para o fino. Vinte e seis barras antes
+    # de trezentas e nove -- e sem empilhamento por papel, que era o que ela
+    # achou poluido no mensal. Nao e menos barra: e menos coisa por barra.
+    Grafico("historico_anual_financeiro", "Por ano",
+            "Financeiro emitido por ano, com LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma de cada ano, <b>aberta por papel</b>. A LFT entra: "
+            "\u00e9 gr\u00e1fico de financeiro s\u00f3, e ela \u00e9 mais da "
+            f"metade dele. {nota}",
+            True, JANELA_PADRAO,
+            _fig_anual("financeiro_milhoes",
+                       "Financeiro emitido por ano, com LFT",
+                       unidade="R$ bilh\u00f5es", casas=0)),
+    Grafico("historico_anual_financeiro_agrupado", "Por ano",
+            "Financeiro emitido por ano, por indexador",
+            "dv_emitido_por_leilao.csv",
+            "O mesmo de cima com <b>tr\u00eas faixas</b>: LTN e NTN-F juntas "
+            "em <b>prefixado</b>, e as duas NTN-B numa s\u00f3. A pergunta "
+            "aqui n\u00e3o \u00e9 qual papel, \u00e9 quanto de cada "
+            f"<b>indexador</b>. {nota}",
+            True, JANELA_PADRAO,
+            _fig_anual("financeiro_milhoes",
+                       "Financeiro emitido por ano, por indexador",
+                       familias=emissao.ORDEM_DOS_GRUPOS,
+                       unidade="R$ bilh\u00f5es", casas=0, agrupado=True)),
+    Grafico("historico_anual_dv", "Por ano",
+            "DV01 emitido por ano, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma de cada ano, <b>aberta por papel</b>. Sem a LFT, que n\u00e3o tem DV01 \u2014 "
+            f"incluir n\u00e3o mudaria o n\u00famero e mentiria no r\u00f3tulo. "
+            f"{nota} {_NOTA_DV}",
+            True, JANELA_PADRAO,
+            _fig_anual("dv_milhoes", "DV01 emitido por ano, sem LFT",
+                       familias=[f for f in emissao.ORDEM_FAMILIAS
+                                 if f != "LFT"],
+                       unidade="DV01, R$ milh\u00f5es por ponto-base",
+                       escala=1.0, casas=1)),
     Grafico("historico_mensal", "Por m\u00eas",
             "Soma do m\u00eas \u00b7 financeiro por papel e DV total, sem LFT",
             "dv_emitido_por_leilao.csv",
@@ -506,7 +573,7 @@ def grava_historico(caminho=None):
     caminho = caminho or (config.PROCESSED_DIR / ARQUIVO_HISTORICO)
     return dashboard.grava(
         caminho, JANELAS_DO_HISTORICO, registro_historico(),
-        ["Por m\u00eas"],
+        ["Por ano", "Por m\u00eas"],
         f"Emiss\u00f5es e DV01 \u00b7 {ROTULO_HISTORICO}",
         extras=[(a, f"\u00b7 {r}") for _, _, a, r in COMBINACOES]
                + [(ARQUIVO_HISTORICO, f"\u00b7 {ROTULO_HISTORICO}")],
