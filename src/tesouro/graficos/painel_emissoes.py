@@ -142,22 +142,26 @@ def _fig_lft(com_compra, com_2a):
     return figura
 
 
-def _fig_semanal(com_compra, com_2a):
+def _fig_semanal(com_compra, com_2a, periodo="W", rotulo=None):
     def figura(janela):
         fig = dashboard._figura(5.8)
-        dados = emissao.por_semana_por_familia(janela, com_compra, com_2a)
+        dados = emissao.por_semana_por_familia(janela, com_compra, com_2a,
+                                               periodo)
         emissao.desenha_dois_eixos_empilhado(
             dados, fig.subplots(),
-            "Soma da semana \u00b7 financeiro por papel e DV total, sem LFT")
+            rotulo or ("Soma da semana \u00b7 financeiro por papel e DV "
+                       "total, sem LFT"),
+            periodo=periodo)
         return fig
     return figura
 
 
-def _fig_empilhado(com_compra, com_2a):
+def _fig_empilhado(com_compra, com_2a, periodo="W"):
     def figura(janela):
         fig = dashboard._figura(5.6)
-        dados = emissao.financeiro_semanal_por_papel(janela, com_compra, com_2a)
-        emissao.desenha_empilhado(dados, fig.subplots())
+        dados = emissao.financeiro_semanal_por_papel(janela, com_compra, com_2a,
+                                                     periodo)
+        emissao.desenha_empilhado(dados, fig.subplots(), periodo)
         return fig
     return figura
 
@@ -404,7 +408,9 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
                               registro(com_compra, com_2a),
                               GRUPOS, f"Emiss\u00f5es e DV01 \u00b7 {rotulo}",
                               extras=[(a, f"\u00b7 {r}")
-                                      for _, _, a, r in COMBINACOES],
+                                      for _, _, a, r in COMBINACOES]
+                                     + [(ARQUIVO_HISTORICO,
+                                         f"\u00b7 {ROTULO_HISTORICO}")],
                               familia="emissoes.html")
     html = escrito.read_text(encoding="utf-8")
     # LOGO DEPOIS DO CABECALHO, e dentro do <main>. Duas coisas, nesta ordem:
@@ -423,10 +429,94 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
     return escrito
 
 
+ARQUIVO_HISTORICO = "emissoes-historico.html"
+ROTULO_HISTORICO = "hist\u00f3rico completo, por m\u00eas"
+
+# UMA JANELA SO, e e o prazo maximo. Oferecer "20 leiloes" aqui seria repetir,
+# mal, a pagina que ja existe -- esta pagina existe justamente para a janela que
+# foi CORTADA de la em 20/08/2026, por custar 5,9 MB dos 9,67 daquele arquivo.
+JANELAS_DO_HISTORICO = [("completa", None)]
+
+
+def registro_historico():
+    """Os quatro graficos do grupo "Por semana", em versao MENSAL.
+
+    PEDIDO DELA em 09/09/2026, na combinacao venda e compra com 2a volta, para
+    o prazo maximo possivel.
+
+    POR QUE MENSAL, e nao semanal como na pagina irma: a serie tem 25,7 anos
+    (02/01/2001 em diante). Sao 1.287 barras semanais, que numa figura de
+    ~1.100 px dao MENOS DE UM PIXEL cada -- exatamente o borrao que motivou o
+    corte da janela completa. Mensal sao 309 barras, cerca de 3,5 px: deixa-se
+    de ver meses e passa-se a ver EPOCAS, que e a leitura certa a 25 anos de
+    distancia. A troca foi sugestao dela.
+
+    Os dois acumulados de 12 meses NAO mudam de periodo: eles ja sao uma soma
+    movel de calendario sobre a serie diaria, e linha e area aguentam 2.200
+    pontos sem virar borrao -- ali o prazo longo ajuda em vez de atrapalhar.
+    """
+    nota = _nota_aceito(com_compra=True, com_2a=True)
+    mensal = ("Aqui cada barra \u00e9 um <b>m\u00eas</b>, e a janela \u00e9 o "
+              "hist\u00f3rico inteiro \u2014 de 2001 a hoje. Na p\u00e1gina "
+              "irm\u00e3 a barra \u00e9 uma semana e a janela \u00e9 curta; "
+              "esta existe para a dist\u00e2ncia longa, em que se enxergam "
+              "\u00e9pocas e n\u00e3o leil\u00f5es.")
+    return [
+    Grafico("historico_mensal", "Por m\u00eas",
+            "Soma do m\u00eas \u00b7 financeiro por papel e DV total, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "Sem a LFT: o gr\u00e1fico tem dois eixos e ela s\u00f3 tem um dos "
+            f"dois n\u00fameros. {nota} {_NOTA_DV} {mensal}",
+            True, JANELA_PADRAO,
+            _fig_semanal(True, True, periodo="M",
+                         rotulo="Soma do m\u00eas \u00b7 financeiro por papel "
+                                "e DV total, sem LFT")),
+    Grafico("historico_acumulado_dv_12m", "Por m\u00eas",
+            "Acumulado de 12 meses \u00b7 DV01, sem LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do DV01 emitido, no <b>mesmo "
+            f"conjunto do gr\u00e1fico acima</b>. {nota} {_NOTA_DV}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("sem LFT", True, True, meses=12, series="dv",
+                           titulo="Acumulado de 12 meses \u00b7 DV01 emitido, "
+                                  "sem LFT")),
+    Grafico("historico_empilhado", "Por m\u00eas",
+            "Financeiro do m\u00eas, por papel",
+            "dv_emitido_por_leilao.csv",
+            "Aqui a LFT <b>entra</b>: \u00e9 gr\u00e1fico de financeiro s\u00f3, "
+            f"e ela \u00e9 mais da metade dele. {nota} {mensal}",
+            True, JANELA_PADRAO, _fig_empilhado(True, True, periodo="M")),
+    Grafico("historico_acumulado_financeiro_12m", "Por m\u00eas",
+            "Acumulado de 12 meses \u00b7 financeiro, com LFT",
+            "dv_emitido_por_leilao.csv",
+            "A soma m\u00f3vel de doze meses do financeiro emitido, no "
+            "<b>mesmo conjunto do gr\u00e1fico acima</b> \u2014 com a LFT. "
+            f"{nota}",
+            True, JANELA_PADRAO,
+            _fig_acumulado("tudo", True, True, meses=12, series="financeiro",
+                           titulo="Acumulado de 12 meses \u00b7 financeiro "
+                                  "emitido, com LFT")),
+    ]
+
+
+def grava_historico(caminho=None):
+    """Grava a pagina do historico completo e devolve o caminho."""
+    from .. import config
+
+    caminho = caminho or (config.PROCESSED_DIR / ARQUIVO_HISTORICO)
+    return dashboard.grava(
+        caminho, JANELAS_DO_HISTORICO, registro_historico(),
+        ["Por m\u00eas"],
+        f"Emiss\u00f5es e DV01 \u00b7 {ROTULO_HISTORICO}",
+        extras=[(a, f"\u00b7 {r}") for _, _, a, r in COMBINACOES]
+               + [(ARQUIVO_HISTORICO, f"\u00b7 {ROTULO_HISTORICO}")],
+        familia="emissoes.html")
+
+
 def grava_todas(recortes=None):
     """Grava as tres combinacoes. Devolve a lista de caminhos."""
     return [grava(None, recortes, com_compra, com_2a)
-            for com_compra, com_2a, _, _ in COMBINACOES]
+            for com_compra, com_2a, _, _ in COMBINACOES] + [grava_historico()]
 
 
 _CSS_PROVISORIO = """

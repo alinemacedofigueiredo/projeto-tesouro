@@ -974,3 +974,200 @@ def test_a_JANELA_do_acumulado_bate_com_o_que_o_titulo_promete():
         assert rotulos, f"{nome} saiu sem legenda; nao da para conferir a janela"
         assert any("soma de 12 meses" in r for r in rotulos), (
             f"{nome}: o titulo promete 12 meses e a legenda diz {rotulos}")
+
+
+# --------------------------------------------------------------------------
+# A AGREGACAO MENSAL, para a pagina do historico completo (09/09/2026).
+#
+# A serie vai de 02/01/2001 a hoje -- 25,7 anos. Medido em barras:
+#
+#     por dia de leilao  2.222     por semana  1.287     por mes  309
+#
+# Numa figura de ~1.100 px a semanal da MENOS DE UM PIXEL por barra, que e o
+# borrao que fez a janela "completa" ser cortada da pagina de emissoes em
+# 20/08/2026. A mensal da ~3,5 px: nao e confortavel, mas se le -- deixa-se de
+# ver meses e passa-se a ver epocas, que e a leitura certa para 25 anos.
+#
+# PARAMETRO, e nao funcao nova: duplicar a agregacao criaria duas versoes da
+# mesma conta, e um dia elas divergiriam sem ninguem notar.
+# --------------------------------------------------------------------------
+
+def test_a_agregacao_MENSAL_tem_menos_pontos_que_a_semanal():
+    """E a razao de a pagina do historico ser mensal.
+
+    Relacao, e nao contagem cravada: vale em qualquer serie e nao envelhece a
+    cada leilao novo.
+    """
+    semanal = emissao.por_semana_por_familia(janela=None, periodo="W")
+    mensal = emissao.por_semana_por_familia(janela=None, periodo="M")
+    assert len(mensal) < len(semanal) / 3, (len(mensal), len(semanal))
+    assert len(mensal) > 100, "a serie tem 25 anos; menos que isso e recorte"
+
+
+def test_a_agregacao_MENSAL_conserva_o_total():
+    """Trocar a janela nao pode criar nem sumir com dinheiro.
+
+    O total do financeiro tem de ser o MESMO nas duas agregacoes -- se nao for,
+    alguma linha esta caindo fora do groupby.
+    """
+    familias = ["LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+    semanal = emissao.por_semana_por_familia(janela=None, periodo="W")
+    mensal = emissao.por_semana_por_familia(janela=None, periodo="M")
+    for f in familias:
+        if f not in semanal.columns:
+            continue
+        assert mensal[f].sum() == pytest.approx(semanal[f].sum(), rel=1e-9), f
+
+
+def test_o_financeiro_por_papel_tambem_agrega_por_MES():
+    semanal = emissao.financeiro_semanal_por_papel(janela=None, periodo="W")
+    mensal = emissao.financeiro_semanal_por_papel(janela=None, periodo="M")
+    assert len(mensal) < len(semanal) / 3
+    assert "LFT" in mensal.columns, "este e o grafico que leva a LFT"
+    assert mensal["LFT"].sum() == pytest.approx(semanal["LFT"].sum(), rel=1e-9)
+
+
+def test_o_ROTULO_DO_EIXO_acompanha_o_periodo():
+    """"R$ bilhoes aceitos na semana" numa pagina mensal e legenda mentindo.
+
+    E o mesmo defeito do mutante dos 12 meses: texto literal prometendo uma
+    coisa e dado sendo outra. So que aqui no eixo, que e onde mais se acredita.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    for periodo, palavra in (("W", "semana"), ("M", "m\u00eas")):
+        dados = emissao.financeiro_semanal_por_papel(janela=1, periodo=periodo)
+        fig, ax = plt.subplots()
+        emissao.desenha_empilhado(dados, ax, periodo=periodo)
+        rotulo = ax.yaxis.label.get_text()
+        plt.close(fig)
+        assert palavra in rotulo, (periodo, rotulo)
+
+
+# --------------------------------------------------------------------------
+# A PAGINA DO HISTORICO COMPLETO, pedida por ela em 09/09/2026.
+#
+# "todos os graficos da parte 'por semana', de venda e compra, com segunda
+# volta, para o prazo maximo possivel. pode ser uma pagina nova, para nao
+# atrapalhar as outras."
+#
+# PAGINA PROPRIA e a decisao certa, e a razao esta medida: a janela "completa"
+# foi CORTADA da pagina de emissoes em 20/08/2026 porque custava 5,9 MB dos
+# 9,67 dela. Isolada, com quatro graficos e agregacao mensal, ela custa 0,92 MB
+# -- e nao encosta na pagina que ja existe.
+#
+# E MENSAL, e nao semanal, tambem por medicao: 1.287 barras semanais em 1.100
+# px sao menos de um pixel cada. Foi sugestao dela quando eu disse que os
+# semanais nao se leriam nessa distancia.
+# --------------------------------------------------------------------------
+
+def test_a_pagina_do_historico_tem_OS_QUATRO_graficos_na_ordem():
+    """Os mesmos quatro do grupo "Por semana", em versao mensal."""
+    nomes = [g.id for g in painel_emissoes.registro_historico()]
+    assert nomes == [
+        "historico_mensal",
+        "historico_acumulado_dv_12m",
+        "historico_empilhado",
+        "historico_acumulado_financeiro_12m",
+    ], nomes
+
+
+def test_a_pagina_do_historico_e_VENDA_E_COMPRA_com_segunda_volta():
+    """A combinacao que ela pediu, e a unica desta pagina.
+
+    Le a NOTA, que e o que o leitor ve -- se alguem trocar a combinacao e
+    esquecer a nota, a pagina passa a mentir e este teste cai.
+    """
+    notas = [g.nota for g in painel_emissoes.registro_historico()]
+    assert notas, "a pagina ficou sem grafico"
+    assert any("compra" in n for n in notas), notas
+    assert any("2\u00aa volta" in n for n in notas), notas
+
+
+def test_os_graficos_do_historico_dizem_que_sao_MENSAIS():
+    """Rotulo que nao acompanha o dado e o defeito que esta pagina mais corre
+    risco de ter: ela e a unica mensal do projeto."""
+    for g in painel_emissoes.registro_historico():
+        assert "semana" not in g.titulo.lower(), g.titulo
+
+
+def test_a_pagina_do_historico_usa_UMA_janela_so():
+    """A janela e o prazo maximo. Oferecer "20 leiloes" aqui seria repetir, mal,
+    a pagina que ja existe."""
+    assert painel_emissoes.JANELAS_DO_HISTORICO == [("completa", None)]
+
+
+def test_a_pagina_do_historico_GRAVA_e_esta_na_barra(tmp_path):
+    destino = tmp_path / painel_emissoes.ARQUIVO_HISTORICO
+    escrito = painel_emissoes.grava_historico(destino)
+    html = escrito.read_text(encoding="utf-8")
+    assert len(html) > 100_000, "a pagina saiu vazia demais para ter grafico"
+    # As irmas continuam alcancaveis a partir dela. A TUPLA E
+    # (com_compra, com_2a, arquivo, rotulo) -- desempacotar na ordem errada faz
+    # o teste procurar href="False" e acusar a pagina por erro proprio.
+    for _, _, arquivo, _ in painel_emissoes.COMBINACOES:
+        assert f'href="{arquivo}"' in html, arquivo
+
+
+def test_a_pagina_do_historico_cabe_no_limiar_de_dez_megabytes(tmp_path):
+    """Medido antes de construir: 0,92 MB nos quatro SVG. O limiar da spec e
+    10 MB por pagina, e esta e a unica que desenha 25 anos."""
+    destino = tmp_path / painel_emissoes.ARQUIVO_HISTORICO
+    escrito = painel_emissoes.grava_historico(destino)
+    mb = escrito.stat().st_size / 1048576
+    assert mb < 10, f"{mb:.2f} MB"
+
+
+def test_a_largura_da_barra_MENSAL_nao_fica_estrangulada_pelo_teto():
+    """O teto de 5 dias serve ao diario e ao semanal, e nao ao mensal.
+
+    ACHADO OLHANDO O DESENHO, e nao por teste: a pagina do historico saiu com
+    barras finas e vaos largos. _largura devolve
+    max(0,8, min(espacamento * 0,75, TETO)) -- com espacamento mensal de ~30
+    dias, 0,75 daria ~22 e o teto de 5 cortava para um sexto do vao. O
+    resultado lia como rendilhado, e a composicao por papel (que e o assunto do
+    grafico empilhado) desaparecia.
+
+    O TETO CONTINUA EXISTINDO, e continua em 5 por padrao: ele impede que um
+    trecho de serie esparsa vire bloco. O que muda e poder afrouxa-lo onde o
+    espacamento e regular e conhecido.
+    """
+    import pandas as pd
+
+    mensal = pd.date_range("2001-01-01", "2026-09-01", freq="MS")
+    semanal = pd.date_range("2024-01-01", "2026-09-01", freq="W")
+
+    # O PADRAO NAO MUDA -- as paginas que ja existem tem de sair identicas.
+    assert emissao._largura(semanal) == 5.0
+    assert emissao._largura(mensal) == 5.0
+
+    # E com o teto afrouxado a barra mensal ocupa a maior parte do vao.
+    larga = emissao._largura(mensal, maximo=emissao.TETO_MENSAL)
+    assert larga > 20, larga
+    espacamento = (mensal.max() - mensal.min()).days / (len(mensal) - 1)
+    assert larga < espacamento, "barra mais larga que o vao encavala as vizinhas"
+
+
+def test_o_grafico_MENSAL_do_historico_usa_o_teto_afrouxado():
+    """Nao basta a funcao aceitar o parametro: a pagina tem de passa-lo.
+
+    Sem isto o defeito continuaria na tela e o teste acima passaria feliz --
+    exatamente o vao que a conferencia dos 12 meses achou por mutacao.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    d = {g.id: g for g in painel_emissoes.registro_historico()}
+    # OS DOIS graficos de barra da pagina, e nao so um: o empilhado e o de
+    # dois eixos desenham por caminhos diferentes, e consertar um so deixaria
+    # metade da pagina rendilhada.
+    for nome in ("historico_empilhado", "historico_mensal"):
+        fig = d[nome].figura(None)
+        larguras = [p.get_width() for ax in fig.axes for p in ax.patches]
+        plt.close(fig)
+        assert larguras, f"{nome} saiu sem barra nenhuma"
+        assert max(larguras) > 20, (
+            f"{nome}: barras estranguladas, maior largura {max(larguras)}")

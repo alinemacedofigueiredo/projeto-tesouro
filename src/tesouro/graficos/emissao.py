@@ -50,6 +50,30 @@ RECORTES = {
     "tudo": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa", "LFT"),
 }
 
+# EM QUE PERIODO A SERIE E SOMADA. "W" e o de sempre; "M" entrou em
+# 09/09/2026 para a pagina do historico completo.
+#
+# A ESCOLHA E DE LEGIBILIDADE, MEDIDA. A serie tem 25,7 anos (02/01/2001 em
+# diante): por semana sao 1.287 barras, que numa figura de ~1.100 px dao menos
+# de um pixel cada -- e o borrao que fez a janela "completa" ser cortada da
+# pagina de emissoes em 20/08/2026. Por mes sao 309, cerca de 3,5 px cada:
+# deixa-se de ver meses e passa-se a ver epocas, que e a leitura certa nessa
+# distancia.
+#
+# O ROTULO ANDA JUNTO DO DADO. Eixo dizendo "na semana" num grafico mensal e o
+# mesmo defeito de um titulo prometendo 12 meses com dado de 3: texto literal
+# descolado da conta, que ninguem confere porque parece decoracao.
+_PALAVRA_DO_PERIODO = {"W": "semana", "M": "m\u00eas"}
+
+
+def _por_periodo(datas, periodo="W"):
+    """A coluna de agrupamento, no periodo pedido."""
+    if periodo not in _PALAVRA_DO_PERIODO:
+        raise LookupError(
+            f"periodo '{periodo}' nao existe: {sorted(_PALAVRA_DO_PERIODO)}.")
+    return datas.dt.to_period(periodo).dt.start_time
+
+
 _COR_FINANCEIRO = "#3d9be9"
 _COR_DV = "#c00000"
 
@@ -159,26 +183,27 @@ def por_dia(recorte, janela=None, com_compra=False, com_segunda_volta=True):
     return estilo.recorta(saida, janela)
 
 
-def por_semana(janela=None, com_compra=False, com_segunda_volta=True):
-    """Financeiro e DV somados por SEMANA, sem a LFT.
+def por_semana(janela=None, com_compra=False, com_segunda_volta=True,
+               periodo="W"):
+    """Financeiro e DV somados por SEMANA -- ou por mes, com periodo="M".
 
     Sem a LFT porque o grafico tem os dois eixos e ela so tem um dos dois numeros --
     inclui-la faria o financeiro e o DV falarem de conjuntos diferentes de papel.
     """
     d = _base(com_compra, com_segunda_volta)
     d = d[d["familia"] != "LFT"]
-    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+    semana = _por_periodo(d["data_leilao"], periodo)
     saida = d.groupby(semana).agg(
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         dv_milhoes=("dv_milhoes", "sum"),
         estagio=("estagio", _menos_firme),
     )
-    saida.index.name = "semana"
+    saida.index.name = _PALAVRA_DO_PERIODO[periodo]
     return estilo.recorta(saida, janela)
 
 
 def por_semana_por_familia(janela=None, com_compra=False,
-                           com_segunda_volta=True):
+                           com_segunda_volta=True, periodo="W"):
     """A soma da semana, com o financeiro aberto por familia. Sem LFT.
 
     Sem a LFT pelo mesmo motivo de por_semana(): o grafico tem dois eixos e ela so
@@ -187,7 +212,7 @@ def por_semana_por_familia(janela=None, com_compra=False,
     """
     d = _base(com_compra, com_segunda_volta)
     d = d[d["familia"] != "LFT"]
-    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+    semana = _por_periodo(d["data_leilao"], periodo)
 
     piv = d.pivot_table(index=semana, columns="familia",
                         values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
@@ -203,21 +228,21 @@ def por_semana_por_familia(janela=None, com_compra=False,
         estagio=("estagio", _menos_firme),
     )
     saida = piv.join(resto)
-    saida.index.name = "semana"
+    saida.index.name = _PALAVRA_DO_PERIODO[periodo]
     return estilo.recorta(saida, janela)
 
 
 def financeiro_semanal_por_papel(janela=None, com_compra=False,
-                                 com_segunda_volta=True):
+                                 com_segunda_volta=True, periodo="W"):
     """Financeiro por semana, uma coluna por familia -- para a barra empilhada.
 
     Aqui a LFT ENTRA: e um grafico de financeiro so, e ela e mais da metade dele.
     """
     d = _base(com_compra, com_segunda_volta)
-    semana = d["data_leilao"].dt.to_period("W").dt.start_time
+    semana = _por_periodo(d["data_leilao"], periodo)
     piv = d.pivot_table(index=semana, columns="familia",
                         values="financeiro_milhoes", aggfunc="sum").fillna(0.0)
-    piv.index.name = "semana"
+    piv.index.name = _PALAVRA_DO_PERIODO[periodo]
     for familia in ORDEM_FAMILIAS:
         if familia not in piv.columns:
             piv[familia] = 0.0
@@ -550,12 +575,28 @@ def _legenda_dos_estagios(estagios):
     return marcas
 
 
-def _largura(indice):
+# TETO DA LARGURA DA BARRA, em dias.
+#
+# O de sempre e 5: com serie diaria ou semanal, uma barra mais larga que isso
+# vira bloco assim que um trecho fica esparso -- e o espacamento MEDIO, que e o
+# que a conta usa, superestima o espacamento LOCAL nesses trechos.
+#
+# O MENSAL PRECISA DE OUTRO, e o defeito apareceu olhando o desenho: com
+# espacamento de ~30 dias, 0,75 dele daria ~22, e o teto de 5 cortava para um
+# sexto do vao. A pagina do historico saia como rendilhado, e a composicao por
+# papel -- que e o assunto do grafico empilhado -- sumia. Aqui o espacamento e
+# regular por construcao (um ponto por mes), entao o risco que o teto de 5
+# existe para evitar nao se aplica.
+TETO_DIARIO = 5.0
+TETO_MENSAL = 22.0
+
+
+def _largura(indice, maximo=TETO_DIARIO):
     """Largura da barra em dias, para o eixo de datas nao virar um borrao."""
     if len(indice) < 2:
         return 3.0
     dias = (indice.max() - indice.min()).days / max(len(indice) - 1, 1)
-    return max(0.8, min(dias * 0.75, 5.0))
+    return max(0.8, min(dias * 0.75, maximo))
 
 
 def _alinha_zeros(esquerda, direita, dados_esq, dados_dir):
@@ -756,7 +797,8 @@ def _grade(ax, eixo="y"):
         ax.grid(axis="x", which="major", alpha=0.14, lw=0.6)
 
 
-def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
+def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None,
+                                 periodo="W"):
     """Como desenha_dois_eixos, mas com a barra ABERTA POR FAMILIA de papel.
 
     A barra somada de "LTN + NTN-F" esconde qual dos dois moveu o dia, e eles tem
@@ -765,7 +807,8 @@ def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None):
     risco do dia e um so.
     """
     familias = familias or [f for f in ORDEM_FAMILIAS if f in dados.columns]
-    largura = _largura(dados.index)
+    largura = _largura(dados.index,
+                       TETO_MENSAL if periodo == "M" else TETO_DIARIO)
     estagios = _estagios(dados)
 
     base = pd.Series(0.0, index=dados.index)
@@ -910,9 +953,10 @@ def desenha_lft(dados, ax, meses_da_media=3):
               bbox_to_anchor=(0.5, -0.10))
 
 
-def desenha_empilhado(dados, ax):
-    """Financeiro da semana, empilhado por familia de papel."""
-    largura = _largura(dados.index)
+def desenha_empilhado(dados, ax, periodo="W"):
+    """Financeiro do periodo, empilhado por familia de papel."""
+    largura = _largura(dados.index,
+                       TETO_MENSAL if periodo == "M" else TETO_DIARIO)
     estagios = _estagios(dados)
     base = pd.Series(0.0, index=dados.index)
     for familia in ORDEM_FAMILIAS:
@@ -921,7 +965,9 @@ def desenha_empilhado(dados, ax):
                **_aparencia(estagios, estilo.COR[_COR_FAMILIA[familia]], 1.0))
         base = base + altura
 
-    ax.set_ylabel("R$ bilh\u00f5es aceitos na semana")
+    ax.set_ylabel(
+        f"R$ bilh\u00f5es aceitos {'na' if periodo == 'W' else 'no'} "
+        f"{_PALAVRA_DO_PERIODO[periodo]}")
     ax.axhline(0, color="gray", lw=0.8)
     _marca_pontos(ax, dados.index, base, lambda v: estilo.num_br(v, 2),
                   "#333333", deslocamento=(-6, 8))
