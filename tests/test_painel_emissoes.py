@@ -1467,9 +1467,21 @@ def test_os_anuais_NAO_ESCREVEM_numero_solto_sobre_as_barras():
         assert textos == [], (nome, textos)
 
 
-def test_os_MENSAIS_continuam_com_a_marca():
-    """Nao foi para tirar de todo lado: la sao centenas de barras finas, e o
-    ultimo valor e o que se foi ver."""
+def test_o_EMPILHADO_POR_PAPEL_nao_escreve_numero_solto():
+    """Ela pediu em 10/09/2026: "no grafico financeiro da semana por papel tem
+    uns numeros no meio do grafico, tira eles".
+
+    _marca_pontos escreve o valor do ULTIMO ponto e dos extremos. Numa barra
+    EMPILHADA o topo e a soma das faixas, entao o numero cai no meio do desenho
+    e sem dizer a que se refere -- nao e o valor de nenhuma faixa, e o eixo ja
+    da a escala.
+
+    SAI DA SEMANA E DO MES: e o mesmo grafico desenhado em dois periodos.
+    Manter num e nao no outro seria arbitrario, e ninguem lembraria por que.
+
+    Ate 09/09 havia aqui um teste exigindo o contrario para o mensal -- eu
+    tinha lido a remocao no anual como "so no anual". Ela corrigiu.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -1478,7 +1490,31 @@ def test_os_MENSAIS_continuam_com_a_marca():
     fig = d["historico_empilhado"].figura(None)
     textos = [t.get_text() for ax in fig.axes for t in ax.texts]
     plt.close(fig)
-    assert textos, "o mensal perdeu a marca junto, e nao era para perder"
+    assert textos == [], ("o empilhado mensal ainda escreve numero", textos)
+
+    # E o semanal, que e o que ela viu.
+    porgrupo = {g.id: g for g in painel_emissoes.registro()}
+    fig = porgrupo["emissao_empilhado"].figura(1)
+    textos = [t.get_text() for ax in fig.axes for t in ax.texts]
+    plt.close(fig)
+    assert textos == [], ("o empilhado semanal ainda escreve numero", textos)
+
+
+def test_o_grafico_de_DOIS_EIXOS_continua_com_a_marca():
+    """Nao foi para tirar de todo lado.
+
+    No de dois eixos o numero diz qual e o valor da LINHA de DV no ultimo
+    ponto -- ali ele identifica uma serie, e nao uma soma anonima de faixas.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    porgrupo = {g.id: g for g in painel_emissoes.registro()}
+    fig = porgrupo["emissao_semanal"].figura(1)
+    textos = [t.get_text() for ax in fig.axes for t in ax.texts]
+    plt.close(fig)
+    assert textos, "o de dois eixos perdeu a marca junto, e nao era para perder"
 
 
 def test_a_pagina_do_historico_tem_a_janela_de_2014():

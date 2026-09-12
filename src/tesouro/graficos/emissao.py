@@ -1085,16 +1085,21 @@ def desenha_empilhado(dados, ax, periodo="W", familias=None, unidade=None,
         f"R$ bilh\u00f5es aceitos {'na' if periodo == 'W' else 'no'} "
         f"{_PALAVRA_DO_PERIODO[periodo]}"))
     ax.axhline(0, color="gray", lw=0.8)
-    # SEM NUMERO SOLTO NO ANUAL. _marca_pontos escreve o ULTIMO ponto e os
-    # extremos: nos graficos de dia e de semana isso ajuda, porque sao centenas
-    # de barras finas e o ultimo valor e o que se foi ver. No anual sao 26
-    # barras com o eixo legivel -- e o "ultimo ponto" e justamente o ano
-    # PARCIAL, que e o numero que menos se quer destacado. Ela apontou o 1.236
-    # e perguntou o que ele marcava; marcava 2026, que ainda nao acabou.
-    if periodo != "Y":
-        _marca_pontos(ax, dados.index, base,
-                      lambda v: estilo.num_br(v, casas), "#333333",
-                      deslocamento=(-6, 8))
+    # SEM NUMERO SOLTO NESTE GRAFICO, em periodo nenhum.
+    #
+    # _marca_pontos escreve o valor do ULTIMO ponto e dos extremos. Numa barra
+    # EMPILHADA o topo e a soma das faixas -- entao o numero cai no meio do
+    # desenho e nao diz a que se refere: nao e o valor de nenhuma faixa, e o
+    # eixo ja da a escala.
+    #
+    # Ela pediu duas vezes, e a segunda corrigiu a minha leitura da primeira.
+    # Em 09/09 apontou o "1.236" do anual e eu tirei SO do anual, lendo que o
+    # problema era o ano parcial. Em 10/09 apontou o mesmo numero no semanal:
+    # o problema era a barra empilhada, e nao o periodo.
+    #
+    # No grafico de DOIS EIXOS a marca fica, e ali ela ganha o sustento: o
+    # numero identifica o ultimo ponto da LINHA de DV, que e uma serie, e nao
+    # uma soma anonima de faixas.
     _grade(ax)
     if periodo == "Y":
         _eixo_anual(ax, dados.index, ate)
