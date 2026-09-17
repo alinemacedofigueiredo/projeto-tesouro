@@ -39,13 +39,43 @@ programa que espera resposta onde não há ninguém trava calado.
 
 | modo | quando | o que baixa | o que regrava | tempo medido |
 |---|---|---|---|---|
-| `leiloes` | terça e quinta, depois do resultado sair | resultados dos leilões (API) | paf, emissões, agenda | **135 s** |
-| `rmd` | uma vez por mês, quando sai o RMD | o anexo do mês | todas as páginas | **171 s** |
-| `paf` | quando o Tesouro revisa a banda | nada | dashboard e paf | **69 s** |
-| `tudo` | quando você não tem certeza | as três fontes | todas as páginas | **191 s** |
+| `leiloes` | terça e quinta, depois do resultado sair | resultados dos leilões (API) | paf, emissões, agenda | **173 s** |
+| `rmd` | uma vez por mês, quando sai o RMD | o anexo do mês | todas as páginas | ~171 s |
+| `paf` | quando o Tesouro revisa a banda | nada | dashboard e paf | ~69 s |
+| `tudo` | quando você não tem certeza | as três fontes | todas as páginas | ~191 s |
 
-Medidos em 09/09/2026 nesta máquina. Os três últimos com `--sem-coleta`; o de
-leilões com coleta de verdade.
+O de leilões foi medido em 17/09/2026 com coleta de verdade. Os outros três são
+de 09/09 com `--sem-coleta`, e subiram um pouco desde então — a página do
+histórico entrou no meio.
+
+**Mas o modo `leilões` te dá um número muito antes dos 173 s:** ver a fase
+rápida, logo abaixo.
+
+## A fase rápida do modo leilões
+
+Assim que os resultados chegam, o modo `leilões` grava a `emissoes.html`
+**com a janela de 20 leilões apenas** e avisa no log:
+
+```
+=== PAGINA RAPIDA PRONTA: ...\data\processed\emissoes.html
+=== e a janela de 20 leiloes. O e-mail do dia ja pode sair;
+    as demais paginas continuam sendo geradas.
+```
+
+**Isso sai em ~30 s**, contra os 173 s do modo inteiro. A partir daí o programa
+segue sozinho: regrava a mesma `emissoes.html` com as cinco janelas, depois as
+duas variantes, a página do PAF e a agenda.
+
+**É o mesmo arquivo.** Quem abrir durante a fase 2 pega a versão de uma janela;
+quem abrir depois pega a completa. As duas dizem no cabeçalho de quando são.
+
+**Antes de mandar o e-mail, confira o cabeçalho da página.** Se ele não mudou,
+a atualização não atualizou e você estaria anunciando o leilão de ontem.
+
+O projeto **não manda e-mail**. Há uma receita comentada em `pipeline.py`, junto
+da fase rápida, com as três coisas que precisam ser decididas antes de ligar
+isso: qual servidor SMTP, de quem para quem, e se a página vai anexada (1,05 MB)
+ou como link.
 
 **A economia de tempo é modesta, e isso está dito de propósito.** O que os modos
 entregam de fato é outra coisa: não tocar na Bloomberg quando ela não é
@@ -85,9 +115,11 @@ novo com Enter em branco nas duas perguntas.
 ### Houve leilão
 
 1. rode o comando e escolha `2` (leiloes)
-2. espere o `concluido.`
-3. abra `data/processed/paf.html` e confira o cabeçalho: ele diz **qual foi o
-   último leilão puxado e quando liquidou**
+2. em ~30 s aparece o aviso da **página rápida** — a `emissoes.html` com a
+   janela de 20 leilões já está gravada, e o e-mail do dia pode sair
+3. **confira o cabeçalho antes de mandar**: ele diz qual foi o último leilão
+   puxado e quando liquidou
+4. deixe o programa seguir; ele regrava tudo sozinho e termina com `concluido.`
 
 As linhas que entraram pela API e ainda não estão na planilha do Tesouro
 aparecem **com hachura** nos gráficos de emissão. Elas somem sozinhas quando a
