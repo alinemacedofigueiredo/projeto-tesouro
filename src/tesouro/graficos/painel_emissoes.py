@@ -580,6 +580,28 @@ def grava_historico(caminho=None):
         extras=None, familia=None)
 
 
+def grava_rapida(caminho=None):
+    """A emissoes.html com UMA janela so -- a de 20 leiloes.
+
+    IDEIA DELA em 17/09/2026: "talvez possamos rodar primeiro um 'modo rapido'
+    dos leiloes, que roda a janela de 20 leiloes primeiro.. e depois chama o
+    resto. porque ai ja e possivel disparar um email rapido".
+
+    MEDIDO antes de desenhar: uma janela leva 6,1 s e sai com 1,05 MB; as cinco
+    levam ~58 s e 7,28 MB. O modo leiloes inteiro leva 203 s, e a pagina do PAF
+    sozinha 45 s -- por isso esta fase vem antes dela.
+
+    MESMO ARQUIVO da versao completa, de proposito. A fase 2 substitui esta
+    pela de cinco janelas; quem abrir no meio pega a de uma, quem abrir depois
+    pega a cheia, e as duas dizem no cabecalho de quando sao. Uma pagina nova
+    so para isto seria mais uma coisa para alguem manter atualizada.
+
+    E a combinacao e a PADRAO -- so venda, com 2a volta -- que e a que responde
+    "quanto saiu hoje". As outras duas ficam para a fase 2.
+    """
+    return grava(caminho, [JANELAS[0]], com_compra=False, com_2a=True)
+
+
 def grava_todas(recortes=None):
     """Grava as tres combinacoes. Devolve a lista de caminhos."""
     return [grava(None, recortes, com_compra, com_2a)

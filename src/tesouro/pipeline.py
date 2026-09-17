@@ -55,7 +55,7 @@ PASSOS_DO_MODO = {
     "rmd": ("coleta_rmd", "parse_rmd", "dv", "figuras",
             "dashboard", "emissoes", "paf", "agenda"),
     "leiloes": ("coleta_leiloes", "parse_leiloes", "leiloes_dv",
-                "emissoes", "paf", "agenda"),
+                "emissoes_rapida", "emissoes", "paf", "agenda"),
     # A banda do PAF entra A MAO: ela le o informe do Tesouro e edita
     # referencia/paf_bandas.csv. Nao ha o que baixar. O que ha e conferir o
     # arquivo ANTES de desenhar, porque banda quebrada nao pode virar grafico
@@ -356,6 +356,50 @@ def main(argumentos=None):
             for caminho in dashboard.grava_o_rmd():
                 print(f"dashboard gravado em {caminho}")
         from .graficos import painel_emissoes
+        # A FASE RAPIDA VEM PRIMEIRO, e antes da pagina do PAF. Ver
+        # painel_emissoes.grava_rapida: uma janela em 6 s contra 58 das cinco,
+        # e a do PAF custa 45 s dos 203 do modo. O aviso abaixo E O PRODUTO
+        # desta fase -- e por ele que ela sabe que o e-mail do dia pode sair.
+        #
+        # ----------------------------------------------------------------
+        # RECEITA DO E-MAIL, NAO E CODIGO. Nao rode isto como esta.
+        #
+        # O projeto NAO manda e-mail, e ligar isto depende de decisoes dela que
+        # ainda nao foram tomadas:
+        #
+        #   1. qual servidor SMTP do banco, e se ele exige autenticacao;
+        #   2. de que endereco sai e para quem vai;
+        #   3. se a pagina vai ANEXADA (1,05 MB) ou como LINK para a pasta de
+        #      rede -- anexo de 1 MB por leilao enche caixa postal.
+        #
+        # O esqueleto, para quando essas tres estiverem respondidas:
+        #
+        #   import smtplib
+        #   from email.message import EmailMessage
+        #   msg = EmailMessage()
+        #   msg["Subject"] = f"Leilao de {hoje:%d/%m} -- emissoes"
+        #   msg["From"], msg["To"] = REMETENTE, DESTINATARIOS
+        #   msg.set_content("A pagina esta em " + str(rapida))
+        #   with smtplib.SMTP(SERVIDOR) as smtp:
+        #       smtp.send_message(msg)
+        #
+        # DUAS ADVERTENCIAS que valem mais que o esqueleto:
+        #
+        #   - manda-se e-mail DEPOIS de conferir que a pagina saiu certa. O
+        #     cabecalho dela diz qual foi o ultimo leilao; se ele nao mudou, a
+        #     atualizacao nao atualizou e o e-mail estaria anunciando o dado de
+        #     ontem.
+        #   - falha de e-mail NAO pode derrubar o pipeline. Ela entra em
+        #     'falhas', como a Bloomberg e a agenda, e as paginas seguem sendo
+        #     gravadas.
+        # ----------------------------------------------------------------
+        if "emissoes_rapida" in passos:
+            rapida = painel_emissoes.grava_rapida()
+            print()
+            print("=== PAGINA RAPIDA PRONTA: %s" % rapida)
+            print("=== e a janela de 20 leiloes. O e-mail do dia ja pode "
+                  "sair; as demais paginas continuam sendo geradas.")
+            print()
         if "emissoes" in passos:
             painel_emissoes.grava_todas()
         # Os nomes saem das tabelas do painel, e nao do retorno da funcao: o

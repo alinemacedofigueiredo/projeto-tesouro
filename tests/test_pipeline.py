@@ -708,3 +708,82 @@ def test_o_log_cita_TODAS_as_paginas_de_emissao(monkeypatch, capsys):
         assert arquivo in saida, arquivo
     assert painel_emissoes.ARQUIVO_HISTORICO in saida, (
         "a pagina do historico foi gravada sem aparecer no log")
+
+
+# --------------------------------------------------------------------------
+# A FASE RAPIDA DO MODO LEILOES, ideia dela em 17/09/2026:
+#
+#   "talvez possamos rodar primeiro um 'modo rapido' dos leiloes, que roda a
+#    janela de 20 leiloes primeiro.. e depois chama o resto. porque ai ja e
+#    possivel disparar um email rapido com a janela de 20 leiloes"
+#
+# MEDIDO antes de desenhar: a emissoes.html com UMA janela leva 6,1 s e sai com
+# 1,05 MB; com as cinco leva ~58 s e 7,28 MB. O modo inteiro leva 203 s.
+#
+# MESMO ARQUIVO, e nao uma pagina nova: a fase 2 substitui a rapida pela
+# completa. Quem abrir no meio pega a de uma janela, quem abrir depois pega a
+# cheia, e as duas dizem no cabecalho de quando sao.
+# --------------------------------------------------------------------------
+
+def test_o_modo_LEILOES_grava_a_emissoes_DUAS_VEZES(monkeypatch):
+    """Uma rapida e uma completa -- e a rapida vem primeiro, senao nao serve."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_emissoes
+
+    def rapida(*a, **k):
+        chamadas.append("tesouro.graficos.painel_emissoes.grava_rapida")
+    monkeypatch.setattr(painel_emissoes, "grava_rapida", rapida)
+
+    pipeline.main(["--modo", "leiloes"])
+    rap = "tesouro.graficos.painel_emissoes.grava_rapida"
+    completa = "tesouro.graficos.painel_emissoes.grava_todas"
+    assert rap in chamadas, chamadas
+    assert completa in chamadas, chamadas
+    assert chamadas.index(rap) < chamadas.index(completa)
+
+
+def test_a_fase_rapida_vem_ANTES_da_pagina_do_PAF(monkeypatch):
+    """A do PAF custa 45 s dos 203. Se a rapida sair depois dela, o e-mail
+    espera o que ele existe para nao esperar."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_emissoes
+    monkeypatch.setattr(painel_emissoes, "grava_rapida",
+                        lambda *a, **k: chamadas.append("RAPIDA"))
+
+    pipeline.main(["--modo", "leiloes"])
+    assert chamadas.index("RAPIDA") < chamadas.index(
+        "tesouro.graficos.painel_paf.grava")
+
+
+def test_o_modo_TUDO_nao_faz_fase_rapida(monkeypatch):
+    """O 'tudo' e o modo de quem nao tem pressa. Fase rapida ali seria gerar a
+    mesma pagina tres vezes."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_emissoes
+    monkeypatch.setattr(painel_emissoes, "grava_rapida",
+                        lambda *a, **k: chamadas.append("RAPIDA"))
+
+    pipeline.main(["--modo", "tudo"])
+    assert "RAPIDA" not in chamadas, chamadas
+
+
+def test_o_log_AVISA_que_a_pagina_rapida_esta_pronta(monkeypatch, capsys):
+    """O aviso E o produto desta fase: e por ele que ela sabe que pode mandar
+    o e-mail. Sem linha achavel no log, a fase rapida nao serve para nada."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_emissoes
+    monkeypatch.setattr(painel_emissoes, "grava_rapida",
+                        lambda *a, **k: __import__("pathlib").Path("x.html"))
+
+    pipeline.main(["--modo", "leiloes"])
+    saida = capsys.readouterr().out
+    assert "RAPIDA" in saida.upper(), saida[-500:]
+    assert "20 leil" in saida, saida[-500:]
