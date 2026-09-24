@@ -35,39 +35,72 @@ O menu só aparece quando o comando roda **sem argumento nenhum, num terminal de
 verdade**. Num agendador o padrão continua sendo `tudo`, como sempre foi — um
 programa que espera resposta onde não há ninguém trava calado.
 
+## A oferta do dia, antes de sair resultado
+
+**Desde 24/09/2026 o modo `leiloes` busca o edital sozinho.** Rodar de manhã,
+depois das 10h30, já traz as pernas ofertadas — elas aparecem **hachuradas**,
+que é a marca de "o resultado ainda não saiu". Quando o resultado sai, rode de
+novo: o aceito substitui o teto sozinho, pela ordem dos estágios
+(`ofertado` < `aceito` < `planilha`), e a barra fica sólida.
+
+Antes disso a oferta só entrava pela planilha digitada
+(`python -m tesouro.leilao_do_dia modelo`), um caminho manual que o pipeline
+nunca chamava. O custo disso foi medido: em 20/08/2026 o leilão tinha seis
+pernas, só as três NTN-F foram digitadas, e as três LTN — 18 milhões de títulos
+contra 3,65 milhões — ficaram fora do gráfico sem que nada avisasse.
+
+**A planilha digitada continua valendo, e continua mandando.** A taxa que você
+digita vence a emprestada. O edital automático não tem taxa publicada, então o
+DV usa a do leilão anterior daquele papel e marca a linha como `taxa_suposta` —
+o erro medido dessa suposição é de 11 bp na mediana. Se a taxa importa no dia,
+digite; se não, a barra aparece de qualquer jeito, que é melhor que não aparecer.
+
 ## Qual usar, e quanto leva
 
 | modo | quando | o que baixa | o que regrava | tempo medido |
 |---|---|---|---|---|
-| `leiloes` | terça e quinta, depois do resultado sair | resultados dos leilões (API) | paf, emissões, agenda | **173 s** |
+| `leiloes` | terça e quinta — de manhã pela oferta, de tarde pelo resultado | edital e resultados (API) | paf, emissões, agenda | **170 s** |
 | `rmd` | uma vez por mês, quando sai o RMD | o anexo do mês | todas as páginas | ~171 s |
-| `paf` | quando o Tesouro revisa a banda | nada | dashboard e paf | ~69 s |
+| `paf` | quando o Tesouro revisa a banda | nada | dashboard, paf e agenda | **97 s** |
 | `tudo` | quando você não tem certeza | as três fontes | todas as páginas | ~191 s |
 
-O de leilões foi medido em 17/09/2026 com coleta de verdade. Os outros três são
-de 09/09 com `--sem-coleta`, e subiram um pouco desde então — a página do
-histórico entrou no meio.
+O de leilões foi medido em 17/09/2026 com coleta de verdade, e o de `paf` em
+24/09/2026 (duas rodadas: 96,6 s e 98,0 s). Os outros dois são de 09/09 com
+`--sem-coleta`, e subiram um pouco desde então — a página do histórico entrou no
+meio.
+
+**A agenda passou a sair no modo `paf` em 24/09/2026.** Ela e a página do PAF
+leem o mesmo calendário publicado: uma projeta o fechamento do ano, a outra
+mostra dia a dia o que entrou nessa conta. Regravar uma sem a outra deixava as
+duas discordando na tela sem nada avisar — e a agenda é justamente onde se
+confere a projeção. Foi o que acrescentou os ~28 s.
 
 **Mas o modo `leilões` te dá um número muito antes dos 173 s:** ver a fase
 rápida, logo abaixo.
 
 ## A fase rápida do modo leilões
 
-Assim que os resultados chegam, o modo `leilões` grava a `emissoes.html`
-**com a janela de 20 leilões apenas** e avisa no log:
+Assim que os resultados chegam, o modo `leilões` grava a
+**`emissoes-rapida.html`** — a janela de 20 leilões apenas — e avisa no log:
 
 ```
-=== PAGINA RAPIDA PRONTA: ...\data\processed\emissoes.html
+=== PAGINA RAPIDA PRONTA: ...\data\processed\emissoes-rapida.html
 === e a janela de 20 leiloes. O e-mail do dia ja pode sair;
     as demais paginas continuam sendo geradas.
 ```
 
-**Isso sai em ~30 s**, contra os 173 s do modo inteiro. A partir daí o programa
-segue sozinho: regrava a mesma `emissoes.html` com as cinco janelas, depois as
-duas variantes, a página do PAF e a agenda.
+**Isso sai em ~30 s**, contra os 170 s do modo inteiro. A partir daí o programa
+segue sozinho: grava a `emissoes.html` com as cinco janelas, depois as duas
+variantes, a página do PAF e a agenda.
 
-**É o mesmo arquivo.** Quem abrir durante a fase 2 pega a versão de uma janela;
-quem abrir depois pega a completa. As duas dizem no cabeçalho de quando são.
+**Arquivo próprio, desde 24/09/2026.** Até então a fase rápida escrevia na
+própria `emissoes.html` e a fase 2 a substituía ~140 s depois — a versão de
+1 MB durava dois minutos. Como ela vira **anexo de e-mail**, precisa continuar
+existindo: 1,06 MB passa em qualquer caixa, os 7,25 MB da completa não.
+
+**São dois arquivos, e os dois ficam.** A `emissoes-rapida.html` é a de uma
+janela, leve, para anexar; a `emissoes.html` é a completa, de cinco janelas.
+As duas dizem no cabeçalho de quando são.
 
 **Antes de mandar o e-mail, confira o cabeçalho da página.** Se ele não mudou,
 a atualização não atualizou e você estaria anunciando o leilão de ontem.
@@ -115,8 +148,8 @@ novo com Enter em branco nas duas perguntas.
 ### Houve leilão
 
 1. rode o comando e escolha `2` (leiloes)
-2. em ~30 s aparece o aviso da **página rápida** — a `emissoes.html` com a
-   janela de 20 leilões já está gravada, e o e-mail do dia pode sair
+2. em ~30 s aparece o aviso da **página rápida** — a `emissoes-rapida.html`
+   com a janela de 20 leilões já está gravada, e o e-mail do dia pode sair
 3. **confira o cabeçalho antes de mandar**: ele diz qual foi o último leilão
    puxado e quando liquidou
 4. deixe o programa seguir; ele regrava tudo sozinho e termina com `concluido.`

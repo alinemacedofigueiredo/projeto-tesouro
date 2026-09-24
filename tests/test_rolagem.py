@@ -1131,3 +1131,21 @@ def test_a_simulacao_divide_pela_SOMA_DOS_FATORES_e_nao_pela_contagem():
     assert termos.fatores > termos.quantos, (
         f"fatores ({termos.fatores:.4f}) nao ficou acima de quantos "
         f"({termos.quantos}) -- a simulacao nao esta carregando")
+
+
+def test_dia_do_titulo_traduz_papel_para_dia_de_leilao():
+    # Junta os dois mapas que ja viviam aqui -- titulo -> indexador -> dia da
+    # semana -- porque o calendario precisa saber de QUE PAPEL e cada dia
+    # publicado para nao apagar o estimado dos outros.
+    assert rolagem.dia_do_titulo("LTN") == rolagem.DIA_DO_PAPEL["Prefixado"]
+    assert rolagem.dia_do_titulo("NTN-F") == rolagem.DIA_DO_PAPEL["Prefixado"]
+    assert rolagem.dia_do_titulo("NTN-B") == rolagem.DIA_DO_PAPEL[
+        "\u00cdndice Pre\u00e7os"]
+    assert rolagem.dia_do_titulo("LFT") == rolagem.DIA_DO_PAPEL[
+        "Taxa Flutuante"]
+    # Prefixado na quinta e indexado na terca -- se os dois caissem no mesmo
+    # dia, a funcao poderia estar devolvendo uma constante.
+    assert rolagem.dia_do_titulo("LTN") != rolagem.dia_do_titulo("NTN-B")
+    # Papel que nao conhecemos nao vira palpite: devolve None, e quem chama
+    # decide o que fazer com a ausencia.
+    assert rolagem.dia_do_titulo("BLT") is None

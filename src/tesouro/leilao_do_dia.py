@@ -62,6 +62,75 @@ def da_planilha_preenchida(caminho=None, refazer_graficos=True):
     return _guardar_e_desenhar(tabela, "ofertado", refazer_graficos)
 
 
+def _proximo_dia_util(quando):
+    """D+1 pelo calendario de verdade, feriado inclusive.
+
+    O caminho da PLANILHA usa D+1 pulando so o fim de semana, e o comentario de
+    la diz por que: "feriado ela corrige na propria planilha". Aqui nao ha
+    planilha nem ninguem para corrigir -- este caminho roda sozinho dentro do
+    pipeline -- entao a regra tem de estar completa no codigo.
+    """
+    from . import calendario
+
+    cal = calendario.padrao()
+    dia = pd.Timestamp(quando).normalize() + pd.Timedelta(days=1)
+    while not cal.eh_dia_util(dia.date()):
+        dia += pd.Timedelta(days=1)
+    return dia
+
+
+def tabela_do_edital(quando=None):
+    """As pernas ofertadas hoje, no esquema do leiloes.csv, ou None.
+
+    O /editais sai a partir das 10h30 e traz exatamente o que foi ofertado, por
+    benchmark. Ate 24/09/2026 so o caminho MANUAL o lia, e o pipeline nunca
+    chamava esse caminho: a oferta do dia simplesmente nao existia para os
+    graficos, e a hachura do "ofertado" nao tinha o que hachurar.
+
+    FILTRA PELO DIA. O endpoint devolve o edital vigente, que antes das 10h30
+    ainda pode ser o do leilao anterior -- gravar o que vier marcaria oferta de
+    ontem como de hoje.
+
+    Sem taxa: nada foi negociado ainda. Quem empresta a do leilao anterior e
+    leiloes_dv, no calculo do DV, e a marca 'taxa_suposta' diz quais foram.
+    """
+    quando = (pd.Timestamp(quando).normalize() if quando is not None
+              else pd.Timestamp.today().normalize())
+    registros, _ = api_leiloes.buscar("editais")
+    if not len(registros):
+        return None
+    edital = parse_api_leiloes.editais(registros)
+    do_dia = edital[edital["data_leilao"].dt.normalize() == quando]
+    if do_dia.empty:
+        return None
+    # A liquidacao nao vem no edital, e o tradutor a deixa vazia de proposito --
+    # ver parse_api_leiloes.editais.
+    return do_dia.assign(data_liquidacao=_proximo_dia_util(quando))
+
+
+def do_edital(quando=None, refazer_graficos=True):
+    """O caminho da OFERTA sem digitacao: o que o Tesouro anunciou hoje.
+
+    Nao substitui o caminho da planilha. Aquele existe porque ela sabe a taxa do
+    momento e eu nao -- e a taxa digitada continua vencendo a emprestada, pela
+    ordem de estagios. Este aqui garante que a oferta APARECA mesmo nos dias em
+    que ninguem digitou nada, que era o buraco: em 20/08/2026 tres pernas de LTN
+    ficaram fora do grafico sem que nada avisasse.
+    """
+    print("1. buscando o edital do dia na API do Tesouro...")
+    try:
+        tabela = tabela_do_edital(quando)
+    except LookupError as erro:
+        print("   o /editais nao respondeu no formato esperado: %s" % erro)
+        return 0
+    if tabela is None:
+        print("   nao ha edital para este dia -- nada a gravar.")
+        return 0
+    print("   %d perna(s) ofertada(s): %s"
+          % (len(tabela), ", ".join(sorted(set(tabela["titulo"])))))
+    return _guardar_e_desenhar(tabela, "ofertado", refazer_graficos)
+
+
 def _guardar_e_desenhar(tabela, estagio, refazer_graficos):
     """Do dado normalizado ate as paginas gravadas. Comum aos dois caminhos."""
     print("2. comparando com o historico da planilha do Tesouro...")

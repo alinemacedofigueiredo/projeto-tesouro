@@ -62,7 +62,7 @@ no total.
 **Toda página declara a própria procedência** — qual RMD, qual o último leilão
 puxado, de onde veio o calendário, e qual premissa de juros foi usada.
 
-**A suíte tem 934 testes** e cada âncora de valor foi conferida por mutação:
+**A suíte tem 956 testes** e cada âncora de valor foi conferida por mutação:
 quebrar a linha de produção que ela protege tem de deixá-la vermelha. Um teste
 que nunca fica vermelho não protege nada.
 
@@ -91,7 +91,26 @@ $env:PYTHONPATH="src"; python -m tesouro.pipeline
 
 Sem argumento, ele pergunta o que atualizar: **RMD**, **leilões**, **PAF** ou
 **tudo**. Cada modo coleta só a fonte que se moveu e regrava só as páginas que
-aquela fonte muda — de 69 a 191 segundos, conforme o caso.
+aquela fonte muda.
+
+| modo | quando | tempo medido |
+|---|---|---|
+| `leiloes` | terça e quinta — de manhã pela oferta, de tarde pelo resultado | 170 s |
+| `rmd` | uma vez por mês, quando sai o RMD | 171 s |
+| `paf` | quando o Tesouro revisa a banda | 97 s |
+| `tudo` | quando você não tem certeza | 191 s |
+
+**O modo `leilões` entrega em duas fases.** A primeira grava a página com a
+janela dos 20 últimos leilões e avisa na tela — em torno de 30 segundos, o
+bastante para o e-mail do dia sair. As outras páginas continuam sendo geradas
+depois, no mesmo comando.
+
+**A oferta do dia entra sozinha.** Rodando de manhã, depois das 10h30, o edital
+do Tesouro já traz as pernas ofertadas. Elas aparecem **hachuradas**, que
+significa *o resultado ainda não saiu*: a altura é o teto ofertado, que
+historicamente cai para 83,9% dele, e a taxa é emprestada do leilão anterior
+daquele papel (erro mediano de 11 bp), marcada como suposta. Rodando de novo
+depois do resultado, a barra vira sólida com os números de verdade.
 
 O manual de operação, com o passo a passo de cada situação e o que fazer quando
 falha, está em [`docs/como-atualizar.md`](como-atualizar.md).
@@ -100,3 +119,49 @@ falha, está em [`docs/como-atualizar.md`](como-atualizar.md).
 alto de onde veio o que mostra. Se aquele cabeçalho não mudou depois de uma
 atualização, a atualização não atualizou — por mais que o programa diga
 `concluido.`
+
+## Numa máquina nova
+
+Medido em 24/09/2026, clonando o repositório numa pasta vazia:
+
+```
+clone                    158 arquivos, 5,9 MB
+python -m venv .venv     Python 3.12
+pip install -r requirements.txt      pandas, matplotlib, openpyxl, xlrd, pytest
+import tesouro           ok
+```
+
+As cinco dependências instalam sem ajuste, e nas mesmas versões da máquina de
+origem. **O que falta é dado, e não código.**
+
+O primeiro passo numa máquina nova é [`docs/como-baixar.md`](como-baixar.md):
+sem o calendário de feriados da ANBIMA (`data/raw/anbima/feriados_nacionais.xls`)
+nem a suíte de testes roda — ela para na coleta, dizendo qual arquivo falta e de
+onde baixá-lo.
+
+As bandas do PAF e a página de detentores **vêm no repositório** (`referencia/`).
+O que não vem são os 86 MB de fonte bruta, que se reconstroem baixando.
+
+## Onde as coisas ficam
+
+```
+data/processed/*.html    as oito páginas
+data/processed/*.csv     os CSVs que as alimentam
+referencia/              o que entra a mão (bandas do PAF, detentores)
+docs/como-atualizar.md   o manual de operação
+```
+
+O código e o histórico estão no GitHub, em **repositório privado**. Os dados
+não — são 86 MB que se reconstroem a partir das fontes.
+
+## Quando uma fonte trava
+
+- **O anexo do RMD** pode precisar vir pelo navegador, quando o certificado do
+  site barra o download automático.
+- **A planilha histórica de leilões** trava no certificado do SERPRO. Não é
+  problema: o leilão novo entra pela API, e a planilha alcança dias depois.
+- **A Bloomberg precisa do terminal aberto.** Ela não entra em nenhum cálculo
+  das páginas — serve às conferências do dia a dia.
+
+Em nenhum desses casos se desliga a verificação de certificado. Aponta-se
+`SSL_CERT_FILE` para o pacote de certificados da instituição.

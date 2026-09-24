@@ -468,7 +468,19 @@ def test_o_rodape_do_calendario_PUBLICADO_tem_teste(monkeypatch):
     registros = json.loads(
         (fixtures / "calendario.json").read_text(encoding="utf-8"))["registros"]
 
-    d = banda.dados_projecao(registros=registros)
+    # HOJE FIXO. Sem isto o teste depende do relogio: a amostra congelada vai
+    # ate 29/09/2026, e a ultima QUINTA dela e 24/09. Desde 24/09/2026 a
+    # fronteira e por papel, entao a partir de 25/09 a amostra deixa de ter
+    # prefixado publicado e a fronteira vira None -- corretamente. O teste
+    # reprovava sozinho, sem ninguem ter mexido em nada.
+    #
+    # Foi o que aconteceu: a coleta do edital do dia entrou no pipeline, a
+    # liquidacao de 25/09 virou a data-base da rolagem, e este teste caiu. O
+    # assunto dele e a FRASE do rodape, e nao a data de hoje -- data movel aqui
+    # era amarra no lugar errado. O teste irmao em test_calendario_leiloes.py ja
+    # fixava o dia pelo mesmo motivo.
+    hoje = pd.Timestamp("2026-08-24")
+    d = banda.dados_projecao(registros=registros, hoje=hoje)
     html = banda.tabela(d, "t")
 
     fronteira = d.attrs["premissa"]["fronteira_do_calendario"]
