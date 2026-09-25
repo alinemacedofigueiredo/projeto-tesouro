@@ -38,7 +38,7 @@ def _anterior_util(cal, d):
     return d
 
 
-def dias_possiveis(de, ate):
+def dias_possiveis(de, ate, dias_da_semana=_DIAS_DA_SEMANA):
     """Os dias de leilao pelas regras de SEMANA e FERIADO, sem a de dezembro.
 
     SEPARADO DE dias_estimados DE PROPOSITO. A regra do fim do ano -- nada depois
@@ -56,7 +56,7 @@ def dias_possiveis(de, ate):
     de, ate = pd.Timestamp(de).normalize(), pd.Timestamp(ate).normalize()
     dias = set()
     for d in pd.date_range(de, ate, freq="D"):
-        if d.dayofweek not in _DIAS_DA_SEMANA:
+        if d.dayofweek not in dias_da_semana:
             continue
         dia = _anterior_util(cal, d)
         if dia < de:
@@ -74,7 +74,7 @@ def fora_pela_regra_do_fim_do_ano(dia):
     return dia.month == 12 and dia.day > _ULTIMO_DIA_DE_DEZEMBRO
 
 
-def dias_estimados(de, ate):
+def dias_estimados(de, ate, dias_da_semana=_DIAS_DA_SEMANA):
     """Os dias de leilao entre 'de' e 'ate', pelas regras do cabecalho.
 
     Devolve datas normalizadas e sem repeticao, em ordem. Terca e quinta caem no
@@ -84,7 +84,7 @@ def dias_estimados(de, ate):
     E os possiveis MENOS o fim do ano. Ver dias_possiveis para por que as duas
     coisas sao funcoes separadas.
     """
-    return [d for d in dias_possiveis(de, ate)
+    return [d for d in dias_possiveis(de, ate, dias_da_semana)
             if not fora_pela_regra_do_fim_do_ano(d)]
 
 
@@ -98,7 +98,7 @@ def dias_ate(ate, registros=None, hoje=None):
     'registros' e a resposta ja baixada da API. Os testes passam a amostra
     congelada, e por isso nao tocam a rede.
     """
-    from . import api_leiloes, parse_api_leiloes
+    from . import api_leiloes, parse_api_leiloes, rolagem
 
     ate = pd.Timestamp(ate).normalize()
     hoje = pd.Timestamp(hoje).normalize() if hoje is not None \
@@ -108,19 +108,53 @@ def dias_ate(ate, registros=None, hoje=None):
         registros, _ = api_leiloes.buscar("calendario")
 
     publicados = []
-    fronteira = None
+    ultimo_do_dia = {}
     if len(registros):
         agenda = parse_api_leiloes.calendario(registros)
-        datas = sorted(set(agenda["data_leilao"].dt.normalize()))
-        publicados = [d for d in datas if hoje <= d <= ate]
-        if publicados:
-            fronteira = max(publicados)
+        agenda = agenda.assign(_data=agenda["data_leilao"].dt.normalize())
+        na_janela = agenda[(agenda["_data"] >= hoje) & (agenda["_data"] <= ate)]
+        publicados = sorted(set(na_janela["_data"]))
+        for titulo, bloco in na_janela.groupby("titulo"):
+            dia = rolagem.dia_do_titulo(titulo)
+            if dia is None:
+                # Papel que nao sabemos encaixar entra como dia publicado, mas
+                # nao define fronteira de ninguem. Melhor nao afirmar do que
+                # afirmar por analogia.
+                continue
+            ate_quando = bloco["_data"].max()
+            # Dois papeis dividem a terca (NTN-B e LFT). O grupo so esta
+            # publicado ate onde os DOIS estao: o menor dos dois.
+            ultimo_do_dia[dia] = min(ultimo_do_dia.get(dia, ate_quando),
+                                     ate_quando)
 
-    # O estimado so comeca DEPOIS da fronteira -- nunca nela. dias_estimados ja
-    # descarta por conta propria qualquer dia que a antecipacao por feriado jogue
-    # para antes do inicio pedido (ver o teste de virada de janela em
-    # dias_estimados), entao a fronteira nao pode reaparecer aqui nem por
-    # coincidencia de data.
-    inicio = fronteira + pd.Timedelta(days=1) if fronteira is not None else hoje
-    estimados = [d for d in dias_estimados(inicio, ate) if d not in set(publicados)]
-    return sorted(set(publicados) | set(estimados)), fronteira
+    # UMA FRONTEIRA POR PAPEL, e nao uma global. Medido em 23/09/2026 contra o
+    # "Comunicado Cronograma 4T-2026": o Tesouro publicava o prefixado ate 17/12
+    # e a terca de LFT/NTN-B so ate 29/09. Com a fronteira global em 17/12, o
+    # estimador nunca rodava, e as 11 tercas de 06/10 a 15/12 sumiam da
+    # projecao -- 279 bi no estoque de 31/12.
+    #
+    # O calendario do Tesouro fica completo POR PAPEL, e nao por data. Supor que
+    # ele esta completo ate a ultima data publicada e o modo de falha batizado
+    # deste projeto: plausivel, e errado justamente onde a pagina diz ter mais
+    # confianca, porque ali esta rotulado PUBLICADO.
+    #
+    # O estimado de cada papel so comeca DEPOIS da fronteira dele -- nunca nela.
+    # dias_estimados ja descarta por conta propria qualquer dia que a
+    # antecipacao por feriado jogue para antes do inicio pedido (ver o teste de
+    # virada de janela em dias_estimados), entao a fronteira nao pode reaparecer
+    # aqui nem por coincidencia de data.
+    estimados = set()
+    for dia_da_semana in _DIAS_DA_SEMANA:
+        ultimo = ultimo_do_dia.get(dia_da_semana)
+        inicio = ultimo + pd.Timedelta(days=1) if ultimo is not None else hoje
+        estimados |= set(dias_estimados(inicio, ate,
+                                        dias_da_semana=(dia_da_semana,)))
+    estimados -= set(publicados)
+
+    # A FRONTEIRA DEVOLVIDA E O MENOR DOS PAPEIS: ate ali TUDO e transcricao.
+    # Depois dali ALGUM papel ja e inferencia nossa, e a pagina tem de dizer
+    # isso. Se algum papel nao tem nada publicado na janela, nao existe trecho
+    # em que tudo seja transcricao -- e a fronteira e None.
+    fronteira = (min(ultimo_do_dia.values())
+                 if len(ultimo_do_dia) == len(_DIAS_DA_SEMANA) else None)
+    return sorted(set(publicados) | estimados), fronteira

@@ -138,11 +138,18 @@ REGISTRO = [
 
 
 def _celula_taxa(r):
-    """A taxa com a idade dela, e um aviso quando ela passou dos 45 dias."""
-    quando = f"{r['taxa_de_quando']:%d/%m}"
+    """A taxa com a idade dela, e um aviso quando ela passou dos 45 dias.
+
+    A ORDEM AQUI IMPORTA. Um vertice que nunca foi a leilao nao tem taxa nem
+    data da taxa, e a guarda abaixo ja devolvia travessao para esse caso -- mas
+    a data era formatada ANTES dela, e NaT nao aceita strftime. Em 24/09/2026 o
+    calendario do 4o trimestre trouxe a LFT 01/12/2032, estreante, e a agenda
+    inteira parou de ser gravada por causa de uma celula.
+    """
     idade = int(r["taxa_dias_de_idade"]) if pd.notna(r["taxa_dias_de_idade"]) else None
     if idade is None:
         return "\u2014"
+    quando = f"{r['taxa_de_quando']:%d/%m}"
     marca = ' class="velha"' if r["taxa_velha"] else ""
     aviso = " \u26a0" if r["taxa_velha"] else ""
     return (f'<span{marca}>{estilo.num_br(r["taxa_pct"], 4)}%'
@@ -344,7 +351,11 @@ def tabela_da_expectativa(hoje=None, ate=None, registros=None):
     ate = pd.Timestamp(ate) if ate is not None \
         else pd.Timestamp(f"{hoje.year}-12-31")
 
-    contados, fronteira = calendario_leiloes.dias_ate(
+    # A fronteira nao serve para rotular linha: desde 24/09/2026 ela e a do
+    # papel MENOS publicado, e usar ela como data de corte chamaria de
+    # estimadas as quintas que o Tesouro ja publicou. A procedencia de cada
+    # dia sai de papeis_publicados, que e a lista dele.
+    contados, _ = calendario_leiloes.dias_ate(
         ate, registros=registros, hoje=hoje)
     contados = set(contados)
     possiveis = calendario_leiloes.dias_possiveis(hoje, ate)
@@ -368,7 +379,7 @@ def tabela_da_expectativa(hoje=None, ate=None, registros=None):
 
     quantos = {"publicado": 0, "estimado": 0}
     for dia in todos:
-        if dia in contados and fronteira is not None and dia <= fronteira:
+        if dia in contados and dia in papeis_publicados:
             situacao, classe = "publicado", "publicado"
             papeis = papeis_publicados.get(dia) or "\u2014"
         elif dia in contados:
@@ -400,12 +411,24 @@ def tabela_da_expectativa(hoje=None, ate=None, registros=None):
 
 
 def _papeis_por_dia(registros):
-    """Os papeis que o Tesouro listou em cada dia do calendario publicado."""
+    """Os papeis que o Tesouro listou em cada dia do calendario publicado.
+
+    O IMPORT FALTAVA, e o `except Exception` o escondia. Ate 24/09/2026 esta
+    funcao chamava parse_api_leiloes sem que o modulo jamais o importasse: o
+    NameError caia no except, virava {}, e a coluna "papeis" das linhas
+    publicadas mostrava travessao. Silencioso, porque a rotulagem da linha vinha
+    da data da fronteira e nao deste mapa -- ninguem cruzava os dois.
+
+    O except agora e LookupError, que e o que calendario() levanta quando a
+    resposta nao tem as colunas esperadas. Erro de programacao volta a estourar.
+    """
+    from .. import parse_api_leiloes
+
     if registros is not None and not len(registros):
         return {}
     try:
         d = _dados() if registros is None else parse_api_leiloes.calendario(registros)
-    except Exception:                                    # noqa: BLE001
+    except LookupError:
         return {}
     saida = {}
     for dia, g in d.groupby(d["data_leilao"].dt.normalize()):

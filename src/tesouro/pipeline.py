@@ -60,7 +60,13 @@ PASSOS_DO_MODO = {
     # referencia/paf_bandas.csv. Nao ha o que baixar. O que ha e conferir o
     # arquivo ANTES de desenhar, porque banda quebrada nao pode virar grafico
     # com banda errada (spec, secao 6).
-    "paf": ("valida_paf", "dashboard", "paf"),
+    # A AGENDA VAI JUNTO com a pagina do PAF. As duas leem o mesmo
+    # calendario publicado: a do PAF para projetar o fechamento do ano,
+    # a agenda para mostrar dia a dia o que entrou nessa conta e o que e
+    # inferencia nossa. Ate 24/09/2026 este modo regravava uma sem a
+    # outra, e as duas podiam ficar discordando na tela -- justamente na
+    # pagina onde se confere a projecao.
+    "paf": ("valida_paf", "dashboard", "paf", "agenda"),
     "tudo": ("coleta_leiloes", "coleta_rmd", "coleta_bloomberg",
              "parse_leiloes", "parse_rmd", "parse_bloomberg", "dv", "figuras",
              "leiloes_dv", "dashboard", "emissoes", "paf", "agenda"),
@@ -238,6 +244,27 @@ def main(argumentos=None):
             # refazer_graficos=False: quem redesenha e o pipeline, logo
             # abaixo, e fazer duas vezes so gastaria o dobro do tempo.
             from . import leilao_do_dia
+
+            # E O EDITAL DO DIA, ANTES DO RESULTADO. Ela pediu o modo rapido em
+            # 24/09/2026, com a oferta ja anunciada e sem resultado: a rodada
+            # saiu verde em 185 s e a oferta NAO estava na pagina. O dado dos
+            # graficos parava em 22/09, com zero linhas 'ofertado' -- a hachura
+            # que marca "resultado ainda nao saiu" nao tinha o que hachurar.
+            #
+            # O /editais tinha a oferta o tempo todo. So que quem o lia era
+            # entrada_manual, um caminho MANUAL que o pipeline nunca chamava.
+            #
+            # A ORDEM E A DO DIA: oferta de manha, resultado a tarde. E a ordem
+            # dos estagios (ofertado < aceito < planilha) garante que o aceito
+            # substitua o teto sozinho quando o resultado chegar na mesma
+            # rodada.
+            try:
+                leilao_do_dia.do_edital(refazer_graficos=False)
+            except Exception as erro:           # noqa: BLE001
+                print("AVISO: nao consegui buscar o edital do dia (%s)." % erro)
+                print("       O resultado ainda e buscado abaixo; o que se "
+                      "perde e a barra da oferta antes de ele sair.")
+
             try:
                 entraram_leiloes = (
                     leilao_do_dia.rodar(refazer_graficos=False) or 0)
@@ -446,10 +473,35 @@ def main(argumentos=None):
             print(f"agenda gravada em {caminho}")
         except _PulaAgenda:
             pass
-        except Exception as erro_da_agenda:      # noqa: BLE001
+        except (ConnectionError, TimeoutError) as erro_da_agenda:
+            # REDE FORA E ROTINA. api_leiloes traduz URLError em ConnectionError
+            # de proposito, e e so este caso que a rodada tolera em silencio:
+            # amanha a API responde e a pagina volta sozinha.
             print(f"AVISO: a agenda nao foi regravada ({erro_da_agenda}).")
             print("       As demais paginas estao em dia; a agenda ficou com o "
                   "calendario da rodada anterior.")
+        except Exception as erro_da_agenda:      # noqa: BLE001
+            # QUALQUER OUTRA COISA E DEFEITO, e defeito tem de aparecer no FIM.
+            #
+            # Ate 24/09/2026 este bloco era um 'except Exception' so, e tratava
+            # "a API nao respondeu" igual a "o nosso codigo quebrou". A agenda
+            # parou de ser gravada por um erro nosso -- um vertice de LFT
+            # estreante no calendario do 4o trimestre, 'NaTType does not support
+            # strftime' -- e a rodada saiu com codigo 0 e 'concluido.' na ultima
+            # linha. A pagina ficou com o calendario velho por rodadas, e nada
+            # acusou.
+            #
+            # E o mesmo padrao que o comentario de 'falhas', la em cima, ja
+            # descrevia para a Bloomberg: um except generico fundindo rotina com
+            # falha real sob a mesma linha neutra.
+            #
+            # A rodada CONTINUA -- as outras paginas valem, e derrubar tudo por
+            # causa do calendario seria pior. O que muda e o fim da tela.
+            mensagem = f"a agenda NAO foi regravada: {erro_da_agenda}"
+            print(f"ATENCAO: {mensagem}")
+            print("       As demais paginas estao em dia; a agenda ficou com o "
+                  "calendario da rodada anterior.")
+            falhas.append(mensagem)
     except Exception as erro:               # noqa: BLE001
         # O paf.bandas levanta de proposito quando referencia/paf_bandas.csv esta
         # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico

@@ -156,13 +156,43 @@ def test_o_estimado_nao_recalcula_a_fronteira():
     dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros, hoje=hoje)
     assert fronteira is not None
 
-    agenda = parse_api_leiloes.calendario(registros)
-    publicados = {d for d in agenda["data_leilao"].dt.normalize() if hoje <= d <= ate}
-    assert fronteira == max(publicados)
+    # ATUALIZADO EM 24/09/2026, quando a fronteira deixou de ser global. Antes
+    # daqui ia `fronteira == max(publicados)`, e era essa regra que apagava 11
+    # leiloes de terca da projecao do 4T-2026. A reconstrucao continua sendo de
+    # fora, e pelos COMPONENTES -- o que muda e a regra reconstruida.
+    from tesouro import rolagem
 
-    estimados = calendario_leiloes.dias_estimados(fronteira + pd.Timedelta(days=1), ate)
-    assert fronteira not in estimados
-    assert set(dias) == publicados | set(estimados)
+    agenda = parse_api_leiloes.calendario(registros)
+    quando = agenda["data_leilao"].dt.normalize()
+    na_janela = agenda[(quando >= hoje) & (quando <= ate)]
+    publicados = set(na_janela["data_leilao"].dt.normalize())
+
+    # O ultimo dia em que TODOS os papeis daquele dia da semana ainda estao
+    # publicados -- o menor entre eles, e nao o maior.
+    ultimo_do_dia = {}
+    for titulo, bloco in na_janela.groupby("titulo"):
+        dia = rolagem.dia_do_titulo(titulo)
+        if dia is None:
+            continue
+        ate_quando = bloco["data_leilao"].dt.normalize().max()
+        ultimo_do_dia[dia] = min(ultimo_do_dia.get(dia, ate_quando), ate_quando)
+
+    assert set(ultimo_do_dia) == set(calendario_leiloes._DIAS_DA_SEMANA), (
+        "a amostra congelada precisa ter os dois dias publicados, senao este "
+        "teste nao mede a regra do minimo")
+    assert fronteira == min(ultimo_do_dia.values())
+
+    estimados = set()
+    for dia_da_semana in calendario_leiloes._DIAS_DA_SEMANA:
+        ultimo = ultimo_do_dia.get(dia_da_semana)
+        inicio = ultimo + pd.Timedelta(days=1) if ultimo is not None else hoje
+        do_dia = calendario_leiloes.dias_estimados(
+            inicio, ate, dias_da_semana=(dia_da_semana,))
+        # A fronteira de cada papel nunca reaparece no estimado DELE.
+        assert ultimo not in do_dia
+        estimados |= set(do_dia)
+
+    assert set(dias) == publicados | estimados
 
 
 def test_fronteira_na_borda_do_ate_nao_deixa_estimado_vazar():
@@ -180,7 +210,13 @@ def test_fronteira_na_borda_do_ate_nao_deixa_estimado_vazar():
     ultimo_publicado = pd.Timestamp("2026-09-29")
     dias, ate_quando = calendario_leiloes.dias_ate(
         ultimo_publicado, registros=registros, hoje=pd.Timestamp("2026-08-24"))
-    assert ate_quando == ultimo_publicado
+    # A fronteira so precisa ser um dia publicado dentro da janela. Fixar a
+    # data EXATA aqui seria amarra no lugar errado: este teste e sobre o
+    # estimado nao vazar depois de 'ate', e nao sobre qual papel manda na
+    # fronteira -- e foi por isso que ele quebrou junto quando a regra mudou,
+    # em 24/09/2026, sem ter nada a ver com o assunto dele.
+    assert ate_quando is not None
+    assert ate_quando <= ultimo_publicado
     assert max(dias) == ultimo_publicado
     assert dias.count(ultimo_publicado) == 1
 
@@ -286,3 +322,117 @@ def test_dias_possiveis_respeita_semana_e_feriado():
         assert all(not cal.eh_dia_util(x.date()) for x in pulados), (
             f"{d:%d/%m/%Y} nao e a terca/quinta {original:%d/%m/%Y} nem o dia "
             f"util anterior a ela: ha dia util no meio")
+
+
+def _calendario_parcial():
+    """A forma REAL da API em 23/09/2026, medida contra o PDF do 4T-2026.
+
+    O Tesouro publica o prefixado (quinta) ate 17/12, mas so publica a terca de
+    LFT e NTN-B uma de cada vez. O calendario da API fica completo POR PAPEL, e
+    nao por data -- e foi assim que 11 leiloes de terca sumiram da projecao.
+    """
+    registros = []
+    for d in pd.date_range("2026-10-01", "2026-12-17", freq="W-THU"):
+        for titulo in ("LTN", "NTN-F"):
+            registros.append({"DATA_LEILAO": d.strftime("%Y-%m-%d"),
+                              "TITULO": titulo,
+                              "VENCIMENTO": "2028-01-01",
+                              "TIPO_LEILAO": "Venda",
+                              "BENCHMARK": titulo})
+    for titulo in ("LFT", "NTN-B"):
+        registros.append({"DATA_LEILAO": "2026-09-29",
+                          "TITULO": titulo,
+                          "VENCIMENTO": "2032-12-01",
+                          "TIPO_LEILAO": "Venda",
+                          "BENCHMARK": titulo})
+    return registros
+
+
+def test_o_publicado_de_um_papel_nao_apaga_o_estimado_do_outro():
+    # O DEFEITO, medido em 23/09/2026 contra o "Comunicado Cronograma 4T-2026":
+    # a fronteira era GLOBAL -- max de TODOS os dias publicados -- e o estimador
+    # so podia rodar depois dela. Como a quinta estava publicada ate 17/12, a
+    # fronteira ia para 17/12 e as 11 tercas de LFT/NTN-B entre 06/10 e 15/12
+    # nunca chegavam a ser estimadas. Sumiam.
+    #
+    # O comunicado diz o contrario: "As ofertas publicas de NTN-B ocorrerao
+    # semanalmente, em conjunto com as ofertas de LFT". O efeito na projecao de
+    # 31/12 era de 279 bi no estoque total, e 0,79 pp na Taxa Flutuante.
+    hoje = pd.Timestamp("2026-09-23")
+    ate = pd.Timestamp("2026-12-31")
+    dias, _ = calendario_leiloes.dias_ate(ate, registros=_calendario_parcial(),
+                                          hoje=hoje)
+
+    # A terca de 29/09 e a unica publicada; dali para a frente o estimador tem de
+    # assumir. Exige as datas EXATAS que ele produz, e nao so uma contagem: um
+    # mutante que devolvesse tercas quaisquer passaria por uma contagem.
+    tercas = [d for d in calendario_leiloes.dias_estimados(
+        pd.Timestamp("2026-09-30"), ate) if d.dayofweek == 1]
+    assert tercas, "sem tercas estimadas nao ha o que este teste possa provar"
+    faltando = sorted(set(tercas) - set(dias))
+    assert not faltando, (
+        f"{len(faltando)} leiloes de terca sumiram da projecao: "
+        f"{[f'{d:%d/%m}' for d in faltando]}")
+
+
+def test_a_fronteira_e_onde_TODO_papel_ainda_esta_publicado():
+    # A fronteira e o que a pagina mostra como "publicado ate aqui". Se ela for o
+    # max de todos os dias, ela promete transcricao onde ja ha inferencia: em
+    # 23/09/2026 diria 17/12, mas a terca so estava publicada ate 29/09.
+    #
+    # O minimo entre os papeis e a unica leitura honesta: ate ali TUDO e
+    # transcricao; depois dali ALGUM papel ja e palpite nosso.
+    hoje = pd.Timestamp("2026-09-23")
+    _, fronteira = calendario_leiloes.dias_ate(
+        pd.Timestamp("2026-12-31"), registros=_calendario_parcial(), hoje=hoje)
+    assert fronteira == pd.Timestamp("2026-09-29"), (
+        f"a fronteira veio {fronteira:%d/%m/%Y}, mas a terca de LFT/NTN-B so "
+        f"esta publicada ate 29/09/2026")
+
+
+def test_o_estimado_de_um_papel_nao_inventa_dia_do_outro():
+    # Sem filtrar o estimado pelo dia daquele papel, cada grupo passa a estimar
+    # TODOS os dias a partir do inicio dele -- e o prefixado publicado ganha um
+    # sosia. Aqui a quinta de 08/10 foi antecipada para quarta 07/10: a semana
+    # ja tem o leilao dela publicado, entao a quinta padrao nao pode reaparecer
+    # como estimada, ou a projecao conta a semana duas vezes.
+    registros = [r for r in _calendario_parcial()
+                 if r["DATA_LEILAO"] != "2026-10-08"]
+    for titulo in ("LTN", "NTN-F"):
+        registros.append({"DATA_LEILAO": "2026-10-07",
+                          "TITULO": titulo,
+                          "VENCIMENTO": "2028-01-01",
+                          "TIPO_LEILAO": "Venda",
+                          "BENCHMARK": titulo})
+
+    quarta = pd.Timestamp("2026-10-07")
+    quinta = pd.Timestamp("2026-10-08")
+    assert quarta.day_name() == "Wednesday"
+    assert quinta.day_name() == "Thursday"
+
+    dias, _ = calendario_leiloes.dias_ate(pd.Timestamp("2026-12-31"),
+                                          registros=registros,
+                                          hoje=pd.Timestamp("2026-09-23"))
+    assert quarta in dias, "o dia publicado tem de sobreviver"
+    assert quinta not in dias, (
+        "a quinta de 08/10 voltou como estimada, mas o leilao daquela semana "
+        "ja estava publicado em 07/10 -- a semana seria contada duas vezes")
+
+
+def test_a_fronteira_do_dia_e_a_do_papel_menos_publicado():
+    # Terca leva DOIS papeis, NTN-B e LFT. Se um deles esta publicado mais longe
+    # que o outro, o dia so e transcricao ate onde os DOIS estao. Pegar o maior
+    # faria a pagina prometer publicado onde a LFT ja e palpite nosso.
+    registros = _calendario_parcial()
+    registros.append({"DATA_LEILAO": "2026-10-06",
+                      "TITULO": "NTN-B",
+                      "VENCIMENTO": "2033-05-15",
+                      "TIPO_LEILAO": "Venda",
+                      "BENCHMARK": "NTN-B"})
+
+    _, fronteira = calendario_leiloes.dias_ate(pd.Timestamp("2026-12-31"),
+                                               registros=registros,
+                                               hoje=pd.Timestamp("2026-09-23"))
+    assert fronteira == pd.Timestamp("2026-09-29"), (
+        f"a fronteira veio {fronteira:%d/%m/%Y}: a NTN-B esta publicada ate "
+        f"06/10, mas a LFT da mesma terca so ate 29/09")

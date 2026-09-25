@@ -49,6 +49,13 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     alvos.append((leiloes_dv, "gravar"))
     from tesouro.graficos import painel_emissoes
     alvos.append((painel_emissoes, "grava_todas"))
+    # E A PAGINA RAPIDA. Faltava aqui, e nenhum teste via: 18 testes deste
+    # arquivo rodam o modo leiloes sem stub proprio, chamavam a funcao de
+    # VERDADE e sobrescreviam data/processed/emissoes.html -- a pagina
+    # publicada. Achado em 24/09/2026 quando ela perguntou onde via a saida da
+    # fase rapida: o arquivo tinha o carimbo da ultima rodada de TESTE, e nao
+    # do ultimo pipeline. Custava ~6 s por teste, alem do estrago.
+    alvos.append((painel_emissoes, "grava_rapida"))
     # E a agenda, que entrou em 20/08/2026. Sem o stub ela iria a REDE buscar o
     # calendario -- e ha um teste neste arquivo que bloqueia socket de proposito.
     from tesouro.graficos import painel_agenda
@@ -66,6 +73,11 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     # cada, e a suite so passando com a API no ar. Medido ao ligar.
     from tesouro import leilao_do_dia
     alvos.append((leilao_do_dia, "rodar"))
+    # E O EDITAL DO DIA, que entrou na coleta em 24/09/2026. Mesma natureza do
+    # rodar -- vai a API -- e por isso mora no mesmo lugar, e nao em
+    # _stub_coletas: os tres testes que montam a coleta a mao nao chamam aquele
+    # auxiliar. Sem isto eles iriam a rede e gravariam leiloes_recentes.csv.
+    alvos.append((leilao_do_dia, "do_edital"))
 
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
@@ -436,8 +448,12 @@ def test_o_modo_PAF_para_quando_a_referencia_esta_quebrada(monkeypatch):
 def test_o_modo_TUDO_faz_o_que_o_pipeline_SEMPRE_fez(monkeypatch):
     """Compatibilidade: o modo 'tudo' e o pipeline antigo, etapa por etapa."""
     _, chamadas = _rodar(monkeypatch, ["--modo", "tudo"])
+    # SO OS PASSOS DE GERACAO. Os de coleta saem daqui -- o assunto deste teste
+    # e a ordem em que as paginas sao produzidas, e nao o que se busca antes.
+    # do_edital entrou na coleta em 24/09/2026 e sai pelo mesmo motivo que rodar.
+    COLETA = (".baixar", ".rodar", ".do_edital")
     geracao = [c for c in chamadas
-               if not c.endswith((".baixar", ".rodar"))
+               if not c.endswith(COLETA)
                and c != "tesouro.valida_referencia.main"]
     assert geracao == [
         "tesouro.parse_leiloes.gravar",
@@ -787,3 +803,147 @@ def test_o_log_AVISA_que_a_pagina_rapida_esta_pronta(monkeypatch, capsys):
     saida = capsys.readouterr().out
     assert "RAPIDA" in saida.upper(), saida[-500:]
     assert "20 leil" in saida, saida[-500:]
+
+
+def test_todo_modo_que_regrava_o_PAF_tambem_regrava_a_AGENDA(monkeypatch):
+    """As duas paginas leem o MESMO calendario publicado, e tem de concordar.
+
+    A pagina do PAF usa o calendario para projetar o fechamento do ano; a agenda
+    mostra dia a dia quais leiloes entraram nessa conta e quais sao inferencia
+    nossa. Regravar uma sem a outra deixa as duas discordando na tela sem que
+    nada avise -- e a agenda e justamente onde se confere a projecao.
+
+    Achado em 24/09/2026: o modo 'paf' refazia a pagina do PAF e nao a agenda.
+    Escrito como RELACAO e nao como lista de passos: uma lista fixa so repetiria
+    a configuracao, e passaria de novo no dia em que alguem criasse um quinto
+    modo com o mesmo buraco.
+    """
+    from tesouro import pipeline
+
+    modos = [m for m, passos in pipeline.PASSOS_DO_MODO.items()
+             if "paf" in passos]
+    assert modos, "nenhum modo regrava o PAF -- o teste nao mede nada assim"
+
+    for modo in modos:
+        argumentos = ["--modo", modo]
+        if modo == "rmd":
+            argumentos += ["--ano", "2026", "--mes", "8"]
+        _, chamadas = _rodar(monkeypatch, argumentos)
+        assert "tesouro.graficos.painel_paf.grava" in chamadas, modo
+        assert "tesouro.graficos.painel_agenda.grava" in chamadas, (
+            f"o modo {modo!r} regrava a pagina do PAF sem regravar a agenda: "
+            f"as duas leem o mesmo calendario e ficariam discordando")
+
+
+def test_a_coleta_de_leiloes_PUXA_O_EDITAL_e_nao_so_o_resultado(monkeypatch):
+    """O buraco que ela destapou em 24/09/2026, ao pedir o modo rapido.
+
+    Saiu a oferta do dia, ainda sem resultado. Rodei o modo leiloes: 185 s,
+    codigo 0, pagina rapida gravada -- e a oferta NAO estava nela. O dado dos
+    graficos parava em 22/09, com estagios 'planilha' e 'aceito' e ZERO
+    'ofertado'. A hachura que marca "resultado ainda nao saiu" nao tinha o que
+    hachurar.
+
+    O /editais tinha a oferta -- seis pernas, editais 238 e 239. So que ele era
+    lido apenas por entrada_manual, um caminho MANUAL que o pipeline nunca
+    chamava e que nem estava no manual.
+
+    O caminho da planilha continua existindo e continua mandando: a taxa que ela
+    digita vence a emprestada, pela ordem dos estagios. Este passo garante que a
+    oferta APARECA nos dias em que ninguem digitou nada.
+    """
+    for modo in ("leiloes", "tudo"):
+        chamadas = []
+        _stub_gravacoes(monkeypatch, chamadas)
+        _stub_coletas(monkeypatch, chamadas)
+        from tesouro import leilao_do_dia
+
+        monkeypatch.setattr(leilao_do_dia, "rodar",
+                            lambda *a, **k: chamadas.append("rodar"))
+        monkeypatch.setattr(leilao_do_dia, "do_edital",
+                            lambda *a, **k: chamadas.append("do_edital"))
+
+        pipeline.main(["--modo", modo])
+        assert "do_edital" in chamadas, (
+            f"o modo {modo!r} coleta leilao sem buscar o edital do dia: a "
+            f"oferta nao entra, e nao ha o que hachurar")
+        # A oferta vem antes do resultado, que e a ordem do dia -- e a ordem dos
+        # estagios garante que o aceito substitua o ofertado, nunca o contrario.
+        assert chamadas.index("do_edital") < chamadas.index("rodar"), modo
+
+
+def test_o_EDITAL_tambem_NAO_e_buscado_com_sem_coleta(monkeypatch):
+    """--sem-coleta promete nao tocar a rede, e o edital e rede."""
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro import leilao_do_dia
+
+    def nao_deveria(*args, **kwargs):
+        raise AssertionError("foi a rede com --sem-coleta")
+    monkeypatch.setattr(leilao_do_dia, "do_edital", nao_deveria)
+    monkeypatch.setattr(leilao_do_dia, "rodar", nao_deveria)
+
+    pipeline.main(["--modo", "leiloes", "--sem-coleta"])
+
+
+def test_a_agenda_fora_do_ar_NAO_derruba_a_rodada(monkeypatch, capsys):
+    """Rede caida e rotina, e nao falha: as outras paginas seguem valendo.
+
+    Esta e a metade que ja estava certa. Fica aqui para que o conserto da outra
+    metade nao a atropele -- derrubar a rodada toda vez que a API pisca seria
+    trocar um problema por outro.
+    """
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_agenda
+
+    def sem_rede(*a, **k):
+        raise ConnectionError("a API do Tesouro nao respondeu")
+    monkeypatch.setattr(painel_agenda, "grava", sem_rede)
+
+    codigo = pipeline.main(["--modo", "leiloes"])
+    saida = capsys.readouterr().out
+
+    assert codigo == 0, "API fora do ar nao e falha do projeto"
+    assert "AVISO" in saida
+    assert "concluido." in saida
+
+
+def test_a_agenda_QUEBRADA_entra_nas_falhas_e_derruba_o_codigo(monkeypatch,
+                                                               capsys):
+    """O defeito de 24/09/2026, que ficou semanas invisivel.
+
+    A agenda parou de ser gravada por um erro NOSSO -- 'NaTType does not
+    support strftime', um vertice de LFT estreante no calendario. O bloco
+    tratava isso igual a "a API nao respondeu": imprimia AVISO no meio do log,
+    nao entrava em 'falhas', e a ultima linha da tela dizia 'concluido.' com
+    codigo 0. A pagina ficou com o calendario velho e nada acusou.
+
+    E o mesmo padrao que a linha 207 deste arquivo ja descrevia para a
+    Bloomberg: um 'except Exception' generico fundindo rotina com falha real.
+    A rodada continua -- as outras paginas valem -- mas o FIM da tela tem de
+    dizer a verdade.
+    """
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_agenda
+
+    def defeito_nosso(*a, **k):
+        raise ValueError("NaTType does not support strftime")
+    monkeypatch.setattr(painel_agenda, "grava", defeito_nosso)
+
+    codigo = pipeline.main(["--modo", "leiloes"])
+    saida = capsys.readouterr().out
+
+    assert codigo == 1, (
+        "erro NOSSO na agenda saiu com codigo 0 -- indistinguivel de rodada boa")
+    # As outras paginas continuam saindo: o remedio nao pode ser pior que a
+    # doenca.
+    assert "tesouro.graficos.painel_paf.grava" in chamadas
+    # E o FIM da tela diz a verdade, que e onde ela olha.
+    assert "concluido com falha" in saida
+    assert "NaTType" in saida.split("concluido com falha")[-1], (
+        "a falha tem de aparecer no resumo do fim, e nao so cinco linhas acima")

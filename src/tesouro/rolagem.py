@@ -594,6 +594,20 @@ LEILOES_DO_PACE = 10
 DIA_DO_PAPEL = {"Prefixado": 3, "\u00cdndice Pre\u00e7os": 1, "Taxa Flutuante": 1}
 
 
+def dia_do_titulo(titulo):
+    """O dia da semana em que AQUELE PAPEL vai a leilao, ou None se nao souber.
+
+    Compoe os dois mapas acima -- titulo -> indexador -> dia. O calendario
+    precisa disso para saber de QUE PAPEL e cada dia publicado: sem essa
+    traducao, um papel publicado ate dezembro apaga o estimado dos outros.
+
+    Papel desconhecido devolve None em vez de um dia qualquer. Quem chama
+    decide o que fazer com a ausencia; inventar um dia aqui seria plausivel e
+    errado.
+    """
+    return DIA_DO_PAPEL.get(_INDEXADOR_DO_TITULO.get(titulo))
+
+
 def pace(quando):
     """Financeiro liquido medio por LEILAO DAQUELE PAPEL, por indexador.
 

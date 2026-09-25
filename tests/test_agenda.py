@@ -651,3 +651,131 @@ def test_a_expectativa_separa_o_PUBLICADO_do_ESTIMADO():
     # E o total de dias contados nao muda: o publicado SUBSTITUI o estimado
     # naquele dia, nao se soma a ele.
     assert com.count("<tr class=") >= linhas_publicadas(com)
+
+
+def test_o_dia_publicado_depois_da_fronteira_nao_vira_estimado():
+    # Em 24/09/2026 a fronteira passou a ser POR PAPEL, e a devolvida por
+    # dias_ate virou a do papel MENOS publicado -- 29/09, no calendario real do
+    # 4T-2026. Rotular linha por "dia <= fronteira" passou a chamar de estimado
+    # as quintas de outubro a dezembro que o Tesouro JA PUBLICOU.
+    #
+    # A procedencia de uma linha nao e uma data de corte: e se aquele dia esta
+    # na lista que o Tesouro publicou. Vai a publicada direto.
+    from tesouro.graficos import painel_agenda
+
+    registros = []
+    for d in pd.date_range("2026-10-01", "2026-12-17", freq="W-THU"):
+        for titulo in ("LTN", "NTN-F"):
+            registros.append({"DATA_LEILAO": d.strftime("%Y-%m-%d"),
+                              "TITULO": titulo,
+                              "VENCIMENTO": "2028-01-01",
+                              "TIPO_LEILAO": "Venda",
+                              "BENCHMARK": titulo})
+    for titulo in ("LFT", "NTN-B"):
+        registros.append({"DATA_LEILAO": "2026-09-29",
+                          "TITULO": titulo,
+                          "VENCIMENTO": "2032-12-01",
+                          "TIPO_LEILAO": "Venda",
+                          "BENCHMARK": titulo})
+
+    html = painel_agenda.tabela_da_expectativa(
+        hoje=pd.Timestamp("2026-09-23"), ate=pd.Timestamp("2026-12-31"),
+        registros=registros)
+
+    # 05/11/2026 e uma quinta publicada, bem depois da fronteira de 29/09.
+    linha = [x for x in html.split("<tr") if "05/11/2026" in x]
+    assert len(linha) == 1, "esperava uma linha para 05/11/2026"
+    assert "publicado" in linha[0], (
+        "a quinta de 05/11 esta no calendario que o Tesouro publicou, mas a "
+        f"tabela nao a marcou como publicada: {linha[0]}")
+    # E os papeis tem de vir da lista DELE, nao da nossa regra de dia da semana.
+    assert "LTN" in linha[0] and "NTN-F" in linha[0]
+
+
+def test_os_papeis_do_dia_publicado_vem_da_lista_do_TESOURO():
+    # DEFEITO ANTIGO, descoberto em 24/09/2026: _papeis_por_dia usava
+    # parse_api_leiloes sem que o modulo jamais o importasse. O NameError caia
+    # no `except Exception` e virava {} -- silencioso. A coluna "papeis" das
+    # linhas publicadas mostrava travessao desde sempre, e nenhum teste via,
+    # porque a rotulagem vinha da data da fronteira e nao desse mapa.
+    #
+    # A prova tem de DISTINGUIR a lista dele da nossa regra: publica um dia so
+    # com LTN. Nossa regra de quinta diria "LTN + NTN-F"; a lista dele diz LTN.
+    from tesouro.graficos import painel_agenda
+
+    registros = [{"DATA_LEILAO": "2026-11-05",
+                  "TITULO": "LTN",
+                  "VENCIMENTO": "2028-01-01",
+                  "TIPO_LEILAO": "Venda",
+                  "BENCHMARK": "LTN 12 meses"}]
+
+    html = painel_agenda.tabela_da_expectativa(
+        hoje=pd.Timestamp("2026-09-23"), ate=pd.Timestamp("2026-12-31"),
+        registros=registros)
+
+    linha = [x for x in html.split("<tr") if "05/11/2026" in x]
+    assert len(linha) == 1
+    assert "LTN" in linha[0]
+    assert "NTN-F" not in linha[0], (
+        "o Tesouro listou so LTN nesse dia; a tabela acrescentou NTN-F pela "
+        f"nossa regra de quinta-feira: {linha[0]}")
+
+
+def test_papeis_por_dia_nao_engole_erro_de_programacao():
+    # O `except Exception` amplo foi o que escondeu o NameError por meses. Um
+    # calendario valido tem de devolver os dias -- se voltar {} de novo, e
+    # porque alguma excecao esta sendo engolida outra vez.
+    from tesouro.graficos import painel_agenda
+
+    registros = [{"DATA_LEILAO": "2026-11-05",
+                  "TITULO": "LTN",
+                  "VENCIMENTO": "2028-01-01",
+                  "TIPO_LEILAO": "Venda",
+                  "BENCHMARK": "LTN 12 meses"}]
+    mapa = painel_agenda._papeis_por_dia(registros)
+    assert mapa, "calendario valido nao pode devolver mapa vazio"
+    assert mapa[pd.Timestamp("2026-11-05")] == "LTN"
+
+
+def test_papel_que_nunca_foi_a_leilao_mostra_travessao_em_vez_de_quebrar():
+    # ACHADO EM 24/09/2026, quando o calendario do 4o trimestre trouxe um
+    # vertice de LFT novo -- 01/12/2032 -- que nunca tinha ido a leilao. Sem
+    # leilao anterior nao ha taxa nem data da taxa, e _celula_taxa formatava a
+    # data ANTES da guarda que ja tratava esse caso. Resultado: a agenda inteira
+    # parava de ser gravada, com "NaTType does not support strftime", e o
+    # pipeline seguia avisando que a pagina ficou com o calendario velho.
+    #
+    # A guarda ja existia e ja devolvia travessao. So nunca era alcancada.
+    from tesouro.graficos import painel_agenda
+
+    sem_leilao_anterior = pd.Series({
+        "taxa_pct": float("nan"),
+        "taxa_de_quando": pd.NaT,
+        "taxa_dias_de_idade": float("nan"),
+        "taxa_velha": False,
+    })
+    assert painel_agenda._celula_taxa(sem_leilao_anterior) == "\u2014"
+
+
+def test_a_celula_da_taxa_NAO_depende_da_rede_para_ser_testada():
+    # A PRIMEIRA VERSAO DESTE TESTE LIA A API AO VIVO e usava pytest.skip
+    # quando nao achava vertice estreante. Numa rodada em que a API devolveu
+    # "Server Error" ele pulou calado -- um teste que some justamente quando o
+    # ambiente esta ruim nao protege nada, e ainda passa a impressao de ter
+    # rodado.
+    #
+    # O vertice estreante e uma FORMA de linha, nao um fato do calendario de
+    # hoje: da para construi-la aqui e cobrar o comportamento sempre.
+    from tesouro.graficos import painel_agenda
+
+    linhas = pd.DataFrame([
+        {"taxa_pct": 14.2, "taxa_de_quando": pd.Timestamp("2026-09-17"),
+         "taxa_dias_de_idade": 7.0, "taxa_velha": False},
+        {"taxa_pct": float("nan"), "taxa_de_quando": pd.NaT,
+         "taxa_dias_de_idade": float("nan"), "taxa_velha": False},
+    ])
+    celulas = [painel_agenda._celula_taxa(r) for _, r in linhas.iterrows()]
+    assert "17/09" in celulas[0], celulas[0]
+    assert celulas[1] == "\u2014", (
+        "o vertice sem leilao anterior tem de virar travessao, e nao derrubar "
+        "a pagina inteira")

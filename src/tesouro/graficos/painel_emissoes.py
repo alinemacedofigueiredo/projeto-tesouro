@@ -450,6 +450,17 @@ def grava(caminho=None, recortes=None, com_compra=False, com_2a=True):
 
 
 ARQUIVO_HISTORICO = "emissoes-historico.html"
+
+# A PAGINA RAPIDA TEM ARQUIVO PROPRIO desde 24/09/2026. Ate aqui ela
+# gravava por cima da emissoes.html e a fase 2 a substituia ~140 s depois:
+# a versao de 1 MB existia numa janela de dois minutos.
+#
+# O USO MUDOU, e por isso o desenho muda. Em setembro era abrir no
+# navegador, e sobrescrever fazia sentido -- mesmo endereco, conteudo
+# melhor. Agora e ANEXO DE E-MAIL: 1,06 MB passa em qualquer caixa, os
+# 7,25 MB da completa nao, e anexo precisa continuar existindo depois que
+# a rodada termina.
+ARQUIVO_RAPIDA = "emissoes-rapida.html"
 ROTULO_HISTORICO = "hist\u00f3rico completo, por m\u00eas"
 
 # DUAS JANELAS: a serie inteira e o zoom de 2014, pedido dela em 09/09/2026.
@@ -464,6 +475,37 @@ JANELAS_DO_HISTORICO = [
     ("completa", None),
     ("2014 em diante", (pd.Timestamp("2014-01-01"), None)),
 ]
+
+
+# A RECOMPRA QUE ESTA FONTE NAO ENXERGA, medida em 24/09/2026 contra a aba 1.3
+# do RMD, em 237 meses.
+#
+# A compra entra nos graficos com sinal negativo, entao o que se ve e o
+# LIQUIDO. Mas a nossa unica fonte de compra e a planilha de leiloes, e o
+# Tesouro tambem recomprou FORA de leilao. No RMD, "Compras" e "Trocas" sao
+# linhas separadas -- e conferimos que nao e troca: nos meses grandes ha zero
+# troca, e elas acabaram em marco/2021.
+#
+# Total do buraco: 123,7 bi em 237 meses, 36% do que o RMD registra como
+# compra. NAO E DIFUSO: quatro eventos sao 65% dele, e dezembro sozinho e
+# 70,6 bi.
+#
+# O efeito na barra: o liquido fica ALTO, porque falta o que subtrair.
+#
+#     2012  +25,3 bi no ano    2016  +43,8      2017  +20,3   2019  +13,9
+#
+# DE 2020 EM DIANTE O ERRO SOME: o maior e 3,2 bi (2023), contra barras de
+# 1.200 a 1.700 bi. Nao e defeito permanente da fonte -- e uma epoca que
+# acabou. Por isso a nota nomeia os anos em vez de falar em geral.
+#
+# O QUE FOI set/2017 veio dela, e nao do dado: recompra da carteira do BNDES.
+_NOTA_RECOMPRA = (
+    "<b>As compras s\u00e3o s\u00f3 as que passaram por leil\u00e3o.</b> At\u00e9 "
+    "2019 o Tesouro tamb\u00e9m recomprou fora de leil\u00e3o, e esta fonte "
+    "n\u00e3o enxerga isso \u2014 o l\u00edquido fica alto em <b>dez/2012</b> "
+    "(16,1 bi), <b>dez/2016</b> (40,7 bi), <b>set/2017</b> (15,3 bi, recompra "
+    "da carteira do BNDES) e <b>dez/2019</b> (8,6 bi). De 2020 em diante a "
+    "diferen\u00e7a n\u00e3o passa de 3,2 bi num ano.")
 
 
 def registro_historico():
@@ -498,7 +540,7 @@ def registro_historico():
             "dv_emitido_por_leilao.csv",
             "A soma de cada ano, <b>aberta por papel</b>. A LFT entra: "
             "\u00e9 gr\u00e1fico de financeiro s\u00f3, e ela \u00e9 mais da "
-            f"metade dele. {nota}",
+            f"metade dele. {nota} {_NOTA_RECOMPRA}",
             True, JANELA_PADRAO,
             _fig_anual("financeiro_milhoes",
                        "Financeiro emitido por ano, com LFT",
@@ -509,7 +551,7 @@ def registro_historico():
             "O mesmo de cima com <b>tr\u00eas faixas</b>: LTN e NTN-F juntas "
             "em <b>prefixado</b>, e as duas NTN-B numa s\u00f3. A pergunta "
             "aqui n\u00e3o \u00e9 qual papel, \u00e9 quanto de cada "
-            f"<b>indexador</b>. {nota}",
+            f"<b>indexador</b>. {nota} {_NOTA_RECOMPRA}",
             True, JANELA_PADRAO,
             _fig_anual("financeiro_milhoes",
                        "Financeiro emitido por ano, por indexador",
@@ -591,14 +633,17 @@ def grava_rapida(caminho=None):
     levam ~58 s e 7,28 MB. O modo leiloes inteiro leva 203 s, e a pagina do PAF
     sozinha 45 s -- por isso esta fase vem antes dela.
 
-    MESMO ARQUIVO da versao completa, de proposito. A fase 2 substitui esta
-    pela de cinco janelas; quem abrir no meio pega a de uma, quem abrir depois
-    pega a cheia, e as duas dizem no cabecalho de quando sao. Uma pagina nova
-    so para isto seria mais uma coisa para alguem manter atualizada.
+    ARQUIVO PROPRIO desde 24/09/2026. Antes era o mesmo da completa, e a
+    fase 2 substituia esta pela de cinco janelas -- bom para quem abre no
+    navegador, ruim para quem ANEXA: o arquivo de 1 MB durava dois minutos.
+    Ela pediu a troca quando o uso passou a ser e-mail.
 
     E a combinacao e a PADRAO -- so venda, com 2a volta -- que e a que responde
     "quanto saiu hoje". As outras duas ficam para a fase 2.
     """
+    from .. import config
+
+    caminho = caminho or (config.PROCESSED_DIR / ARQUIVO_RAPIDA)
     return grava(caminho, [JANELAS[0]], com_compra=False, com_2a=True)
 
 

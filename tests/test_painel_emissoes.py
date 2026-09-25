@@ -1576,3 +1576,109 @@ def test_a_pagina_do_historico_aparece_UMA_VEZ_SO_na_barra(tmp_path):
     barra2 = html2[html2.index('<div id="paginas">'):html2.index("</div>",
                                                                  html2.index('<div id="paginas">'))]
     assert barra2.count(f'href="{painel_emissoes.ARQUIVO_HISTORICO}"') == 1, barra2
+
+
+def test_a_nota_da_RECOMPRA_fora_de_leilao_chega_ao_grafico_anual():
+    # Medido em 24/09/2026 contra a aba 1.3 do RMD, em 237 meses: a nossa unica
+    # fonte de compra e a planilha de leiloes, e o Tesouro tambem recomprou fora
+    # de leilao. Como a compra entra com sinal negativo, o liquido das barras
+    # anuais fica ALTO nos anos em que isso aconteceu.
+    #
+    # A nota nomeia MES e VALOR, a pedido dela -- porcentagem exigia que o
+    # leitor soubesse o tamanho da barra para dimensionar o erro.
+    from tesouro.graficos import painel_emissoes
+
+    anuais = [g for g in painel_emissoes.registro_historico()
+              if "anual_financeiro" in g.id]
+    assert len(anuais) == 2, "esperava os dois anuais de financeiro"
+
+    for g in anuais:
+        d = g.nota
+        assert "fora de leil" in d, g.nome
+        # Os quatro eventos, com o valor em bilhoes.
+        for quando, quanto in (("dez/2012", "16,1"), ("dez/2016", "40,7"),
+                               ("set/2017", "15,3"), ("dez/2019", "8,6")):
+            assert quando in d, f"{g.id}: falta {quando}"
+            assert quanto in d, f"{g.id}: falta o valor {quanto} bi"
+        # E o que ELA sabia e o dado nao dizia.
+        assert "BNDES" in d, g.nome
+        # O limite que impede a nota de soar como defeito permanente.
+        assert "2020" in d and "3,2" in d, g.nome
+
+
+def test_a_nota_da_recompra_NAO_entra_no_grafico_de_DV01():
+    # O buraco foi medido em FINANCEIRO, contra a aba 1.3. O DV01 tambem tem
+    # compra, mas ninguem conferiu aquele numero -- por a nota ali seria
+    # estender uma medicao para onde ela nao chegou.
+    from tesouro.graficos import painel_emissoes
+
+    dv = [g for g in painel_emissoes.registro_historico()
+          if "anual_dv" in g.id]
+    assert dv, "esperava o anual de DV01"
+    for g in dv:
+        assert "BNDES" not in g.nota, (
+            f"{g.id}: a nota da recompra fala de financeiro, nao de DV01")
+
+
+def test_a_pagina_RAPIDA_tem_arquivo_proprio_e_sobrevive_a_fase_2():
+    # MUDANCA DE 24/09/2026, pedida por ela. Ate aqui a fase rapida gravava por
+    # cima da emissoes.html e a fase 2 a substituia ~140 s depois: a versao de
+    # 1 MB existia numa janela de dois minutos.
+    #
+    # O uso mudou. Em setembro era abrir no navegador, e sobrescrever fazia
+    # sentido -- mesmo endereco, conteudo melhor. Agora e ANEXO DE E-MAIL, e
+    # anexo precisa continuar existindo: 1 MB passa em qualquer caixa, os 7,25
+    # MB da completa nao.
+    from tesouro.graficos import painel_emissoes
+
+    assert painel_emissoes.ARQUIVO_RAPIDA != "emissoes.html"
+    assert painel_emissoes.ARQUIVO_RAPIDA not in [
+        a for _, _, a, _ in painel_emissoes.COMBINACOES], (
+        "a rapida nao pode dividir arquivo com nenhuma das tres combinacoes")
+
+
+def test_a_rapida_grava_no_arquivo_dela_e_nao_na_completa(tmp_path,
+                                                          monkeypatch):
+    # A prova de que sobrevive: gravar a rapida e depois a completa, e a rapida
+    # continuar la, com UMA janela.
+    import shutil
+
+    from tesouro import config
+    from tesouro.graficos import painel_emissoes
+
+    # O CSV vai JUNTO para a pasta temporaria: PROCESSED_DIR e onde a pagina
+    # grava E de onde o grafico le. Redirecionar so a escrita deixaria o teste
+    # sem dado; escrever na pasta de verdade faria o teste sobrescrever a
+    # pagina publicada -- que e o defeito que esta rodada esta consertando.
+    # TODOS os CSVs, e nao os que eu achar que a pagina le. A primeira versao
+    # copiava so o dv_emitido_por_leilao.csv e quebrava no composicao_dpf.csv;
+    # adivinhar a lista deixaria o teste refem de qualquer grafico novo. Sao
+    # 15 MB e uma copia de disco.
+    for csv in config.PROCESSED_DIR.glob("*.csv"):
+        shutil.copy(csv, tmp_path / csv.name)
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path, raising=False)
+
+    rapida = painel_emissoes.grava_rapida()
+    assert rapida.name == painel_emissoes.ARQUIVO_RAPIDA
+    tamanho_antes = rapida.stat().st_size
+
+    completa = painel_emissoes.grava(com_compra=False, com_2a=True)
+    assert completa.name == "emissoes.html"
+    assert completa != rapida, "a fase 2 nao pode escrever por cima da rapida"
+    assert rapida.exists() and rapida.stat().st_size == tamanho_antes, (
+        "a pagina rapida sumiu ou mudou depois da fase 2")
+
+    # E ela e mesmo a de UMA janela. A COMPARACAO E DIFERENCIAL, contra a
+    # completa, e nao "quantos nomes de janela faltam": rotulos como "12 meses"
+    # e "5 anos" aparecem em outros lugares da pagina (acumulados, benchmarks),
+    # entao procurar substring solta nao distingue janela de texto qualquer --
+    # erro que eu cometi duas vezes nesta mesma sessao.
+    hr = rapida.read_text(encoding="utf-8")
+    hc = completa.read_text(encoding="utf-8")
+    for nome in ("no ano", "desde o ano anterior"):
+        assert nome in hc, f"a completa devia ter a janela {nome!r}"
+        assert nome not in hr, (
+            f"a rapida trouxe a janela {nome!r}: ela e so a de 20 leiloes")
+    assert len(hr) < len(hc) / 2, (
+        "a rapida devia ser bem menor que a completa -- e por isso que ela "
+        "serve de anexo de e-mail")
