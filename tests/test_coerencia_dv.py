@@ -529,22 +529,36 @@ def test_cobertura_de_taxa_bate_com_a_medida_no_estoque(p):
 
 
 # --------------------------------------------------------------------------
-# NTN-B curta e longa: a fronteira e medida no VERTICE do Tesouro, e nao no
+# NTN-B ate 10 anos e longa: a fronteira e medida no VERTICE do Tesouro, e nao no
 # prazo calculado. Decidido em 20/08/2026, quando a API publicou a tabela de
 # benchmarks vigentes.
 # --------------------------------------------------------------------------
 
 def test_a_familia_da_ntnb_vem_do_vertice_e_nao_do_prazo():
-    # O CASO QUE MOTIVA A REGRA: um papel que o Tesouro chama de "NTN-B 5 anos" e
-    # que, no comeco da vigencia do benchmark, ainda tem 6,4 anos a correr. Pelo
-    # prazo ele seria longa; pelo rotulo dele, e curta -- e trocar de faixa no meio
-    # da vigencia produziria um degrau no grafico que nao aconteceu no mundo.
+    # O CASO QUE MOTIVA A REGRA: um papel que o Tesouro chama de "NTN-B 10 anos"
+    # e que, no comeco da vigencia do benchmark, ainda tem mais de 10 anos a
+    # correr. Pelo prazo ele cairia na faixa de cima; pelo rotulo dele, nao --
+    # e trocar de faixa no meio da vigencia produziria um degrau no grafico que
+    # nao aconteceu no mundo.
+    #
+    # LE A CONSTANTE, e nao escreve o numero. Em 25/09/2026 ela mudou o corte de
+    # 5 para 10 anos e estas assercoes ficaram vermelhas sem ter nada a ver com
+    # o assunto delas -- amarra no lugar errado. Assim o proximo corte e mesmo
+    # uma linha so.
     from tesouro import leiloes_dv
 
-    assert leiloes_dv._familia("NTN-B", 6.4, 5.0) == "NTN-B curta"
-    assert leiloes_dv._familia("NTN-B", 6.9, 7.0) == "NTN-B longa"
-    # A fronteira e inclusiva no 5: "NTN-B 5 anos" e curta.
-    assert leiloes_dv._familia("NTN-B", 5.0, 5.0) == "NTN-B curta"
+    corte = leiloes_dv.CORTE_NTNB_ANOS
+    dentro = leiloes_dv.FAMILIA_NTNB_CURTA
+    fora = leiloes_dv.FAMILIA_NTNB_LONGA
+
+    # O vertice manda, mesmo quando o prazo discorda: prazo acima do corte,
+    # vertice no corte.
+    assert leiloes_dv._familia("NTN-B", corte + 1.4, corte) == dentro
+    # E discordando para o outro lado: prazo abaixo, vertice acima.
+    assert leiloes_dv._familia("NTN-B", corte - 0.1, corte + 5) == fora
+    # A fronteira e INCLUSIVA: o vertice que o Tesouro chama de N anos, com o
+    # corte em N, fica na faixa de baixo.
+    assert leiloes_dv._familia("NTN-B", float(corte), float(corte)) == dentro
 
 
 def test_sem_vertice_a_familia_cai_no_prazo():
@@ -552,8 +566,8 @@ def test_sem_vertice_a_familia_cai_no_prazo():
     # disponivel, e qual dos dois criterios valeu fica no CSV, que carrega os dois.
     from tesouro import leiloes_dv
 
-    assert leiloes_dv._familia("NTN-B", 4.0, None) == "NTN-B curta"
-    assert leiloes_dv._familia("NTN-B", 12.0, None) == "NTN-B longa"
+    assert leiloes_dv._familia("NTN-B", 4.0, None) == "NTN-B at\u00e9 10 anos"
+    assert leiloes_dv._familia("NTN-B", 12.0, None) == "NTN-B acima de 10 anos"
 
 
 def test_os_demais_papeis_nao_se_partem():

@@ -372,7 +372,7 @@ def ultimos_de(familia, quantos=LEILOES_DA_LFT, base=None):
     return saida
 
 
-_ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+_ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"]
 
 
 def por_dia(agenda=None, **kwargs):

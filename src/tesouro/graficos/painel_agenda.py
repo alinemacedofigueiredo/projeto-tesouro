@@ -162,7 +162,7 @@ def tabela_dos_ultimos(dados=None, quantos=None):
     MESMO FORMATO de proposito. As duas tabelas respondem a mesma pergunta em
     tempos diferentes -- o que vem e o que veio -- e ler as duas exige que as
     colunas estejam no mesmo lugar. A versao anterior parava na familia, e ai nao
-    dava para ver que dentro de "NTN-B longa" o corte foi num vencimento so.
+    dava para ver que dentro de uma faixa de NTN-B o corte foi num vencimento so.
 
     RECOLHIDA, e antes do calendario: e referencia, e nao o assunto da pagina.
     Aberta, empurraria a agenda para baixo da dobra.

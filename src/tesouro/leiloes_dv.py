@@ -61,16 +61,28 @@ from .leiloes_recentes import COLUNA_ESTAGIO as ESTAGIO
 # A DIFERENCA NAO E COSMETICA. Classificar pelo prazo calculado e classificar pelo
 # vertice publicado discordam em 401 dos 4.110 leiloes de NTN-B -- 9,8% -- e todos
 # pelo mesmo motivo: sao papeis que o proprio Tesouro chama de "NTN-B 5 anos" e que,
-# no comeco da vigencia do benchmark, ainda tinham entre 5,00 e 6,42 anos a correr.
-# Pelo prazo eles caiam em "longa"; pelo rotulo dele, sao curta.
+# no comeco da vigencia do benchmark, ainda tinham mais anos a correr do que o
+# rotulo dizia. Pelo prazo caiam na faixa de cima; pelo rotulo dele, nao.
 #
-# Medido no financeiro emitido em NTN-B desde 2010:
-#     por prazo    curta R$  761,2 bi   longa R$ 1.457,3 bi   curta = 34,3%
-#     por vertice  curta R$ 1.175,5 bi  longa R$ 1.043,0 bi   curta = 53,0%
+# ONDE A LINHA CAI E DECISAO DELA. Foi 5 anos de 25/08/2026 a 25/09/2026, e
+# passou a 10 -- "quero que a NTN-B de dez anos entre na curta". O Tesouro
+# publica os vertices 3, 4, 5, 7, 10, 15, 20, 25, 30, 35 e 40 e NUNCA diz quais
+# sao curtos; a fronteira e nossa.
 #
-# Mudar a fronteira e trocar esta constante; nao exige recalcular nada, porque o
-# dado gravado carrega o vertice.
-CORTE_CURTA_LONGA_ANOS = 5
+# Medido no financeiro emitido em NTN-B, com o corte em 10:
+#     ate 10 anos   R$ 1.925 bi      acima de 10   R$ 518 bi      78,8% / 21,2%
+# Com o corte em 5 era 53,6% / 46,4%: o vertice de 10 anos sozinho move 25 pp.
+#
+# Mudar a fronteira e trocar esta constante; nao exige recalcular o vertice,
+# porque o dado gravado ja o carrega -- mas EXIGE regravar o CSV, porque a
+# familia e gravada nele.
+CORTE_NTNB_ANOS = 10
+
+# Os nomes das duas faixas. Sao VALOR DE DADO -- vao gravados no CSV e sao chave
+# dos recortes dos graficos -- e nao rotulo de tela, por isso moram aqui e nao
+# em cada pagina.
+FAMILIA_NTNB_CURTA = "NTN-B at\u00e9 10 anos"
+FAMILIA_NTNB_LONGA = "NTN-B acima de 10 anos"
 
 # Os vertices que o Tesouro oferta. Usados para enquadrar o leilao que veio sem
 # rotulo: a coluna 'referencia' so esta preenchida em 1.548 dos 4.476 leiloes de
@@ -284,13 +296,13 @@ def _vna_implicito(cal, titulo, d0, vencimento, taxa, quantidade, financeiro):
 
 
 def _familia(titulo, prazo_anos, vertice_anos=None):
-    """A NTN-B se parte em curta e longa; os demais sao eles mesmos.
+    """A NTN-B se parte em duas faixas pelo vertice; os demais sao eles mesmos.
 
     A FRONTEIRA E MEDIDA NO VERTICE, e nao no prazo. Um papel que o Tesouro chama de
-    "NTN-B 5 anos" e curta durante toda a vigencia do benchmark, mesmo nos meses em
-    que ainda faltam 6,4 anos para vencer -- e o mesmo papel, e trocar de faixa no
-    meio da vigencia produziria um degrau no grafico que nao aconteceu no mundo.
-    Sao 401 leiloes assim, 9,8% dos de NTN-B.
+    "NTN-B 10 anos" fica na faixa de baixo durante toda a vigencia do benchmark,
+    mesmo nos meses em que ainda faltam mais de dez anos para vencer -- e o mesmo
+    papel, e trocar de faixa no meio da vigencia produziria um degrau no grafico
+    que nao aconteceu no mundo.
 
     Sem vertice -- leilao antigo, sem rotulo e sem prazo -- cai no prazo, que e a
     melhor aproximacao disponivel. Que dos dois criterios valeu fica registrado no
@@ -300,9 +312,9 @@ def _familia(titulo, prazo_anos, vertice_anos=None):
         return titulo
     medida = vertice_anos if not pd.isna(vertice_anos) else prazo_anos
     if pd.isna(medida):
-        return "NTN-B longa"
-    return ("NTN-B curta" if medida <= CORTE_CURTA_LONGA_ANOS
-            else "NTN-B longa")
+        return FAMILIA_NTNB_LONGA
+    return (FAMILIA_NTNB_CURTA if medida <= CORTE_NTNB_ANOS
+            else FAMILIA_NTNB_LONGA)
 
 
 def gravar(ate_o_estagio="planilha"):

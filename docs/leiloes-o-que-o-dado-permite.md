@@ -126,7 +126,7 @@ projetar IPCA.
 
 Medido: o VNA recuperado difere do de fim de mês em 0,16% na mediana e 0,66% no
 percentil 95 — exatamente o tamanho do erro que o VNA mensal produzia no preço, o que
-confirma que era ele a fonte. A correção é material: o DV da NTN-B longa vai de
+confirma que era ele a fonte. A correção é material: o DV da NTN-B acima de 10 anos vai de
 −1.142,9 para −1.225,7.
 
 **A precificação foi validada contra o Tesouro, 5.600 vezes.** Para LTN e NTN-F, que

@@ -194,11 +194,16 @@ def test_a_familia_da_ntnb_usa_o_vertice_do_benchmark(dados):
     # Tesouro. Se as duas paginas classificassem diferente, a mesma NTN-B apareceria
     # como curta numa e longa na outra.
     ntnb = dados[dados["titulo"] == "NTN-B"]
-    curta = ntnb[ntnb["familia"] == "NTN-B curta"]
-    longa = ntnb[ntnb["familia"] == "NTN-B longa"]
+    curta = ntnb[ntnb["familia"] == "NTN-B at\u00e9 10 anos"]
+    longa = ntnb[ntnb["familia"] == "NTN-B acima de 10 anos"]
     assert len(curta) > 0 and len(longa) > 0
-    assert (curta["vertice_anos"] <= 5).all()
-    assert (longa["vertice_anos"] > 5).all()
+    # LE A CONSTANTE. O 5 estava escrito na mao aqui, e em 25/09/2026 o corte
+    # foi para 10: o teste ficou vermelho sem ter nada a ver com o assunto dele,
+    # que e as duas paginas classificarem IGUAL, pelo vertice.
+    from tesouro.leiloes_dv import CORTE_NTNB_ANOS
+
+    assert (curta["vertice_anos"] <= CORTE_NTNB_ANOS).all()
+    assert (longa["vertice_anos"] > CORTE_NTNB_ANOS).all()
 
 
 def test_a_liquidacao_suposta_e_o_proximo_dia_util(dados):
@@ -473,7 +478,7 @@ def test_a_tabela_dos_ultimos_desce_ao_nivel_de_PAPEL_E_VENCIMENTO(pagina):
     # MESMO FORMATO da tabela da agenda, de proposito: as duas respondem a mesma
     # pergunta em tempos diferentes -- o que vem e o que veio -- e ler as duas exige
     # que as colunas estejam no mesmo lugar. A versao anterior parava na familia, e
-    # ai nao dava para ver que dentro de "NTN-B longa" o corte foi num vencimento so.
+    # ai nao dava para ver que dentro de "NTN-B acima de 10 anos" o corte foi num vencimento so.
     detalhe = agenda.ultimos_leiloes()
     i = pagina.index('id="tabela-ultimos"')
     j = pagina.index('id="tabela-calendario"')
