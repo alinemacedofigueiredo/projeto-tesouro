@@ -184,7 +184,7 @@ fica em **4,9 MB** em vez de 9,67.
 2. **Se a taxa publicada na hora bate com a da planilha.** Vale medir no primeiro
    leilão que passar pelos três momentos: se bater sempre, a hachura vira só
    proveniência; se não bater, ela é aviso.
-3. ~~O corte entre NTN-B curta e longa.~~ **Decidido em 20/08/2026**, quando a API
+3. ~~O corte entre NTN-B até 10 anos e longa.~~ **Decidido em 20/08/2026**, quando a API
    publicou a tabela de benchmarks: curta são os vértices de **3 e 5 anos**, longa é
    de 7 para cima — e a fronteira passou a ser medida no **vértice publicado**, e não
    no prazo calculado.

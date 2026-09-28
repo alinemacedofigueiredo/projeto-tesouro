@@ -191,7 +191,7 @@ def editais(registros):
 def benchmarks(registros):
     """A tabela de vertices vigentes: por (titulo, vencimento), o rotulo e os anos.
 
-    E a fonte que faltava para separar NTN-B curta de longa sem inferir do prazo.
+    E a fonte que faltava para separar NTN-B ate 10 anos de longa sem inferir do prazo.
     Medido: 401 leiloes de NTN-B (9,8%) trocam de faixa quando a classificacao passa
     do prazo calculado para o vertice publicado -- todos com vertice 5 e prazo entre
     5,00 e 6,42 anos, que e o mesmo papel visto no comeco da vigencia dele.

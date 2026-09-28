@@ -26,12 +26,12 @@ from . import estilo
 
 # A ordem em que as familias empilham e aparecem na legenda: do mais curto para o
 # mais longo, que e a ordem em que elas acrescentam risco.
-ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"]
 
 _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
-                "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-C",
+                "NTN-B at\u00e9 10 anos": "NTN-B", "NTN-B acima de 10 anos": "NTN-C",
                 # Os grupos, para o anual agrupado. A cor de "Prefixado" e a da
-                # LTN e a de "NTN-B" e a da NTN-B curta -- as duas maiores de
+                # LTN e a de "NTN-B" e a da NTN-B ate 10 anos -- as duas maiores de
                 # cada grupo -- para o agrupado ler como o detalhado.
                 "Prefixado": "LTN", "NTN-B": "Indice Precos"}
 
@@ -43,14 +43,14 @@ _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
 # -- e vocabulario proprio no lugar do vocabulario do dominio faz o leitor
 # traduzir para conferir contra o RMD, que fala em indexador.
 GRUPO_DA_FAMILIA = {"LFT": "LFT", "LTN": "Prefixado", "NTN-F": "Prefixado",
-                    "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-B"}
+                    "NTN-B at\u00e9 10 anos": "NTN-B", "NTN-B acima de 10 anos": "NTN-B"}
 ORDEM_DOS_GRUPOS = ["LFT", "Prefixado", "NTN-B"]
 
 # Os recortes que ganham grafico proprio de dois eixos.
 RECORTES = {
-    "NTN-B": ("NTN-B curta", "NTN-B longa"),
-    "NTN-B curta": ("NTN-B curta",),
-    "NTN-B longa": ("NTN-B longa",),
+    "NTN-B": ("NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"),
+    "NTN-B at\u00e9 10 anos": ("NTN-B at\u00e9 10 anos",),
+    "NTN-B acima de 10 anos": ("NTN-B acima de 10 anos",),
     "NTN-F": ("NTN-F",),
     "LTN": ("LTN",),
     "LTN + NTN-F": ("LTN", "NTN-F"),
@@ -61,8 +61,8 @@ RECORTES = {
     # medido, a coluna e inteiramente nula para ela --, entao num grafico de DV
     # ela nao tem o que somar. Num de financeiro ela e mais da metade do total,
     # e deixa-la de fora esconderia o grosso do que o Tesouro leiloa.
-    "sem LFT": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa"),
-    "tudo": ("LTN", "NTN-F", "NTN-B curta", "NTN-B longa", "LFT"),
+    "sem LFT": ("LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"),
+    "tudo": ("LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos", "LFT"),
 }
 
 # EM QUE PERIODO A SERIE E SOMADA. "W" e o de sempre; "M" entrou em
@@ -384,8 +384,8 @@ def demanda(recorte, janela=None, com_segunda_volta=True):
     esta do outro lado, e a razao mediria outra coisa.
 
     A FRACAO E MEDIDA EM DV, e nao em quantidade. Medido no historico inteiro, a
-    diferenca entre as duas leituras e material na NTN-B longa: 37,5% da quantidade
-    contra 46,6% do DV. Em quantidade, um lote de LTN de seis meses pesa igual a um
+    diferenca entre as duas leituras e material na NTN-B acima de 10 anos: 38,5%
+    da quantidade contra 49,5% do DV. Em quantidade, um lote de LTN de seis meses pesa igual a um
     de NTN-B de trinta anos; em DV, cada um pesa o risco que carrega -- e e risco
     que esta pagina conta.
     """
@@ -1178,8 +1178,8 @@ def desenha_colocado_por_familia(dados, ax, meses=6):
     """Uma linha por familia: a fracao colocada, em media movel.
 
     E o resumo da pagina de demanda. O que ele mostra, medido no historico inteiro:
-    prefixado sai quase todo (LTN 96%, NTN-F 94%), e a NTN-B longa sai pela metade
-    (46,6% do DV ofertado). Quando o Tesouro corta, corta na ponta longa.
+    prefixado sai quase todo (LTN 93,8%, NTN-F 91,3%), e a NTN-B acima de 10 anos
+    sai pela metade (49,5% do DV ofertado). Quando o Tesouro corta, corta na ponta longa.
     """
     for familia in ORDEM_FAMILIAS:
         if familia not in dados.columns:

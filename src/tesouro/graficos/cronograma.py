@@ -29,15 +29,15 @@ from . import estilo
 
 # A mesma paleta do resto do projeto: fam\u00edlia do papel.
 _COR_FAMILIA = {"LFT": "LFT", "LTN": "LTN", "NTN-F": "NTN-F",
-                "NTN-B curta": "NTN-B", "NTN-B longa": "NTN-C"}
+                "NTN-B at\u00e9 10 anos": "NTN-B", "NTN-B acima de 10 anos": "NTN-C"}
 
 # A ordem em que os pap\u00e9is empilham: do mais curto para o mais longo, que \u00e9 a ordem
 # em que acrescentam risco.
-ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+ORDEM_FAMILIAS = ["LFT", "LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"]
 
 # Os que entram no gr\u00e1fico de DV. A LFT fica de fora: sem DV01, a fatia dela seria
 # sempre zero e uma fatia de espessura zero n\u00e3o se distingue de aus\u00eancia.
-FAMILIAS_COM_DV = ["LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+FAMILIAS_COM_DV = ["LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"]
 
 # A barra do ofertado \u00e9 a mesma cor do papel, mas vazada: \u00e9 o TETO, e o aceito \u00e9 o
 # que coube dentro dele. Duas cores diferentes fariam parecer duas grandezas.

@@ -298,7 +298,7 @@ def test_o_dia_inteiro_fica_no_estagio_menos_firme_do_csv(tmp_path, monkeypatch)
 
     base = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv",
                        parse_dates=["data_leilao", "data_liquidacao"])
-    recorte = base[base["familia"] == "NTN-B longa"].tail(2).copy()
+    recorte = base[base["familia"] == "NTN-B acima de 10 anos"].tail(2).copy()
     recorte["data_leilao"] = pd.Timestamp("2026-08-20")
     recorte["estagio"] = ["planilha", "ofertado"]
 
@@ -306,7 +306,7 @@ def test_o_dia_inteiro_fica_no_estagio_menos_firme_do_csv(tmp_path, monkeypatch)
     recorte.to_csv(falso, index=False, encoding="utf-8")
     monkeypatch.setattr(emissao.config, "PROCESSED_DIR", tmp_path)
 
-    d = emissao.por_dia("NTN-B longa")
+    d = emissao.por_dia("NTN-B acima de 10 anos")
     assert len(d) == 1
     assert d.iloc[0]["estagio"] == "ofertado"
 
@@ -672,15 +672,23 @@ def test_a_demanda_traz_os_dois_lados_e_a_fracao():
 
 
 def test_a_demanda_e_medida_em_DV_e_nao_em_quantidade():
-    # A DIFERENCA E MATERIAL: no historico inteiro a NTN-B longa colocou 37,5% da
-    # quantidade ofertada e 46,6% do DV. Em quantidade, um lote de LTN de seis
-    # meses pesa igual a um de NTN-B de trinta anos -- e o que esta pagina conta e
-    # risco.
-    d = emissao.demanda("NTN-B longa")
+    # A DIFERENCA E MATERIAL: no historico inteiro a NTN-B acima de 10 anos
+    # colocou 38,4% da quantidade ofertada e 49,5% do DV. Em quantidade, um lote
+    # de LTN de seis meses pesa igual a um de NTN-B de trinta anos -- e o que
+    # esta pagina conta e risco.
+    #
+    # REMEDIDAS EM 25/09/2026, quando o corte da NTN-B passou de 5 para 10 anos.
+    # As ancoras anteriores -- 46,6% e 37,5% -- mediam a faixa acima de CINCO
+    # anos, que e outra populacao. Nao foi so o rotulo que mudou.
+    #
+    # E elas ja estavam velhas antes disso: com o corte de 5, o valor de hoje e
+    # 48,2%, contra os 46,6% escritos. O historico cresceu desde que o numero foi
+    # medido, e a banda de 2 pp quase nao aguentou.
+    d = emissao.demanda("NTN-B acima de 10 anos")
     em_dv = d["dv_aceito"].sum() / d["dv_ofertado"].sum()
     em_qtd = d["qtd_aceita"].sum() / d["qtd_ofertada"].sum()
-    assert em_dv == pytest.approx(0.466, abs=0.02)
-    assert em_qtd == pytest.approx(0.375, abs=0.02)
+    assert em_dv == pytest.approx(0.495, abs=0.02)
+    assert em_qtd == pytest.approx(0.384, abs=0.02)
     assert em_dv > em_qtd, "as duas leituras deixaram de divergir"
 
 
@@ -707,9 +715,9 @@ def test_a_serie_por_familia_nao_tem_buracos_alternados():
 
 def test_a_quebra_de_2021_na_ntnb_longa_esta_no_dado():
     # O achado que a pagina mostra, travado aqui para que uma mudanca de dado que o
-    # apague seja notada: a NTN-B longa saiu de ~20% em 2020 para ~81% em 2021.
+    # apague seja notada: a NTN-B acima de 10 anos saiu de ~20% em 2020 para ~81% em 2021.
     d = emissao.colocado_por_familia()
-    por_ano = d.groupby(d.index.year)["NTN-B longa"].mean()
+    por_ano = d.groupby(d.index.year)["NTN-B acima de 10 anos"].mean()
     assert por_ano[2020] < 0.30
     assert por_ano[2021] > 0.70
     assert por_ano.iloc[-1] > 0.85, "o nivel recente deixou de ser alto"
@@ -1041,7 +1049,7 @@ def test_a_agregacao_MENSAL_conserva_o_total():
     O total do financeiro tem de ser o MESMO nas duas agregacoes -- se nao for,
     alguma linha esta caindo fora do groupby.
     """
-    familias = ["LTN", "NTN-F", "NTN-B curta", "NTN-B longa"]
+    familias = ["LTN", "NTN-F", "NTN-B at\u00e9 10 anos", "NTN-B acima de 10 anos"]
     semanal = emissao.por_semana_por_familia(janela=None, periodo="W")
     mensal = emissao.por_semana_por_familia(janela=None, periodo="M")
     for f in familias:
