@@ -141,9 +141,44 @@ comando sai com erro. Banda quebrada não vira gráfico com banda errada.
 4. abra `data/processed/dashboard.html` e confira o cabeçalho: ele diz qual RMD
    está sendo usado
 
-Se o download falhar (o site do Tesouro manda cadeia de certificado
-incompleta), salve o anexo a mão em `data/raw/rmd/` pelo navegador e rode de
-novo com Enter em branco nas duas perguntas.
+Se o download falhar, salve o anexo a mão em `data/raw/rmd/` pelo navegador e
+rode de novo com Enter em branco nas duas perguntas. **Isso sempre funciona, e
+não depende de arrumar certificado nenhum.**
+
+### Por que o download falha, e o que muda no banco
+
+Medido em 28/09/2026:
+
+```
+site do RMD   AC SERPRO AR46 OV TLS CA 2025    falha
+API de leilão GeoTrust TLS RSA CA G10          funciona
+```
+
+A API funciona porque a GeoTrust já vem em qualquer máquina. O site do RMD falha
+porque a cadeia do SERPRO chega **incompleta** — o navegador contorna buscando o
+elo que falta, e o Python não faz isso.
+
+**A verificação de certificado nunca é desligada.** O conserto é apontar o Python
+para um pacote de certificados que tenha a cadeia:
+
+```
+$env:SSL_CERT_FILE = "C:\caminho\para\ca-bundle.crt"
+```
+
+**Isso é propriedade da máquina, e não do projeto** — não há pacote de
+certificados dentro do repositório, de propósito. No banco a variável aponta para
+o pacote que o TI de lá fornecer, e nada no código muda.
+
+Duas razões para não embutir o pacote aqui, as duas medidas:
+
+- se o banco **inspeciona o tráfego**, o certificado que o Python vê é o do
+  banco, e um pacote com o SERPRO dentro não serve para nada;
+- em Linux o `SSL_CERT_FILE` **substitui** o padrão em vez de somar (no Windows
+  soma — testado). Um pacote só com o SERPRO derrubaria o resto do HTTPS.
+
+Quando o download falha, a mensagem diz **quem assinou** o certificado. Se for o
+órgão público, falta o elo da cadeia dele; se for a sua instituição, o tráfego
+está sendo inspecionado e o pacote a apontar é o dela.
 
 ### Houve leilão
 

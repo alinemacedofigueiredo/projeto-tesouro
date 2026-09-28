@@ -9,6 +9,7 @@ rede, basta colocar o .xlsx em data/raw/rmd/ na mao.
 """
 import io
 import re
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -53,6 +54,37 @@ def _baixar_bytes(url, timeout=300):
         return resposta.read()
 
 
+def _traduzir_erro_de_rede(url, erro):
+    """URLError crua vira mensagem que diz o que fazer, ou segue como estava.
+
+    ATE 28/09/2026 ESTE CAMINHO VAZAVA O TRACEBACK. A orientacao sobre
+    SSL_CERT_FILE existia no api_leiloes e no fetch_leiloes_api, e faltava
+    justamente aqui -- onde ela foi tentar baixar o anexo do mes e recebeu
+    "CERTIFICATE_VERIFY_FAILED" sem nenhuma pista do que fazer.
+
+    Medido no mesmo dia: quem assina o tesourotransparente.gov.br e a "AC SERPRO
+    AR46 OV TLS CA 2025", e a cadeia chega incompleta. O navegador contorna
+    buscando o elo que falta; o Python nao faz isso.
+    """
+    from urllib.parse import urlsplit
+
+    from . import certificado
+
+    texto = str(erro)
+    if "CERTIFICATE" not in texto.upper() and "SSL" not in texto.upper():
+        return erro
+    host = urlsplit(url).hostname or url
+    return LookupError(
+        "nao consegui baixar o anexo do RMD.\n\n"
+        "%s\n\n"
+        "%s\n\n"
+        "ENQUANTO ISSO, o caminho a mao funciona e nao depende de nada disto:\n"
+        "salve o anexo pelo NAVEGADOR em data/raw/rmd/ e rode de novo dando\n"
+        "Enter em branco nas duas perguntas (ano e mes) -- ele usa o que esta\n"
+        "na pasta." % (texto, certificado.orientacao(host))
+    )
+
+
 def _nome_previsto(ano, mes):
     return f"Anexo RMD_{ano}_{mes:02d}.xlsx"
 
@@ -81,10 +113,14 @@ def baixar(ano, mes, destino=None):
         print(f"ja existe, nada a fazer: {previsto}")
         return previsto
 
-    pagina = _baixar_bytes(url_da_publicacao(ano, mes), timeout=60)
-    url = link_do_anexo(pagina.decode("utf-8", errors="ignore"))
-    print(f"baixando {url}")
-    conteudo = _baixar_bytes(url)
+    alvo = url_da_publicacao(ano, mes)
+    try:
+        pagina = _baixar_bytes(alvo, timeout=60)
+        url = link_do_anexo(pagina.decode("utf-8", errors="ignore"))
+        print(f"baixando {url}")
+        conteudo = _baixar_bytes(url)
+    except urllib.error.URLError as erro:
+        raise _traduzir_erro_de_rede(alvo, erro) from erro
 
     if conteudo[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(conteudo)) as zf:
