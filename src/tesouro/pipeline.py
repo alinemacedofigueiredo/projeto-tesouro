@@ -92,6 +92,35 @@ def _e_interativo():
     return sys.stdin is not None and sys.stdin.isatty()
 
 
+def _dizer_qual_rmd_esta_carregado(saida=print):
+    """Qual anexo o projeto tem, e onde pegar outro.
+
+    A URL e a PASTA saem do codigo que as usa, e nao escritas aqui. Caminho
+    repetido a mao e caminho que fica errado no dia em que o outro muda -- e
+    esta mensagem existe justamente para ela COLAR no navegador e no Explorer.
+
+    NO MENU, e nao no fim da rodada. A primeira versao avisava depois do
+    "concluido.", e ela recusou: "nao quero assim". Estava certa -- no fim a
+    informacao chega depois de a decisao ter sido tomada.
+    """
+    from . import config, fetch_rmd, leitura_rmd
+
+    base = leitura_rmd.mes_base_carregado()
+    saida("")
+    if base is None:
+        saida("Nao ha anexo de RMD na pasta ainda.")
+    else:
+        ano, mes = base
+        saida("O RMD que o projeto tem e de %s."
+              % leitura_rmd._nome_do_mes(ano, mes))
+    saida("")
+    saida("Se quiser um mais novo:")
+    saida("  1. abra   %s" % fetch_rmd.BASE)
+    saida("  2. salve o anexo em   %s" % config.RMD_DIR)
+    saida("  3. volte aqui e de Enter em branco nas duas perguntas")
+    saida("")
+
+
 def escolher_rmd_no_menu(entrada=None, saida=print):
     """Qual RMD puxar -- pedido dela, com estas palavras: "quando a pessoa
     decidir atualizar o rmd tem q ter a opcao, qual rmd vc quer puxar?".
@@ -106,9 +135,9 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
     # substitui-lo depois nao muda nada -- o teste que finge o teclado passava
     # a nao ter efeito, e a funcao ficava esperando um Enter que ninguem daria.
     entrada = entrada or input
+    _dizer_qual_rmd_esta_carregado(saida)
     saida("Qual RMD voce quer puxar?")
-    saida("  (Enter em branco segue com o anexo que ja esta em "
-          "data/raw/rmd/)")
+    saida("  (Enter em branco segue com o anexo que ja esta na pasta)")
     ano = entrada("ano  (ex.: 2026): ").strip()
     if not ano:
         return None
@@ -519,33 +548,10 @@ def main(argumentos=None):
         )
         for falha in falhas:
             print(f"  - {falha}")
-        _avisar_rmd_atrasado()
         return 1
 
     print("\nconcluido.")
-    _avisar_rmd_atrasado()
     return 0
-
-
-def _avisar_rmd_atrasado():
-    """Diz, no FIM da tela, que existe RMD mais novo que o carregado.
-
-    DEPOIS DO "concluido.", de proposito. A licao da agenda em 24/09/2026: um
-    AVISO impresso cinco linhas acima da ultima nao e lido -- e aquele ficou
-    semanas invisivel. Este e a ultima coisa na tela.
-    """
-    from . import leitura_rmd
-
-    try:
-        aviso = leitura_rmd.aviso_de_atraso()
-    except Exception as erro:                   # noqa: BLE001
-        # Um aviso que quebra a rodada seria pior que aviso nenhum: o projeto
-        # continua valendo com o RMD que tem.
-        print(f"\n(nao consegui conferir se ha RMD mais novo: {erro})")
-        return
-    if aviso:
-        print()
-        print(aviso)
 
 
 if __name__ == "__main__":

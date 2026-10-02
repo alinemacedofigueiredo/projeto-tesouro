@@ -99,18 +99,6 @@ def caminho_do_rmd(diretorio=None):
     return max(datados, key=lambda par: par[0])[1]
 
 
-# QUANTOS MESES DE ATRASO VALEM UM AVISO.
-#
-# MEDIDO, e e a unica medicao que temos: o anexo de base 31/07/2026 entrou em
-# disco em 26/08/2026. Ou seja, o anexo de base M sai ate o fim do mes M+1.
-#
-# Dois, e nao um, de proposito. Em 05/09 com julho carregado o de agosto pode
-# nao ter saido ainda, e um aviso que aparece quando nao precisa deixa de ser
-# lido quando precisa. A regra so fala quando o prazo INTEIRO do anexo faltante
-# ja passou -- entao ela nunca cre lobo, e em troca pode demorar um mes.
-MESES_ATE_AVISAR = 2
-
-
 def mes_base_carregado(diretorio=None):
     """(ano, mes) do RMD que o projeto esta usando, ou None.
 
@@ -127,50 +115,6 @@ def mes_base_carregado(diretorio=None):
 def _nome_do_mes(ano, mes):
     nomes = {n: m for m, n in _MESES.items()}
     return "%s/%d" % (nomes[mes], ano)
-
-
-def aviso_de_atraso(base=None, hoje=None, diretorio=None):
-    """A frase que diz que existe RMD mais novo que o carregado, ou None.
-
-    POR QUE ISTO EXISTE: o projeto usa o RMD mais recente que ENCONTRA em disco,
-    e fica calado sobre o que nao esta la. Em 02/10/2026 ela descobriu, por
-    acaso, que estava com o de julho -- e a pagina do PAF projetava o fechamento
-    do ano a partir de uma base de 31/07, sem nada avisar.
-
-    Nao vai a rede. O site do RMD trava no certificado do SERPRO, e um aviso que
-    depende de rede que nao funciona nao avisa nada. A conta e de calendario.
-    """
-    import pandas as pd
-
-    if base is None:
-        base = mes_base_carregado(diretorio)
-    if base is None:
-        return None
-    hoje = pd.Timestamp(hoje).normalize() if hoje is not None \
-        else pd.Timestamp.today().normalize()
-
-    ano, mes = base
-    # Diferenca em MESES de calendario, que atravessa a virada de ano sem
-    # gambiarra -- subtracao de mes solta daria -11 de dezembro para janeiro.
-    atraso = (hoje.year - ano) * 12 + (hoje.month - mes)
-    if atraso <= MESES_ATE_AVISAR:
-        return None
-
-    faltando = []
-    for passo in range(1, atraso - MESES_ATE_AVISAR + 1):
-        d = pd.Timestamp(year=ano, month=mes, day=1) + pd.DateOffset(months=passo)
-        faltando.append(_nome_do_mes(d.year, d.month))
-
-    quais = faltando[0] if len(faltando) == 1 else \
-        "%s e %s" % (", ".join(faltando[:-1]), faltando[-1])
-    return (
-        "ADVERTENCIA: o projeto esta usando o RMD de %s, e o de %s ja deveria\n"
-        "ter saido. As paginas projetam o fechamento do ano a partir dessa base.\n"
-        "\n"
-        "Para atualizar: salve o anexo pelo NAVEGADOR em data/raw/rmd/ e rode o\n"
-        "modo rmd dando Enter em branco nas duas perguntas."
-        % (_nome_do_mes(ano, mes), quais)
-    )
 
 
 def abrir(caminho=None):

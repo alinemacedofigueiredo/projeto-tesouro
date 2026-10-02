@@ -145,29 +145,31 @@ comando sai com erro. Banda quebrada não vira gráfico com banda errada.
 
 ## Passo a passo de cada situação
 
-### O projeto avisa quando ha RMD mais novo
+### Ao escolher `1`, ele diz qual RMD você tem
 
-Desde 02/10/2026, no **fim** da rodada:
+Desde 02/10/2026, antes de perguntar qualquer coisa:
 
 ```
-ADVERTENCIA: o projeto esta usando o RMD de julho/2026, e o de agosto/2026 ja
-deveria ter saido. As paginas projetam o fechamento do ano a partir dessa base.
+O RMD que o projeto tem e de julho/2026.
+
+Se quiser um mais novo:
+  1. abra   https://www.tesourotransparente.gov.br/publicacoes/relatorio-mensal-da-divida-rmd
+  2. salve o anexo em   ...\dataawmd
+  3. volte aqui e de Enter em branco nas duas perguntas
 ```
 
 **Por que isso faltava:** o projeto usa o RMD mais recente que encontra em disco
-e ficava calado sobre o que nao esta la. Em 02/10/2026 ela descobriu por acaso
-que estava com o de julho, e a pagina do PAF projetava o ano inteiro a partir de
+e ficava calado sobre o que não está lá. Em 02/10/2026 ela descobriu por acaso
+que estava com o de julho, e a página do PAF projetava o ano inteiro a partir de
 uma base de 31/07.
 
-**A conta e de calendario, e nao de rede** -- o site do RMD trava no certificado
-do SERPRO, e um aviso que depende de rede que nao funciona nao avisa nada.
+**A URL e a pasta saem do código**, e não escritas na mensagem — caminho
+repetido a mão é caminho que fica errado no dia em que o outro muda, e essa
+mensagem existe justamente para colar no navegador e no Explorer.
 
-**Avisa com dois meses de atraso, e nao com um.** Medido: o anexo de base 31/07
-entrou em disco em 26/08, ou seja o de base M sai ate o fim de M+1. Com um mes,
-o aviso apareceria em setembro para um anexo que talvez nem tivesse saido -- e
-aviso que aparece quando nao precisa deixa de ser lido quando precisa.
-
-**Nao derruba a rodada.** Nao e falha do projeto: e dado que ninguem trouxe.
+**No menu, e não no fim da rodada.** A primeira versão avisava depois do
+`concluido.`, e ela recusou: no fim a informação chega depois de a decisão ter
+sido tomada.
 
 ### Saiu o RMD do mês
 
