@@ -5,6 +5,19 @@ se deu certo, e o que fazer quando não dá.
 
 Escrito em 09/09/2026.
 
+## O atalho, para quem nao quer decorar comando
+
+Na area de trabalho tem **Projeto Tesouro - atualizar**. Duplo clique, e ele
+abre o menu.
+
+A janela **fica aberta no fim**, de proposito: sem isso ela fecharia junto com o
+programa e levaria o resultado embora -- inclusive a `ADVERTENCIA` de RMD
+atrasado, que e a ultima linha impressa.
+
+O atalho aponta para `atualizar.cmd`, que mora no projeto e vai no git. O icone
+na area de trabalho e so um apontador, e por isso nao esta versionado: se o
+projeto mudar de pasta, recria-se o icone e o `.cmd` continua o mesmo.
+
 ## O comando
 
 ```
@@ -131,6 +144,30 @@ valida o arquivo primeiro, e **se ele não passar, nada é redesenhado** e o
 comando sai com erro. Banda quebrada não vira gráfico com banda errada.
 
 ## Passo a passo de cada situação
+
+### O projeto avisa quando ha RMD mais novo
+
+Desde 02/10/2026, no **fim** da rodada:
+
+```
+ADVERTENCIA: o projeto esta usando o RMD de julho/2026, e o de agosto/2026 ja
+deveria ter saido. As paginas projetam o fechamento do ano a partir dessa base.
+```
+
+**Por que isso faltava:** o projeto usa o RMD mais recente que encontra em disco
+e ficava calado sobre o que nao esta la. Em 02/10/2026 ela descobriu por acaso
+que estava com o de julho, e a pagina do PAF projetava o ano inteiro a partir de
+uma base de 31/07.
+
+**A conta e de calendario, e nao de rede** -- o site do RMD trava no certificado
+do SERPRO, e um aviso que depende de rede que nao funciona nao avisa nada.
+
+**Avisa com dois meses de atraso, e nao com um.** Medido: o anexo de base 31/07
+entrou em disco em 26/08, ou seja o de base M sai ate o fim de M+1. Com um mes,
+o aviso apareceria em setembro para um anexo que talvez nem tivesse saido -- e
+aviso que aparece quando nao precisa deixa de ser lido quando precisa.
+
+**Nao derruba a rodada.** Nao e falha do projeto: e dado que ninguem trouxe.
 
 ### Saiu o RMD do mês
 
