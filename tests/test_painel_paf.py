@@ -813,3 +813,39 @@ def test_o_rodape_diz_que_a_inflacao_implicita_CORRIGE_O_VNA_e_entre_que_datas()
         assert f"{data:%d/%m/%Y}" in html, data
     # E a inflacao continua declarada em numero.
     assert f"{banda._numero(100 * p['inflacao'])}%" in html
+
+
+def test_falha_na_projecao_NAO_deixa_pagina_pela_metade(tmp_path, monkeypatch):
+    """O defeito de 02/10/2026, e ele derrota a conferencia dela.
+
+    Ela trouxe o RMD de agosto e rodou. A curva nao tinha cotacao de LTN em
+    31/08, a projecao estourou -- e a pagina JA ESTAVA EM DISCO, porque
+    painel_paf.grava chama dashboard.grava ANTES de calcular as tabelas.
+
+    Resultado: paf.html com 10 KB em vez de 30, cabecalho dizendo "RMD de
+    agosto/2026", e NENHUMA tabela de projecao. A pagina parecia atualizada.
+
+    Isso quebra a unica conferencia que ela tem -- "se o cabecalho nao mudou, a
+    atualizacao nao atualizou". Aqui o cabecalho mudou e o conteudo sumiu.
+
+    A pagina que ja existia tem de ficar INTACTA quando a nova nao pode ser
+    feita: pagina velha e honesta, pagina pela metade nao.
+    """
+    import pytest
+
+    from tesouro.graficos import painel_paf
+
+    alvo = tmp_path / "paf.html"
+    ANTES = "<html>a pagina boa de ontem</html>"
+    alvo.write_text(ANTES, encoding="utf-8")
+
+    def sem_curva(*a, **k):
+        raise LookupError("nenhuma LTN com cotacao em 31/08/2026")
+
+    monkeypatch.setattr(banda, "dados_projecao", sem_curva)
+
+    with pytest.raises(LookupError, match="cotacao"):
+        painel_paf.grava(alvo, registros=[])
+
+    assert alvo.read_text(encoding="utf-8") == ANTES, (
+        "a pagina de ontem foi substituida por uma pela metade")

@@ -947,3 +947,53 @@ def test_a_agenda_QUEBRADA_entra_nas_falhas_e_derruba_o_codigo(monkeypatch,
     assert "concluido com falha" in saida
     assert "NaTType" in saida.split("concluido com falha")[-1], (
         "a falha tem de aparecer no resumo do fim, e nao so cinco linhas acima")
+
+
+def test_a_rodada_DIZ_QUE_COMECOU_e_marca_cada_fase(monkeypatch, capsys):
+    """Ela nao tinha como saber se estava rodando.
+
+    PALAVRAS DELA em 02/10/2026: "como sei que esta rodando? fui checar na
+    pagina paf, e nao esta atualizado, entao nao sei se esta rodando, tem que
+    ter algum aviso que esta rodando, e um concluido.. onde olho?".
+
+    O pipeline levava minutos imprimindo quase nada -- entre dois cabecalhos
+    passavam 60 s de silencio, e silencio de dois minutos e indistinguivel de
+    travado. Agora cada fase se anuncia com HORA e tempo decorrido.
+    """
+    codigo, chamadas = _rodar(monkeypatch, ["--modo", "leiloes"])
+    saida = capsys.readouterr().out
+
+    assert codigo == 0
+    # COMECOU: a primeira linha util diz que comecou, com hora.
+    assert "COMECOU" in saida.upper()
+    # CADA FASE se anuncia. Tres que o modo leiloes certamente faz.
+    for fase in ("leiloes", "paf", "agenda"):
+        assert fase in saida.lower(), fase
+    # E o tempo decorrido aparece, para o silencio ter tamanho visivel.
+    import re
+
+    assert re.search(r"\d+\s*s\b", saida), "nenhuma marca de tempo na saida"
+    # TERMINOU, e de um jeito que nao se confunde com o meio do log.
+    assert "concluido" in saida.lower()
+
+
+def test_cada_fase_e_anunciada_ANTES_de_rodar_e_nao_depois(monkeypatch, capsys):
+    # A ordem importa: anunciar depois de terminar deixa o silencio sem
+    # explicacao justamente enquanto ele dura.
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    from tesouro.graficos import painel_paf
+
+    marcas = []
+
+    def grava(*a, **k):
+        marcas.append("rodou o paf")
+        return []
+    monkeypatch.setattr(painel_paf, "grava", grava)
+
+    pipeline.main(["--modo", "paf"])
+    saida = capsys.readouterr().out
+    assert "rodou o paf" in marcas
+    antes = saida.lower().index("paf")
+    assert antes < saida.lower().rindex("concluido")

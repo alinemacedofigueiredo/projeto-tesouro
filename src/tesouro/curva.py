@@ -20,15 +20,32 @@ from . import calendario, config
 
 
 def _data_base(d, data_base):
-    """A data mais recente <= 'data_base' que existe em 'd', ou a mais recente de
-    todas se 'data_base' for None.
+    """A data mais recente <= 'data_base' COM COTACAO, ou a mais recente com
+    cotacao se 'data_base' for None.
 
     Fatorado para fora de '_curva' para que 'data_da_curva' devolva a mesma data
     sem depender de um titulo especifico ter cotacao nela -- ver a explicacao em
-    '_curva'.
+    '_curva'. "Alguma cotacao na data" preserva essa intencao: nao exige a do
+    titulo pedido, so que a data nao seja vazia de taxa.
+
+    COM COTACAO, e nao "com qualquer linha". Em 02/10/2026 ela trouxe o RMD de
+    agosto e o dv_por_papel.csv ganhou 52 linhas em 31/08 -- quantidade e
+    vencimento, que vem do RMD -- e ZERO taxas, que vem da Bloomberg e nao foi
+    puxada. A data mais recente passou a ser 31/08, e _curva estourava com
+    "nenhuma LTN com cotacao em 31/08/2026": a pagina do PAF deixou de sair.
+    Pior, antes do conserto de painel_paf a pagina ja tinha sido escrita pela
+    metade, com o cabecalho novo e sem a projecao.
+
+    DECISAO DELA: usar a curva do ultimo mes que tem cotacao, e dizer de quando
+    ela e. Quem chama recebe a data de volta, e o rodape da projecao a imprime
+    -- entao a mistura de datas fica escrita na pagina, e nao escondida.
+
+    O limite da degradacao continua: sem cotacao em data nenhuma, levanta.
     """
-    pedida = pd.Timestamp(data_base) if data_base is not None else d["data"].max()
-    disponiveis = d.loc[d["data"] <= pedida, "data"]
+    com_cotacao = d.loc[d["taxa_pct"].notna(), "data"]
+    pedida = (pd.Timestamp(data_base) if data_base is not None
+              else (com_cotacao.max() if len(com_cotacao) else d["data"].max()))
+    disponiveis = com_cotacao[com_cotacao <= pedida]
     if disponiveis.empty:
         raise LookupError(
             f"nao ha curva ate {pedida:%d/%m/%Y} no dv_por_papel.csv. Sem curva nao "
