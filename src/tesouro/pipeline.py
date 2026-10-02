@@ -519,10 +519,33 @@ def main(argumentos=None):
         )
         for falha in falhas:
             print(f"  - {falha}")
+        _avisar_rmd_atrasado()
         return 1
 
     print("\nconcluido.")
+    _avisar_rmd_atrasado()
     return 0
+
+
+def _avisar_rmd_atrasado():
+    """Diz, no FIM da tela, que existe RMD mais novo que o carregado.
+
+    DEPOIS DO "concluido.", de proposito. A licao da agenda em 24/09/2026: um
+    AVISO impresso cinco linhas acima da ultima nao e lido -- e aquele ficou
+    semanas invisivel. Este e a ultima coisa na tela.
+    """
+    from . import leitura_rmd
+
+    try:
+        aviso = leitura_rmd.aviso_de_atraso()
+    except Exception as erro:                   # noqa: BLE001
+        # Um aviso que quebra a rodada seria pior que aviso nenhum: o projeto
+        # continua valendo com o RMD que tem.
+        print(f"\n(nao consegui conferir se ha RMD mais novo: {erro})")
+        return
+    if aviso:
+        print()
+        print(aviso)
 
 
 if __name__ == "__main__":
