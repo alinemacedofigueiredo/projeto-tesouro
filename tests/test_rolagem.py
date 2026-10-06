@@ -357,6 +357,11 @@ def test_o_provisorio_entra_DEPOIS_de_onde_a_planilha_acaba():
             entrou = tudo.tail(len(alem))
             assert (entrou["data_liquidacao"] > fronteira).all()
 
+def fronteira_da_planilha(oficial):
+    """A ultima liquidacao que a planilha do Tesouro ja traz."""
+    return oficial["data_liquidacao"].max()
+
+
 def test_a_rolagem_ENXERGA_o_leilao_que_a_planilha_ainda_nao_traz():
     """O ponto da decisao 3, medido no numero e nao na existencia do arquivo.
 
@@ -368,12 +373,28 @@ def test_a_rolagem_ENXERGA_o_leilao_que_a_planilha_ainda_nao_traz():
 
     oficial = rolagem.leiloes(com_provisorio=False)
     tudo = rolagem.leiloes()
-    fronteira = oficial["data_liquidacao"].max()
-    depois = tudo[tudo["data_liquidacao"] > fronteira]
-    if depois.empty:
-        pytest.skip("a planilha esta em dia; nao ha provisorio para somar")
-
     base, _ = rolagem.base_do_rmd()
+
+    # O PONTO DE PARTIDA E O MAIOR DOS DOIS, e nao a fronteira da planilha.
+    #
+    # MEDIDO EM 06/10/2026, quando este teste ficou vermelho: a fronteira da
+    # planilha era 17/08 e a base do RMD passou a ser 31/08 -- a base ficou
+    # DEPOIS da fronteira, o contrario do que era com o RMD de julho.
+    #
+    # A rolagem comeca na base do RMD, porque o que liquidou antes dela ja esta
+    # dentro do estoque daquele RMD; somar de novo seria contar duas vezes. O
+    # teste, porem, esperava tudo o que veio depois da fronteira da planilha, e
+    # acusou uma diferenca de 48.926,1 em prefixado.
+    #
+    # Conferido: 48.926,1 e EXATAMENTE o que liquidou entre 17/08 e 31/08. A
+    # producao estava certa; a suposicao "base vem antes da fronteira" e que
+    # deixou de valer.
+    partida = max(pd.Timestamp(base), fronteira_da_planilha(oficial))
+    depois = tudo[tudo["data_liquidacao"] > partida]
+    if depois.empty:
+        pytest.skip("nao ha leilao depois da partida; nada a somar")
+
+    fronteira = partida
     ate = tudo["data_liquidacao"].max()
 
     com = rolagem.leiloes_liquidados(base, ate)

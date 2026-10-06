@@ -92,6 +92,12 @@ def _e_interativo():
     return sys.stdin is not None and sys.stdin.isatty()
 
 
+# Quantas vezes o menu repete a pergunta antes de desistir e seguir com o que
+# esta em disco. Cinco e generoso para quem erra a tecla e curto o bastante para
+# nao parecer travado.
+TENTATIVAS_NO_MENU = 5
+
+
 def _nome_do_rmd_salvo():
     """"julho/2026", ou None se nao ha nenhum anexo na pasta."""
     from . import leitura_rmd
@@ -138,7 +144,11 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
     """
     entrada = entrada or input          # ver o comentario em escolher_modo_no_menu
 
-    while True:
+    # O LACO TEM FIM, e o fim e a saida segura. Sem este limite, resposta que
+    # nunca casa repetia a pergunta para sempre: num terminal isso irrita, mas
+    # em qualquer coisa automatizada pendura -- um teste ficou 43 minutos preso
+    # aqui em 06/10/2026, e foi assim que o defeito apareceu.
+    for _ in range(TENTATIVAS_NO_MENU):
         nome = _nome_do_rmd_salvo()
         saida("")
         if nome is None:
@@ -150,9 +160,13 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
         saida("  A. atualizar  -- pegar um mais novo no site")
         saida("")
 
-        escolha = entrada("C ou A: ").strip().lower()
+        escolha = entrada("C ou A (Enter = continuar): ").strip().lower()
 
-        if escolha in ("c", "continuar", "1"):
+        # ENTER E CONTINUAR. E a tecla de quem nao quer decidir nada, e aqui
+        # nao decidir nada tem significado obvio e seguro: usar o anexo que ja
+        # esta na pasta. O menu antigo fazia isso, e eu havia tirado sem
+        # perceber.
+        if escolha in ("", "c", "continuar", "1"):
             return None
 
         if escolha in ("a", "atualizar", "2"):
@@ -169,6 +183,10 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
 
         saida("nao entendi '%s' -- responda C para continuar ou A para "
               "atualizar." % escolha)
+
+    saida("")
+    saida("Seguindo com o RMD que ja esta na pasta.")
+    return None
 
 
 _COMECO = []
@@ -252,7 +270,14 @@ def main(argumentos=None):
         help="nao baixa nada; usa os arquivos ja presentes em data/raw/",
     )
     analisador.add_argument("--ano", type=int, help="ano do RMD a baixar")
-    analisador.add_argument("--mes", type=int, help="mes do RMD a baixar")
+    # choices, e nao validacao la dentro: o argparse recusa ANTES de a
+    # rodada comecar, e diz o valor recusado. Medido em 06/10/2026 --
+    # "--mes 13" estourava ValueError com traceback DEPOIS de imprimir
+    # que a rodada tinha comecado, e traceback e um jeito confuso de
+    # dizer "digitei 13".
+    analisador.add_argument("--mes", type=int, choices=range(1, 13),
+                            metavar="1..12",
+                            help="mes do RMD a baixar")
     analisador.add_argument(
         "--modo", choices=sorted(PASSOS_DO_MODO),
         help="o que atualizar; sem isto, faz tudo (ou pergunta, no terminal)",

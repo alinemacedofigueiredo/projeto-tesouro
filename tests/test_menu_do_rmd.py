@@ -100,3 +100,26 @@ def test_o_mes_salvo_sai_do_NOME_do_arquivo_em_disco():
     ano, mes = base
     assert 2000 < ano < 2100 and 1 <= mes <= 12
     assert leitura_rmd.caminho_do_rmd().name.lower().startswith("anexo rmd")
+
+
+def test_ENTER_EM_BRANCO_e_continuar(monkeypatch):
+    # DEFEITO MEU, achado em 06/10/2026 por um teste que TRAVOU: o menu antigo
+    # aceitava Enter em branco como "segue com o que esta em disco", e o meu so
+    # aceitava C ou A. Enter caia no "nao entendi" e o laco repetia para
+    # sempre.
+    #
+    # Enter e a tecla de quem nao quer decidir nada, e aqui nao decidir nada
+    # tem um significado obvio e seguro: usar o que ja esta na pasta.
+    escolha, _ = _menu(monkeypatch, [""])
+    assert escolha is None
+
+
+def test_o_menu_NAO_PERGUNTA_PARA_SEMPRE(monkeypatch):
+    # A outra metade do mesmo defeito: com resposta que nunca casa, o laco era
+    # infinito. Num terminal isso irrita; em qualquer coisa automatizada,
+    # pendura. O laco passou a ter fim, e o fim e a saida segura -- seguir com
+    # o anexo que esta la.
+    escolha, texto = _menu(monkeypatch, ["x"] * 40)
+    assert escolha is None
+    assert texto.lower().count("nao entendi") <= 5, (
+        "insistiu demais antes de desistir")

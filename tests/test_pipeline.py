@@ -224,7 +224,11 @@ def test_coleta_sem_novidade_nao_e_tratada_como_falha(monkeypatch, capsys):
     saida = capsys.readouterr().out
 
     assert codigo == 0
-    assert "concluido." in saida
+    # A AGULHA E O ANUNCIO, e nao a palavra: desde 02/10/2026 o
+    # cabecalho da rodada tambem cita "concluido." para dizer a ela o
+    # que procurar. O anuncio de sucesso e impresso com quebra de linha
+    # antes; a mencao do cabecalho vem depois de uma apostrofe.
+    assert "\nconcluido." in saida
     assert "ATENCAO" not in saida
     assert "nada novo a coletar" in saida
 
@@ -248,10 +252,18 @@ def test_coleta_com_falha_real_fica_marcada_e_derruba_o_codigo_de_saida(monkeypa
     assert codigo != 0
     assert "ATENCAO" in saida
     assert "sessao do terminal Bloomberg recusada" in saida
-    assert "concluido." not in saida
-    # A ultima parte do log (apos as etapas de gravacao) repete o aviso.
-    indice_figuras = saida.index("--- figuras ---")
-    assert "ATENCAO" in saida[indice_figuras:]
+    # A AGULHA E O ANUNCIO, e nao a palavra: desde 02/10/2026 o
+    # cabecalho da rodada tambem cita "concluido." para dizer a ela o
+    # que procurar. O anuncio de sucesso e impresso com quebra de linha
+    # antes; a mencao do cabecalho vem depois de uma apostrofe.
+    assert "\nconcluido." not in saida
+    # A ultima parte do log repete o aviso. O MARCO MUDOU em 02/10/2026: o
+    # titulo "--- figuras ---" foi apagado quando as fases passaram a se
+    # anunciar com hora e aquele texto virou duplicata. A linha de fase e o
+    # marco agora -- e o assunto deste teste nunca foi o texto do marco, foi o
+    # aviso aparecer PERTO DO FIM em vez de so no topo, onde se perde.
+    marco = saida.index("desenhando as figuras do RMD")
+    assert "ATENCAO" in saida[marco:]
 
 
 def test_coleta_com_blpapi_ausente_tambem_conta_como_falha_real(monkeypatch, capsys):
@@ -490,15 +502,19 @@ def test_o_modo_LEILOES_respeita_o_sem_coleta(monkeypatch):
     assert "tesouro.graficos.painel_paf.grava" in chamadas
 
 
-def test_o_modo_RMD_PERGUNTA_qual_mes_quando_ninguem_diz(monkeypatch):
-    """Pedido dela, com estas palavras: "quando a pessoa decidir atualizar o
-    rmd tem q ter a opcao, qual rmd vc quer puxar?".
+def test_o_modo_RMD_NAO_baixa_nada_quando_ela_escolhe_continuar(monkeypatch):
+    """O menu virou continuar/atualizar em 02/10/2026, por pedido dela.
 
-    Sem isto o modo rmd caia no comportamento antigo -- imprimia "usando o RMD
-    ja presente em data/raw/rmd/" e nao baixava nada. Quem escolheu "atualizar
-    o RMD" num menu nao espera que nada seja baixado.
+    ANTES este teste cobrava o contrario: perguntar ano e mes e CHAMAR o
+    download. Ela trocou o desenho -- "se eu escolho 1 rmd, ai vc me diz, o
+    ultimo rmd que vc salvou e da data tal. quer atualizar ou continuar?" -- e
+    o download saiu do menu, porque nesta maquina ele nao funciona: o site
+    trava no certificado do SERPRO.
+
+    Entao o que se cobra aqui mudou de "baixa" para "NAO baixa, e usa o que
+    esta na pasta". A capacidade de baixar nao foi perdida: continua nas
+    bandeiras, e o teste abaixo a cobra.
     """
-    respostas = iter(["2026", "8"])
     chamadas = []
     _stub_gravacoes(monkeypatch, chamadas)
     _stub_coletas(monkeypatch, chamadas)
@@ -506,13 +522,37 @@ def test_o_modo_RMD_PERGUNTA_qual_mes_quando_ninguem_diz(monkeypatch):
 
     def baixar(ano, mes):
         pedidos.append((ano, mes))
-        chamadas.append("tesouro.fetch_rmd.baixar")
     from tesouro import fetch_rmd
     monkeypatch.setattr(fetch_rmd, "baixar", baixar)
     monkeypatch.setattr(pipeline, "_e_interativo", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda *a: next(respostas))
+    monkeypatch.setattr("builtins.input", lambda *a: "c")
 
     codigo = pipeline.main(["--modo", "rmd"])
+    assert codigo == 0
+    assert pedidos == [], "escolher continuar nao pode baixar nada"
+
+
+def test_as_BANDEIRAS_continuam_baixando_o_RMD(monkeypatch):
+    """A capacidade de baixar nao morreu com a troca do menu.
+
+    Numa maquina onde o certificado nao atrapalha -- a do banco pode ser --
+    --ano/--mes continua puxando o anexo, sem menu e sem ninguem do outro lado.
+    Sem este teste, tirar o download do menu teria aposentado o caminho em
+    silencio.
+    """
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    pedidos = []
+
+    def baixar(ano, mes):
+        pedidos.append((ano, mes))
+    from tesouro import fetch_rmd
+    monkeypatch.setattr(fetch_rmd, "baixar", baixar)
+    # NAO interativo: e assim que um agendador chama.
+    monkeypatch.setattr(pipeline, "_e_interativo", lambda: False)
+
+    codigo = pipeline.main(["--modo", "rmd", "--ano", "2026", "--mes", "8"])
     assert codigo == 0
     assert pedidos == [(2026, 8)], pedidos
 
@@ -565,14 +605,28 @@ def test_o_menu_do_RMD_aceita_seguir_com_o_anexo_em_disco():
         entrada=lambda *a: next(respostas), saida=lambda *a: None) is None
 
 
-def test_o_menu_do_RMD_RECUSA_mes_impossivel():
-    """13 nao e mes. Sem esta guarda o pedido ia para o site do Tesouro e
-    voltava com erro de rede, que e um jeito confuso de dizer "digitei 13"."""
-    respostas = iter(["2026", "13"])
-    ditas = []
-    assert pipeline.escolher_rmd_no_menu(
-        entrada=lambda *a: next(respostas), saida=ditas.append) is None
-    assert any("1 a 12" in d for d in ditas), ditas
+def test_a_BANDEIRA_recusa_mes_impossivel(capsys):
+    """13 nao e mes, e dizer isso em vez de estourar.
+
+    ESTE TESTE MUDOU DE LUGAR em 06/10/2026, junto com a guarda. Antes o menu
+    perguntava o mes e recusava 13 com "1 a 12"; o menu dela nao pergunta mais
+    mes, e a guarda ficou so no --mes.
+
+    E ali ela tinha DEGRADADO: medido, `--modo rmd --mes 13` estourava
+    "ValueError: mes fora do intervalo 1..12" com traceback, depois de ja ter
+    comecado a rodada. Traceback e um jeito confuso de dizer "digitei 13" --
+    que e exatamente o que a versao antiga deste teste dizia.
+
+    Agora o argparse recusa ANTES de comecar, e com o mes valido no texto.
+    """
+    import pytest
+
+    with pytest.raises(SystemExit) as saiu:
+        pipeline.main(["--modo", "rmd", "--ano", "2026", "--mes", "13"])
+    assert saiu.value.code != 0
+    erro = capsys.readouterr().err
+    assert "--mes" in erro
+    assert "13" in erro
 
 
 def test_a_coleta_de_leiloes_PUXA_O_RESULTADO_DO_DIA_e_nao_so_a_planilha(
@@ -908,7 +962,11 @@ def test_a_agenda_fora_do_ar_NAO_derruba_a_rodada(monkeypatch, capsys):
 
     assert codigo == 0, "API fora do ar nao e falha do projeto"
     assert "AVISO" in saida
-    assert "concluido." in saida
+    # A AGULHA E O ANUNCIO, e nao a palavra: desde 02/10/2026 o
+    # cabecalho da rodada tambem cita "concluido." para dizer a ela o
+    # que procurar. O anuncio de sucesso e impresso com quebra de linha
+    # antes; a mencao do cabecalho vem depois de uma apostrofe.
+    assert "\nconcluido." in saida
 
 
 def test_a_agenda_QUEBRADA_entra_nas_falhas_e_derruba_o_codigo(monkeypatch,
