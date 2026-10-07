@@ -18,22 +18,27 @@ def anual():
 
 
 def test_o_cronograma_anual_bate_com_o_medido(anual):
-    # Aba 3.4 do anexo de julho, em R$ bilhoes. 2026 e 2031 sao PARCIAIS -- a
-    # janela detalha ago/26 a jul/31, entao 2026 e ago-dez e 2031 e jan-jul.
+    # Aba 3.4, em R$ bilhoes. 2026 e 2031 sao PARCIAIS -- a janela detalha
+    # set/26 a ago/31, entao 2026 e set-dez e 2031 e jan-ago.
+    #
+    # REMEDIDO para agosto em 07/10/2026. O 2026 caiu de 584,1 para 300,1 porque
+    # a JANELA DESLIZOU um mes e o ano parcial perdeu agosto -- nao porque a
+    # divida de 2026 encolheu. E o tipo de queda que assusta quem le o numero
+    # sem a janela.
     por_ano = anual.sum(axis=1) / 1000
-    assert round(por_ano[2026], 1) == 584.1
-    assert round(por_ano[2027], 1) == 1794.8
-    assert round(por_ano[2028], 1) == 1183.8
-    assert round(por_ano[2029], 1) == 1342.0
-    assert round(por_ano[2030], 1) == 1239.9
-    assert round(por_ano[2031], 1) == 657.8
+    assert round(por_ano[2026], 1) == 300.1
+    assert round(por_ano[2027], 1) == 1822.7
+    assert round(por_ano[2028], 1) == 1241.9
+    assert round(por_ano[2029], 1) == 1365.7
+    assert round(por_ano[2030], 1) == 1260.4
+    assert round(por_ano[2031], 1) == 690.9
 
 
 def test_o_balde_entra_no_cronograma_e_o_total_fecha(anual):
     # Sem o balde da Task 2 o grafico mostraria 78% do estoque como se fosse tudo.
     por_ano = anual.sum(axis=1) / 1000
-    assert round(por_ano["Ap\u00f3s 5 anos"], 1) == 2146.4
-    assert round(por_ano.sum(), 1) == 8948.7
+    assert round(por_ano["Ap\u00f3s 5 anos"], 1) == 2262.6
+    assert round(por_ano.sum(), 1) == 8944.5
 
 
 def test_os_dois_anos_das_pontas_sao_parciais(anual):
@@ -69,12 +74,12 @@ def test_o_cronograma_mensal_tem_os_sessenta_meses():
     assert list(m.index) == list(pd.date_range(m.index.min(), periods=60,
                                                freq="ME"))
 
-    # Aba 3.4 do anexo de julho, em R$ bilhoes.
-    assert round(total.max(), 1) == 569.5
+    # Aba 3.4, em R$ bilhoes. Remedido para agosto.
+    assert round(total.max(), 1) == 575.6
     assert total.idxmax() == pd.Timestamp("2027-03-31")
-    assert round(total.iloc[0], 1) == 290.4
+    assert round(total.iloc[0], 1) == 181.6
     # O balde NAO entra no detalhe mensal: ele nao tem mes.
-    assert round(total.sum(), 1) == 6802.3
+    assert round(total.sum(), 1) == 6681.8
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +92,18 @@ def faixas():
 
 
 def test_as_faixas_da_dpf_batem_com_o_medido(faixas):
-    # Aba 3.1 do anexo de julho.
+    # BLOCO DPF da aba 3.1 -- ela tem TRES blocos (DPF, DPMFi, DPFe), e ler o
+    # errado da outra divida: o da DPFe soma 348 bi, que e a externa. Conferido
+    # celula a celula contra o anexo de agosto em 07/10/2026:
+    #
+    #     16,39  16,34  15,39  13,63  11,96  26,29
+    #
+    # As tres do meio somam os 40,98 da faixa de 2 a 5 anos.
     u = faixas.iloc[-1]
-    assert round(u["At\u00e9 12 meses"], 1) == 18.9
-    assert round(u["De 1 a 2 anos"], 1) == 13.7
-    assert round(u["De 2 a 5 anos"], 1) == 42.4
-    assert round(u["Acima de 5 anos"], 1) == 25.0
+    assert round(u["At\u00e9 12 meses"], 1) == 16.4
+    assert round(u["De 1 a 2 anos"], 1) == 16.3
+    assert round(u["De 2 a 5 anos"], 1) == 41.0
+    assert round(u["Acima de 5 anos"], 1) == 26.3
 
 
 def test_cada_mes_das_faixas_soma_100(faixas):
@@ -209,9 +220,13 @@ def test_o_cronograma_inclui_cupom_e_o_perfil_nao():
                 and float(por_grupo.get("NTN-B", pd.Series(dtype=float))
                           .get(d, 0.0) or 0.0) > 1.0]
     assert so_cupom, "nenhum mes de cupom puro de NTN-B; a prova sumiu"
-    # O primeiro deles, medido no anexo de julho: nov/2026, 26,1 bi.
-    assert so_cupom[0] == pd.Timestamp("2026-11-30")
-    assert round(por_grupo.loc[so_cupom[0], "NTN-B"], 1) == 26.1
+    # A PROVA E A EXISTENCIA, e nao o mes nem o valor. Viviam cravados aqui
+    # ("nov/2026, 26,1 bi") e envelheciam a cada RMD -- em agosto o mesmo mes
+    # passou a 26,6. O que este teste protege e que a 3.4 inclui cupom e o
+    # perfil nao; para isso basta existir um mes em que nenhuma NTN-B vence e a
+    # 3.4 ainda traz valor MATERIAL. Trocado em 07/10/2026.
+    assert round(por_grupo.loc[so_cupom[0], "NTN-B"], 1) > 5.0, (
+        "o cupom puro ficou pequeno demais para servir de prova")
 
     # LTN / NTN-F: cupom so em jan e jul, e nos outros meses a diferenca some.
     for d in por_grupo.index:
@@ -223,10 +238,11 @@ def test_o_cronograma_inclui_cupom_e_o_perfil_nao():
         if d.month not in (1, 7):
             assert abs(dif) < 0.05, f"cupom fora de jan/jul em {d:%m/%Y}"
 
-    # E um mes de cupom medido, como o teste original fazia: jan/2027, +27,2 bi.
+    # E um mes de cupom medido, como o teste original fazia: jan/2027.
+    # Remedido para agosto em 07/10/2026: +28,3 bi, contra +27,2 de julho.
     jan27 = pd.Timestamp("2027-01-31")
     assert round(por_grupo.loc[jan27, "LTN / NTN-F"]
-                 - venceu(pd.Period(jan27, "M"), ["LTN", "NTN-F"]), 1) == 27.2
+                 - venceu(pd.Period(jan27, "M"), ["LTN", "NTN-F"]), 1) == 28.3
 
     # NAO SE AFIRMA QUE A DIFERENCA E POSITIVA EM TODO JAN/JUL, e isso e achado
     # e nao contorno. Medido em 02/09/2026, ela e positiva em 8 dos 10 meses de
@@ -237,8 +253,9 @@ def test_o_cronograma_inclui_cupom_e_o_perfil_nao():
 
     # E mesmo incluindo cupom a 3.4 soma o estoque, porque cada fluxo esta a preco
     # de curva: nao ha caixa nominal projetado, e nenhuma premissa de inflacao.
-    assert round(cr["valor_milhoes"].sum() / 1000, 1) == 8948.7
-    assert round(bruto.sum().sum() / 1000, 1) == 8933.1
+    # Remedido para agosto: 8.944,5 contra 8.948,7 de julho.
+    assert round(cr["valor_milhoes"].sum() / 1000, 1) == 8944.5
+    assert round(bruto.sum().sum() / 1000, 1) == 8927.5
 
 
 def test_a_banda_do_vincendo_vem_das_duas_fontes():
@@ -258,8 +275,23 @@ def test_o_vincendo_de_hoje_esta_dentro_da_banda_de_2026():
     faixas = vencimentos.dados_faixas()
     b = vencimentos.banda_vincendo_12m()
     hoje = faixas["At\u00e9 12 meses"].iloc[-1]
-    assert round(hoje, 2) == 18.91
-    assert b.loc[2026, "minimo"] <= hoje <= b.loc[2026, "maximo"]
+
+    # O INDICADOR SAIU DA BANDA EM AGOSTO/2026, e o teste passou a afirmar o
+    # VALOR MEDIDO -- decisao dela em 07/10/2026.
+    #
+    #     julho   18,91%   dentro, rente ao piso
+    #     agosto  16,39%   ABAIXO do piso de 18%
+    #
+    # Conferido contra o bloco DPF da aba 3.1: o anexo diz 16,39. O dado esta
+    # certo e a banda esta certa; o que mudou foi o mundo.
+    assert round(hoje, 2) == 16.39
+
+    # O CRUZAMENTO DE ESCALA CONTINUA, que e o que este teste existe para fazer:
+    # banda digitada em fracao (0,18) em vez de por cento, ou faixa lida da
+    # coluna errada, aparece aqui. Nao se exige mais PERTENCER a banda -- isso
+    # seria teste de politica, que este nao e.
+    assert 0 < hoje < 100, hoje
+    assert 0 < b.loc[2026, "minimo"] < b.loc[2026, "maximo"] < 100
 
 
 def test_a_banda_do_vincendo_nao_tem_buraco():
@@ -279,7 +311,15 @@ def test_as_duas_fontes_concordam_nos_sete_anos_que_compartilham():
     da_57 = vencimentos.banda_da_57()
     da_referencia = paf.bandas("vincendo_12m_pct")
     compartilhados = sorted(set(da_57.index) & set(da_referencia.index))
-    assert compartilhados == [2016, 2017, 2018, 2019, 2020, 2021, 2022]
+    # A LISTA VEM DA INTERSECAO, e nao cravada: a 5.7 do anexo cresce a cada
+    # ano, e a lista de sete anos ficou velha quando ela passou a cobrir ate
+    # 2025. O que o teste protege e as duas origens CONCORDAREM nos anos que
+    # compartilham -- o laco abaixo -- e haver anos o bastante para a prova
+    # valer. Trocado em 07/10/2026.
+    assert len(compartilhados) >= 7, compartilhados
+    assert compartilhados == list(range(min(compartilhados),
+                                        max(compartilhados) + 1)), (
+        "os anos compartilhados tem buraco no meio")
     for ano in compartilhados:
         assert da_57.loc[ano, "minimo"] == da_referencia.loc[ano, "minimo"], ano
         assert da_57.loc[ano, "maximo"] == da_referencia.loc[ano, "maximo"], ano
@@ -500,7 +540,10 @@ def test_a_NTN_B_Principal_fica_de_fora_do_estoque_em_quantidade():
     d = vencimentos.dados_estoque_por_vencimento()
     assert "NTN-B Principal" not in set(d["titulo"])
     assert set(d[d["familia"] == "NTN-B"]["titulo"]) == {"NTN-B"}
-    assert len(d[d["familia"] == "NTN-B"]) == 15
+    # A CONTAGEM ERA CRAVADA EM 15 e caiu para 14 quando um vencimento saiu.
+    # O assunto deste teste e a NTN-B Principal ficar de fora do estoque, e nao
+    # quantas NTN-B existem. Trocado em 07/10/2026.
+    assert len(d[d["familia"] == "NTN-B"]) > 0
 
 
 def test_nenhuma_familia_repete_um_vencimento():

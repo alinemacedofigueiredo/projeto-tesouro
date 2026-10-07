@@ -43,10 +43,10 @@ def test_o_que_ficou_de_fora_do_perfil_esta_dito_e_medido():
         "o que o asterisco promete nao e a diferenca entre bruto e completo")
     assert excluido > 0
 
-    # E uma medida de escala, do anexo de julho: 18,8 bi de NTN-B1 fora de um
-    # bruto de 8.933,1.
-    assert round(excluido / 1000, 1) == 18.8
-    assert round(bruto / 1000, 1) == 8933.1
+    # Escala, do anexo de AGOSTO: 19,4 bi de NTN-B1 fora de um bruto de
+    # 8.927,5. Remedido em 07/10/2026.
+    assert round(excluido / 1000, 1) == 19.4
+    assert round(bruto / 1000, 1) == 8927.5
 
 
 def test_a_diferenca_contra_o_cronograma_esta_travada(perfil):
@@ -68,11 +68,11 @@ def test_a_diferenca_contra_o_cronograma_esta_travada(perfil):
     assert round(anual["Demais"] - excluido, 1) > 0, (
         "o balde encolheu abaixo da NTN-B1 que tiramos do desenho")
 
-    # E a escala, do anexo de julho, em R$ bilhoes.
-    assert round(total_perfil, 1) == 8914.2
-    assert round(cronograma, 1) == 8948.7
-    assert round(cronograma - total_perfil, 1) == 34.5
-    assert round(excluido, 1) == 18.8
+    # Escala, do anexo de agosto, em R$ bilhoes.
+    assert round(total_perfil, 1) == 8908.1
+    assert round(cronograma, 1) == 8944.5
+    assert round(cronograma - total_perfil, 1) == 36.3
+    assert round(excluido, 1) == 19.4
 
 
 def test_os_papeis_com_nome_batem_papel_a_papel_entre_as_duas_abas(perfil):
@@ -126,12 +126,13 @@ def test_a_diferenca_e_o_que_a_aba_22_NAO_LISTA():
     for titulo in fora_da_22:
         assert por_titulo[titulo] > 0, f"{titulo} zerou; a decomposicao mudou"
 
-    # A escala, do anexo de julho, em R$ bilhoes.
-    assert round(por_titulo["Demais"], 1) == 12.8
-    assert round(por_titulo["D\u00edvida Securitizada"], 1) == 2.6
+    # A escala, do anexo de agosto, em R$ bilhoes. A Divida Securitizada subiu
+    # de 2,6 para 3,8 -- o maior movimento relativo dos tres.
+    assert round(por_titulo["Demais"], 1) == 12.9
+    assert round(por_titulo["D\u00edvida Securitizada"], 1) == 3.8
     assert round(por_titulo["TDA"], 1) == 0.3
-    assert round(por_titulo[fora_da_22].sum(), 1) == 15.7
-    assert round(cr["Demais"], 1) == 34.5
+    assert round(por_titulo[fora_da_22].sum(), 1) == 17.0
+    assert round(cr["Demais"], 1) == 36.3
 
 
 def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
@@ -144,9 +145,9 @@ def test_a_cauda_longa_e_toda_indexada_a_precos(perfil):
     ultimo = perfil.index.max()
     assert round(perfil.loc[ultimo, "NTN-B"], 6) == round(
         perfil.loc[ultimo].sum(), 6), "o ultimo ano tem papel que nao e NTN-B"
-    # Escala, do anexo de julho: 106,5 bi em 2060.
+    # Escala, do anexo de agosto: 104,4 bi em 2060.
     assert ultimo == 2060
-    assert round(perfil.loc[ultimo].sum() / 1000, 1) == 106.5
+    assert round(perfil.loc[ultimo].sum() / 1000, 1) == 104.4
 
 
 def test_a_cauda_que_a_ntnb1_carregava_continua_no_dado(perfil):
@@ -173,10 +174,10 @@ def emissao():
 
 
 def test_o_custo_de_emissao_bate_com_o_medido(emissao):
-    # Abas 4.3 (emissoes) e 4.2 (estoque) do anexo de julho.
+    # Abas 4.3 (emissoes) e 4.2 (estoque) do anexo de agosto.
     u = emissao.iloc[-1]
-    assert round(u["emissao"], 2) == 14.10
-    assert round(u["estoque"], 2) == 13.14
+    assert round(u["emissao"], 2) == 13.96
+    assert round(u["estoque"], 2) == 13.06
     # O fato que o grafico existe para mostrar: emite-se mais caro do que se
     # carrega, entao a divida encarece sem que nada mude.
     assert u["emissao"] > u["estoque"]
@@ -234,18 +235,22 @@ def test_os_leiloes_sao_cortados_na_ultima_competencia_do_rmd(anual):
 
     base, _ = rolagem.base_do_rmd()
     ano = base.year
-    bruto = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
-                        parse_dates=["data_leilao"])
+    # A FONTE E A MESCLADA, e nao leiloes.csv. Medido em 07/10/2026: a planilha
+    # do Tesouro para em 13/08 -- ela trava no certificado do SERPRO -- e a base
+    # do RMD passou a ser 31/08. A precondicao "o CSV vai alem do RMD" deixou de
+    # valer para a planilha, e passou a valer so para rolagem.leiloes(), que
+    # junta o provisorio da API e alcanca 24/09.
+    bruto = rolagem.leiloes()
     assert bruto["data_leilao"].max() > base, \
-        "o teste so vale se o CSV de leiloes for alem do RMD"
+        "nao ha leilao alem do RMD nem na fonte mesclada"
     # A RELACAO, que vale em qualquer mes: o total do ano corrente tem de ser
     # MENOR do que o mesmo total sem o corte. Se o corte sumir, os dois se
     # igualam e o teste cai -- sem depender de numero nenhum.
     sem_corte = bruto[bruto["data_leilao"].dt.year == ano]
     assert anual.loc[ano, "total_milhoes"] < sem_corte["financeiro_milhoes"].sum()
 
-    # E a escala, medida em 04/09/2026 com a base em 31/07: 1.006,8 bi.
-    assert round(anual.loc[ano, "total_milhoes"] / 1000, 1) == 1006.8
+    # E a escala, remedida em 07/10/2026 com a base em 31/08: 1.079,8 bi.
+    assert round(anual.loc[ano, "total_milhoes"] / 1000, 1) == 1079.8
     # E 2026 nao ganha cobertura: seis meses de RMD nao se comparam com doze de
     # leilao. Ver test_ano_sem_rmd_inteiro_nao_ganha_cobertura.
     assert pd.isna(anual.loc[ano, "cobertura_pct"])

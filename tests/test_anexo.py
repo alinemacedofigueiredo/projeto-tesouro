@@ -38,11 +38,17 @@ def test_a_composicao_do_nosso_CSV_bate_com_o_anexo():
 
     Medido a mao em 26/08/2026 contra o anexo de julho, aba 2.4, em R$ bilhoes:
 
-        Prefixado         1.785,3461
-        Indice Precos     2.417,3288
-        Taxa Flutuante    4.747,2540
-        Cambio              338,8513
-        Total             9.288,7803
+        Prefixado         1.887,2278
+        Indice Precos     2.157,3492
+        Taxa Flutuante    4.901,0258
+        Cambio              347,1316
+        Total             9.292,7344
+
+    REMEDIDO para o RMD de agosto/2026 em 07/10/2026. Os valores saem das
+    CELULAS CRUAS da aba 2.4, localizando a coluna pelo cabecalho da linha 4 --
+    nao pelo nosso parser, que e justamente o que este teste existe para
+    conferir. Conferido na hora: o CSV concorda na casa decimal, ou seja o
+    parser le a coluna certa.
 
     Se o nosso parser passar a ler a coluna errada, este teste fica vermelho --
     e nenhuma ancora de valor do tipo 3.1 pegaria isso, porque todas elas
@@ -51,10 +57,10 @@ def test_a_composicao_do_nosso_CSV_bate_com_o_anexo():
     from tesouro import config
 
     do_anexo = {
-        "Prefixado": 1785.3461,
-        "\u00cdndice Pre\u00e7os": 2417.3288,
-        "Taxa Flutuante": 4747.2540,
-        "C\u00e2mbio": 338.8513,
+        "Prefixado": 1887.2278,
+        "\u00cdndice Pre\u00e7os": 2157.3492,
+        "Taxa Flutuante": 4901.0258,
+        "C\u00e2mbio": 347.1316,
     }
     nosso = pd.read_csv(config.PROCESSED_DIR / "composicao_dpf.csv")
     ultimo = nosso[nosso["data"] == nosso["data"].max()]
@@ -65,4 +71,4 @@ def test_a_composicao_do_nosso_CSV_bate_com_o_anexo():
         assert obtido == pytest.approx(esperado, abs=0.001), (
             f"{indexador}: o anexo diz {esperado}, o nosso CSV diz {obtido}")
 
-    assert float(por_indexador.sum()) == pytest.approx(9288.7803, abs=0.001)
+    assert float(por_indexador.sum()) == pytest.approx(9292.7344, abs=0.001)

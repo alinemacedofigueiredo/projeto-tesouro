@@ -5,6 +5,14 @@ uma foto que ela forneceu em 19/08/2026; a de jul/26 saiu do PDF que ela salvou
 em 04/09/2026 (data/raw/rmd, a Apresentacao). Nenhum grafico le aquele arquivo: ele
 existe so para este cruzamento.
 
+A TRANSCRICAO NAO ANDA COM O ANEXO, e e por isso que estes testes perguntam pelo
+MES QUE ELA DESCREVE em vez do ultimo mes do anexo. Em 07/10/2026 o anexo passou
+para ago/26 e a transcricao continuou em jul/26: tres destes testes falharam sem
+que nenhuma fonte tivesse divergido de nada -- estavam comparando meses
+diferentes. O mes sai da propria transcricao (a ultima coluna mensal dela), de
+modo que no dia em que ela retranscrever a pagina nova, os testes seguem junto
+sozinhos.
+
 O que estes testes travam nao e "os dois batem" -- eles NAO batem em toda parte.
 Eles travam EXATAMENTE ONDE batem e onde nao, que e a unica forma de a divergencia
 continuar visivel em vez de virar lenda.
@@ -13,7 +21,7 @@ import pandas as pd
 import pytest
 
 from tesouro import config
-from tesouro.graficos import detentores
+from tesouro.graficos import detentores, estilo
 
 
 @pytest.fixture(scope="module")
@@ -28,8 +36,30 @@ def nosso_participacao():
 
 
 @pytest.fixture(scope="module")
-def nossa_variacao():
-    return detentores.dados_variacao() / 1000
+def colunas_mensais(pagina):
+    """As colunas de mes da transcricao, em ordem: ['jun-26', 'jul-26'].
+
+    Sao as que trazem rotulo 'mmm-aa'; as outras sao anos fechados.
+    """
+    part = pagina[pagina["painel"] == "participacao"]
+    vistas = [c for c in dict.fromkeys(part["coluna"]) if "-" in c]
+    assert vistas, "a transcricao nao tem nenhuma coluna de mes"
+    return vistas
+
+
+@pytest.fixture(scope="module")
+def mes_da_pagina(colunas_mensais):
+    """A data-base da pagina transcrita, lida do rotulo da ultima coluna dela."""
+    numero = {nome: n for n, nome in estilo.MES.items()}
+    mes, ano = colunas_mensais[-1].split("-")
+    return (pd.Timestamp(year=2000 + int(ano), month=numero[mes], day=1)
+            + pd.offsets.MonthEnd(0))
+
+
+@pytest.fixture(scope="module")
+def nossa_variacao(mes_da_pagina):
+    # O MES E O DA PAGINA, e nao o ultimo do anexo -- ver o docstring do modulo.
+    return detentores.dados_variacao(mes_da_pagina) / 1000
 
 
 def test_a_transcricao_tem_a_pagina_inteira(pagina):
@@ -44,11 +74,26 @@ def test_a_transcricao_tem_a_pagina_inteira(pagina):
 
 
 def test_a_participacao_bate_exatamente_nos_tres_pontos_recentes(
-        pagina, nosso_participacao):
-    # 2025, mai-26 e jun-26: os tres batem na casa decimal para os cinco grupos.
+        pagina, nosso_participacao, colunas_mensais):
+    # O ano fechado mais recente e os meses que as DUAS fontes tem: batem na casa
+    # decimal para os cinco grupos.
+    #
+    # AS COLUNAS SAEM DAS DUAS FONTES, e nao cravadas aqui. Antes eram
+    # ("2025", "mai-26", "jun-26") -- e 'mai-26' ja nao existia na transcricao,
+    # entao aquele laco rodava VAZIO e o teste passava sem conferir nada. Exigir
+    # que cada coluna exista nos dois lados e o que impede isso de voltar a
+    # acontecer em silencio.
     part = pagina[pagina["painel"] == "participacao"]
-    for coluna in ("2025", "mai-26", "jun-26"):
-        for _, linha in part[part["coluna"] == coluna].iterrows():
+    mensais = [c for c in colunas_mensais if c in nosso_participacao.index]
+    assert mensais, (
+        "nenhuma coluna de mes da transcricao existe no nosso recorte: a "
+        f"transcricao tem {colunas_mensais} e nos temos "
+        f"{list(nosso_participacao.index)[-2:]}")
+
+    for coluna in ["2025"] + mensais:
+        linhas = part[part["coluna"] == coluna]
+        assert len(linhas) == 5, f"{coluna}: a transcricao tem {len(linhas)} grupos"
+        for _, linha in linhas.iterrows():
             nosso = nosso_participacao.loc[coluna, linha["grupo"]]
             assert abs(nosso - linha["valor"]) < 0.05, \
                 f"{coluna}/{linha['grupo']}: nosso {nosso:.2f} x pagina {linha['valor']}"

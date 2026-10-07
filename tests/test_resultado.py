@@ -258,20 +258,31 @@ def test_resultado_decomposto_separa_inflacao_da_ntnb(dc, r):
         "o sinal do total passou a bater com o da taxa real -- sem isso a "
         "decomposicao deixa de ser necessaria para ler o numero")
 
-    # E a escala, medida em 04/09/2026 na janela de doze meses ate 31/07.
-    assert total == pytest.approx(62528.480033, abs=1.0)
-    assert indice == pytest.approx(84483.863770, abs=1.0)
-    assert taxa == pytest.approx(-21955.383737, abs=1.0)
+    # E a escala, remedida em 07/10/2026 na janela de doze meses ate 31/08.
+    #
+    # REPARE NA TAXA REAL: ela encolheu de -21.955 para -3.070 em um mes, porque
+    # a janela deixou de pegar set/2025 (quando o juro real subiu) e passou a
+    # pegar ago/2026. A relacao "a taxa real perdeu" continua valendo, mas agora
+    # por POUCO: se num proximo mes ela cruzar o zero, os asserts de sinal acima
+    # caem -- e isso nao e defeito do codigo, e a leitura que muda. Era para
+    # isso que a mensagem deles dizia "releia o achado".
+    assert total == pytest.approx(79578.134275, abs=1.0)
+    assert indice == pytest.approx(82647.813060, abs=1.0)
+    assert taxa == pytest.approx(-3069.678786, abs=1.0)
 
 
 def test_resultado_decomposto_lft_e_quase_toda_indexacao(dc, r):
     # Mesmo mecanismo, generalizado para a LFT: o revisor mediu que
     # R$ 568.716,3 dos R$ 738.059,3 milhoes do total de doze meses (77%,
     # somando todos os titulos) sao acumulacao de Selic no VNA da LFT. A
-    # decomposicao fina confirma e refina: 561.516,8 (98,7% do PROPRIO
-    # total da LFT) e indice, e so 7.199,6 (1,3%) e movimento de
-    # agio/carrego -- coerente com a LFT nao ter duration de juros por
+    # decomposicao fina confirma e refina: na janela que ele mediu, 561.516,8
+    # (98,7% do PROPRIO total da LFT) era indice, e so 7.199,6 (1,3%) movimento
+    # de agio/carrego -- coerente com a LFT nao ter duration de juros por
     # construcao.
+    #
+    # Na janela que fecha em 31/08 a proporcao e a MESMA (98,75% de indice), com
+    # os niveis remedidos abaixo. A fracao se repetir mes a mes e o que sustenta
+    # o achado; os niveis sao so escala.
     ultimos_12 = sorted(r["data_fim"].unique())[-12:]
     seg = dc[(dc["data_fim"].isin(ultimos_12)) & (dc["titulo"] == "LFT")]
     assert len(seg) > 0
@@ -280,9 +291,9 @@ def test_resultado_decomposto_lft_e_quase_toda_indexacao(dc, r):
     # A RELACAO E O ACHADO: quase tudo na LFT e acumulacao de indice, porque ela
     # nao tem duration de juros por construcao. Vale em qualquer janela.
     assert indice / total > 0.95
-    # E a escala, medida em 04/09/2026.
-    assert total == pytest.approx(575458.008576, abs=1.0)
-    assert indice == pytest.approx(568631.555700, abs=1.0)
+    # E a escala, remedida em 07/10/2026.
+    assert total == pytest.approx(582293.897528, abs=1.0)
+    assert indice == pytest.approx(575011.967325, abs=1.0)
 
 
 # ---------------------------------------------------------------------------

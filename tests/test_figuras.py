@@ -72,7 +72,7 @@ def test_figura_do_sistema_plota_ltn_ntnf_ntnb_e_total_com_valor_certo():
         # VNA fora de escala, que a igualdade acima nao pegaria (os dois lados
         # escalariam juntos).
         assert por_rotulo["total"].get_ydata()[-1] == pytest.approx(
-            -1468.443345, abs=1e-5)
+            -1498.093988, abs=1e-5)
 
         # Unidade e conta precisam aparecer no proprio grafico, nao so no
         # relatorio -- e o que a usuaria ve antes de qualquer CSV. "\u00f5"
@@ -98,7 +98,13 @@ def test_figura_do_sistema_plota_ltn_ntnf_ntnb_e_total_com_valor_certo():
         # uma fonte independente dela para comparar.
         assert f"{do_rmd:%d/%m/%Y}" in textos, (
             f"a figura nao cita a data-base do RMD ({do_rmd:%d/%m/%Y})")
-        assert "44,8%" in textos
+        # A COBERTURA CAIU 1,7 pp, de 44,8% para 43,1%, e isso e leitura e nao
+        # ruido: o papel que venceu em 15/08 era NTN-B, ou seja, papel COBERTO
+        # pelo DV01 -- sai do numerador e do denominador, e a fracao coberta
+        # cai. Remedida em 07/10/2026. Fica como ancora de valor porque neste
+        # teste nao ha fonte independente dela: compara-la com quem a calcula
+        # seria circular.
+        assert "43,1%" in textos
     finally:
         import matplotlib.pyplot as plt
         plt.close(fig)
@@ -134,9 +140,14 @@ def test_figura_pontual_plota_as_quatro_barras_com_o_valor_do_resumo():
         # o alvo. Vale em qualquer mes, e e o que o grafico afirma.
         assert valores[0] + valores[1] + valores[2] == pytest.approx(
             valores[3], abs=1e-5), "a cascata nao fecha"
-        # E os valores medidos em 04/09/2026, com a base em 31/07.
+        # E os valores remedidos em 07/10/2026, com a base em 31/08.
+        #
+        # OS DOIS TERMOS DO MEIO ENCOLHERAM JUNTOS -- vence de 2,31 para 0,70 e
+        # decay de 73,0 para 61,6 -- e pelo mesmo motivo: o que ia vencer dentro
+        # da janela ate dez/26 era a NTN-B 15/08/2026, e ela JA venceu, entao
+        # saiu da base em vez de vencer no meio do caminho.
         assert valores == pytest.approx(
-            [-1468.443345, 2.314195, 72.960186, -1393.168964], abs=1e-5
+            [-1498.093988, 0.700341, 61.641532, -1435.752114], abs=1e-5
         )
 
         barras = eixo.patches
@@ -156,8 +167,13 @@ def test_figura_pontual_plota_as_quatro_barras_com_o_valor_do_resumo():
 
         assert estilo.num_br(resumo["cobertura"]["cobertos_pct"], 1) + "%" in textos
         assert f"{resumo['data_base']:%d/%m/%Y}" in textos
-        # E a escala, medida em 04/09/2026.
-        assert "44,8%" in textos and "31/07/2026" in textos
+        # E a escala, remedida em 07/10/2026: a cobertura caiu para 43,1% com o
+        # vencimento da NTN-B 15/08/2026, que era papel coberto pelo DV01.
+        #
+        # A DATA SAIU DAQUI. Ela ja e conferida duas linhas acima, contra
+        # resumo["data_base"]; repetida cravada, envelhecia todo RMD sem checar
+        # nada de novo.
+        assert "43,1%" in textos
     finally:
         import matplotlib.pyplot as plt
         plt.close(fig)

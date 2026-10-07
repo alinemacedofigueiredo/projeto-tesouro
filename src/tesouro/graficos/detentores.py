@@ -110,15 +110,25 @@ def dados_participacao():
     return share
 
 
-def dados_variacao():
+def dados_variacao(quando=None):
     """Variacao do estoque dos quatro principais, em R$ milhoes, em tres horizontes.
 
     Os mesmos tres da pagina do RMD: em 12 meses, no ano (contra o fechamento do ano
     anterior) e no mes. Em R$ e nao em pontos percentuais -- participacao que cai
     com estoque subindo e ruido de composicao, nao venda.
+
+    POR QUE 'quando' EXISTE. O grafico quer sempre o ultimo mes, e e isso que o
+    default faz. Quem precisa de um mes NOMEADO e o cruzamento com a pagina do
+    RMD: a transcricao em referencia/ descreve um mes so, e compara-la contra o
+    ultimo mes do anexo e comparar julho com agosto -- diferenca que aparece como
+    divergencia de fonte sem ser nenhuma. Ver tests/test_conferencia_detentores.
     """
     piv = _estoque_por_grupo()
-    hoje = piv.index.max()
+    hoje = piv.index.max() if quando is None else pd.Timestamp(quando)
+    if hoje not in piv.index:
+        raise LookupError(
+            f"detentores.csv nao tem {hoje.date()}. Os meses que existem vao de "
+            f"{piv.index.min().date()} a {piv.index.max().date()}.")
 
     referencias = {
         "em 12 meses": hoje - pd.DateOffset(months=12),

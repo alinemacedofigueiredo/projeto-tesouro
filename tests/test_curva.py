@@ -81,15 +81,27 @@ def test_selic_implicita_bate_o_valor_medido():
     limiar teria de sair de 0,1 pp para menos de 0,075, escolhido para caber
     entre dois meses que por acaso andaram pouco. Seria numero ajustado contra o
     proprio dado, que e o vicio que esta entrega inteira remove.
+
+    EM 07/10/2026 ESSA DECISAO SE PROVOU CERTA. Remedida com a curva de 31/08:
+    13,5446%, contra 13,69% de julho -- movimento de 0,145 pp, ACIMA da
+    tolerancia de 0,1. A mesma ancora que nao distinguia junho de julho
+    distingue julho de agosto. A tolerancia nunca foi o problema; foi um mes que
+    andou pouco. Apertar o limiar naquele dia teria deixado uma amarra frouxa
+    disfarcada de rigor.
     """
     taxa = curva.selic_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(taxa - 0.1369) < 0.001, taxa
+    assert abs(taxa - 0.1354) < 0.001, taxa
 
 
 def test_inflacao_implicita_bate_o_valor_medido():
-    # Medido em 04/09/2026, com a curva de 31/07: 5,1880% de breakeven.
+    # Remedido em 07/10/2026, com a curva de 31/08: 6,3131% de breakeven.
+    # Era 5,188% com a curva de 31/07 -- movimento de 1,12 pp, ONZE vezes a
+    # tolerancia. Esta ancora trava o mes com folga, e sempre travou.
+    #
+    # O movimento e grande e entra direto na projecao do indice de precos ate
+    # 31/12: nao e defeito, e mercado, mas e numero para olhar.
     infl = curva.inflacao_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(infl - 0.0519) < 0.001, infl
+    assert abs(infl - 0.0631) < 0.001, infl
 
 
 def test_o_juro_real_implicito_e_positivo_e_plausivel():

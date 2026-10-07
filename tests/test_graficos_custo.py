@@ -17,31 +17,37 @@ def test_o_custo_do_ULTIMO_MES_bate_com_o_anexo(dados):
     # O NOME DIZIA "junho" e o corpo sempre olhou dados.iloc[-1] -- o ultimo mes
     # que houver. Com a virada para julho o nome passou a mentir.
     #
-    # Aba 4.2 do anexo de julho, custo acumulado em 12 meses.
+    # Aba 4.2, custo acumulado em 12 meses. Remedido para AGOSTO em 07/10/2026.
     u = dados.iloc[-1]
-    assert round(u["DPF"], 2) == 12.45
-    assert round(u["DPMFi"], 2) == 13.14
+    assert round(u["DPF"], 2) == 12.59
+    assert round(u["DPMFi"], 2) == 13.06
 
 
 def test_a_selic_e_o_ipca_saem_do_nosso_vna(dados):
     # A variacao de 12 meses do VNA E o indice acumulado. A pagina do RMD busca
     # isso no site do Bacen; nos temos em casa desde a entrega 2.
     u = dados.iloc[-1]
-    assert round(u["SELIC"], 2) == 14.71
-    assert round(u["IPCA"], 2) == 4.47
+    assert round(u["SELIC"], 2) == 14.63
+    assert round(u["IPCA"], 2) == 4.36
 
 
 def test_a_medida_e_o_acumulado_de_12_meses_e_nao_o_mensal(dados):
-    # A medida 'mensal' da 10,92 para a DPF em julho: plausivel, e errado. E o
-    # exemplo mais limpo do medo deste projeto -- os dois numeros existem, os
-    # dois vem do Tesouro, e so um responde a pergunta do grafico.
+    # A medida 'mensal' da 12,04 para a DPF em agosto, contra 12,59 do
+    # acumulado: plausivel, e errado. E o exemplo mais limpo do medo deste
+    # projeto -- os dois numeros existem, os dois vem do Tesouro, e so um
+    # responde a pergunta do grafico.
+    #
+    # EM JULHO A DISTANCIA ERA MAIOR (10,92 contra 12,45). Em agosto os dois se
+    # aproximaram, e a assercao de que diferem continua valendo -- mas vale
+    # reparar: se um mes os dois coincidirem, este teste perde o sentido e a
+    # linha abaixo avisa.
     bruto = pd.read_csv(config.PROCESSED_DIR / "custo_medio.csv",
                         parse_dates=["data"])
     mensal = bruto[(bruto["medida"] == "mensal") & (bruto["nivel"] == "DPF")
                    & bruto["entidade"].isna() & bruto["titulo"].isna()]
     valor_mensal = mensal.set_index("data")["custo_aa_pct"].iloc[-1]
-    assert round(valor_mensal, 2) == 10.92          # existe, e nao e o nosso
-    assert round(dados.iloc[-1]["DPF"], 2) == 12.45
+    assert round(valor_mensal, 2) == 12.04          # existe, e nao e o nosso
+    assert round(dados.iloc[-1]["DPF"], 2) == 12.59
     assert valor_mensal != dados.iloc[-1]["DPF"], (
         "as duas medidas colidiram; o teste perdeu o sentido")
 
@@ -90,7 +96,7 @@ def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
     assert len(curto) < len(longo)
     assert curto.index.max() == longo.index.max()
     assert curto.index.min() >= longo.index.max() - pd.DateOffset(years=5)
-    assert round(curto.iloc[-1]["DPF"], 2) == 12.45
+    assert round(curto.iloc[-1]["DPF"], 2) == 12.59
 
 
 def test_so_o_ultimo_ponto_de_cada_linha_leva_rotulo(dados):
@@ -99,7 +105,13 @@ def test_so_o_ultimo_ponto_de_cada_linha_leva_rotulo(dados):
     custo.desenha_custo(dados, ax)
     escritos = sorted(a.get_text() for a in ax.texts)
     plt.close(fig)
-    # Quatro linhas, quatro numeros, todos na borda direita. Sao os mesmos
-    # valores de test_o_custo_do_ULTIMO_MES e de
-    # test_a_selic_e_o_ipca_saem_do_nosso_vna, ordenados como texto.
-    assert escritos == ["12,45", "13,14", "14,71", "4,47"]
+    # Quatro linhas, quatro numeros, todos na borda direita. O proprio
+    # comentario antigo ja dizia que sao OS MESMOS valores dos dois testes
+    # acima -- entao agora eles SAEM DO DADO em vez de cravados, e este teste
+    # para de envelhecer a cada RMD. O assunto dele e "so o ultimo ponto leva
+    # rotulo", e nao quanto vale cada um. Trocado em 07/10/2026.
+    u = dados.iloc[-1]
+    esperado = sorted(estilo.num_br(u[c], 2) for c in dados.columns)
+    assert escritos == esperado
+    assert len(escritos) == len(dados.columns), (
+        "sobrou ou faltou rotulo: um por linha, no ultimo ponto")

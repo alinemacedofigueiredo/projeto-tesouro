@@ -13,12 +13,16 @@ def dados():
 
 
 def test_o_prazo_do_ULTIMO_MES_bate_com_o_anexo(dados):
-    # O NOME DIZIA "junho" e o corpo sempre olhou dados.iloc[-1]. Aba 5.1 do
-    # anexo de julho, em anos.
+    # ABA 3.7 do anexo, em anos -- meses nas COLUNAS, nao nas linhas. O
+    # comentario anterior dizia "aba 5.1", que e "titulos negociados": erro de
+    # antes desta rodada, corrigido em 07/10/2026 ao remedir.
+    #
+    # Remedido contra o anexo de AGOSTO. Conferido que o nosso CSV concorda com
+    # a celula na quarta casa, ou seja o parser le a coluna certa.
     u = dados.iloc[-1]
-    assert round(u["DPF"], 2) == 4.05
-    assert round(u["DPMFi"], 2) == 3.94
-    assert round(u["DPFe"], 2) == 6.91
+    assert round(u["DPF"], 2) == 4.10
+    assert round(u["DPMFi"], 2) == 3.99
+    assert round(u["DPFe"], 2) == 6.84
 
 
 def test_as_tres_series_vem_das_linhas_agregadas(dados):
@@ -62,8 +66,13 @@ def test_so_a_dpmfi_e_a_dpfe_levam_rotulo(dados):
     rotulados = [a.get_text() for a in ax.texts]
     plt.close(fig)
     assert prazo.COM_ROTULO == ("DPMFi", "DPFe")
-    # Os dois valores do ultimo mes, e nada mais.
-    assert sorted(rotulados) == ["3,94", "6,91"]
+    # OS VALORES SAEM DO DADO. Viviam cravados aqui ("3,94", "6,91") e
+    # envelheciam a cada RMD, num teste cujo assunto e QUAIS series levam
+    # rotulo. O valor de cada uma ja e ancorado contra o anexo no teste de
+    # cima. Trocado em 07/10/2026.
+    u = dados.iloc[-1]
+    esperado = sorted(estilo.num_br(u[s], 2) for s in prazo.COM_ROTULO)
+    assert sorted(rotulados) == esperado
 
 
 def test_a_dpf_e_a_linha_de_contexto(dados):

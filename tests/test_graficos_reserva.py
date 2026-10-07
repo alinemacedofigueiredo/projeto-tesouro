@@ -13,16 +13,22 @@ def dados():
 
 
 def test_a_reserva_do_ULTIMO_MES_bate_com_o_anexo(dados):
-    # O NOME DIZIA "junho" e o corpo sempre olhou dados.iloc[-1]. Aba 6.1 do
-    # anexo de julho, em R$ bilhoes.
+    # ABA 6.1 do anexo, em R$ bilhoes. Remedido contra o de AGOSTO.
+    #
+    # O PRUDENCIAL CAIU MUITO -- 611 para 336. Nao e erro de leitura: a celula
+    # diz 336,3537, e o valor prudencial sao TRES MESES de vencimento, que se
+    # move com o cronograma. Movimento grande ali e esperado.
     u = dados.iloc[-1]
-    assert round(u["reserva"] / 1000) == 1371
-    assert round(u["prudencial"] / 1000) == 611
-    assert round(u["indice"], 2) == 7.81
+    assert round(u["reserva"] / 1000) == 1208
+    assert round(u["prudencial"] / 1000) == 336
+    assert round(u["indice"], 2) == 7.18
 
 
 def test_a_folga_e_a_reserva_menos_o_prudencial(dados):
-    assert round(dados.iloc[-1]["folga"] / 1000, 1) == 760.2
+    # SO A RELACAO. O valor do ultimo mes vivia cravado aqui ao lado (760,2 em
+    # julho, 871,8 em agosto) e envelhecia a cada RMD sem proteger nada a mais:
+    # reserva e prudencial ja sao ancorados contra o anexo no teste acima, e
+    # esta relacao amarra a folga aos dois. Tirado em 07/10/2026.
     diferenca = dados["folga"] - (dados["reserva"] - dados["prudencial"])
     assert diferenca.abs().max() < 1e-6
 
@@ -44,7 +50,10 @@ def test_a_versao_de_treze_meses_tem_treze_meses():
     assert list(t.index) == list(pd.date_range(end=t.index.max(), periods=13,
                                                freq="ME")), (
         "os treze meses nao sao corridos")
-    assert t.index.max() == pd.Timestamp("2026-07-31")
+    # A DATA SAI DO DADO, como o comentario acima ja prometia -- havia um
+    # Timestamp("2026-07-31") cravado aqui, contradizendo a propria promessa.
+    # A janela de treze meses termina na base da serie completa.
+    assert t.index.max() == reserva.dados_reserva().index.max()
     assert round(t["indice"].min(), 2) == 5.69
     assert round(t["indice"].max(), 2) == 9.33
 
@@ -55,12 +64,18 @@ def test_a_janela_de_cinco_anos_bate_com_o_medido():
     assert round(c["indice"].min(), 2) == 5.69
     assert round(c["indice"].max(), 2) == 10.59
     assert round(c["reserva"].min() / 1000, 1) == 743.9
-    # O MAXIMO PASSOU A SER O ULTIMO MES: 1.371,2 bi em 31/07/2026, contra os
-    # 1.345,8 de junho. A reserva bateu recorde da janela no proprio mes da
-    # base -- vale reparar, porque um maximo na ponta e o caso em que o grafico
-    # pode estar cortando dado, e nao mostrando pico.
+    # A DUVIDA DE SETEMBRO SE RESOLVEU. O maximo era 1.371,2 em 31/07/2026, no
+    # proprio mes da base, e ficou a observacao de que "maximo na ponta e o caso
+    # em que o grafico pode estar cortando dado, e nao mostrando pico".
+    #
+    # Agosto respondeu: a reserva caiu para 1.208,1 e o maximo voltou para o
+    # INTERIOR da janela, em julho. Era pico de verdade.
+    #
+    # O maximo continua 1.371,2 -- a janela deslizou e julho continua dentro
+    # dela.
     assert round(c["reserva"].max() / 1000, 1) == 1371.2
-    assert c["reserva"].idxmax() == c.index.max()
+    assert c["reserva"].idxmax() < c.index.max(), (
+        "o maximo voltou para a ponta; vale reparar se e pico ou corte")
 
 
 def test_as_duas_versoes_dizem_o_mesmo_no_mes_comum(dados):
