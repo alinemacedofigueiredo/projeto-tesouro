@@ -123,3 +123,39 @@ def test_o_menu_NAO_PERGUNTA_PARA_SEMPRE(monkeypatch):
     assert escolha is None
     assert texto.lower().count("nao entendi") <= 5, (
         "insistiu demais antes de desistir")
+
+
+# ---------------------------------------------------------------------------
+# A ENTRADA FECHADA. Medido em 08/10/2026 rodando o atalho com a entrada
+# redirecionada: o menu aparecia e input() estourava EOFError com dez linhas de
+# traceback. No duplo-clique nao acontece; no Agendador de Tarefas do Windows,
+# acontece sempre. E a mesma armadilha do "--mes 13" -- traceback e um jeito
+# confuso de dizer qualquer coisa.
+# ---------------------------------------------------------------------------
+
+def _entrada_fechada(_=""):
+    raise EOFError
+
+
+def test_o_menu_de_MODO_com_a_entrada_fechada_cai_no_padrao():
+    import tesouro.pipeline as pipeline
+
+    linhas = []
+    assert pipeline.escolher_modo_no_menu(
+        entrada=_entrada_fechada, saida=linhas.append) == "tudo"
+    junto = " ".join(linhas)
+    assert "entrada" in junto, junto
+    assert "tudo" in junto, junto
+
+
+def test_o_menu_do_RMD_com_a_entrada_fechada_CONTINUA(monkeypatch):
+    import tesouro.pipeline as pipeline
+    from tesouro import leitura_rmd
+
+    monkeypatch.setattr(leitura_rmd, "mes_base_carregado", lambda *a, **k: (2026, 8))
+    linhas = []
+    escolha = pipeline.escolher_rmd_no_menu(
+        entrada=_entrada_fechada, saida=linhas.append)
+    assert escolha is None, escolha
+    junto = " ".join(linhas)
+    assert "entrada" in junto, junto

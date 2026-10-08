@@ -160,7 +160,15 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
         saida("  A. atualizar  -- pegar um mais novo no site")
         saida("")
 
-        escolha = entrada("C ou A (Enter = continuar): ").strip().lower()
+        try:
+            escolha = entrada("C ou A (Enter = continuar): ").strip().lower()
+        except EOFError:
+            # MESMO DESTINO DO ENTER VAZIO -- continuar com o anexo salvo. Ver
+            # o comentario do EOFError em escolher_modo_no_menu.
+            saida("")
+            saida("nao ha entrada para responder (entrada fechada) -- "
+                  "continuando com o anexo que esta na pasta.")
+            return None
 
         # ENTER E CONTINUAR. E a tecla de quem nao quer decidir nada, e aqui
         # nao decidir nada tem significado obvio e seguro: usar o anexo que ja
@@ -171,7 +179,13 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
 
         if escolha in ("a", "atualizar", "2"):
             _onde_pegar_o_rmd(saida)
-            pronto = entrada("Salvou? S para seguir, N para desistir: ")
+            try:
+                pronto = entrada("Salvou? S para seguir, N para desistir: ")
+            except EOFError:
+                saida("")
+                saida("nao ha entrada para responder (entrada fechada) -- "
+                      "continuando com o anexo que esta na pasta.")
+                return None
             if pronto.strip().lower() in ("n", "nao", "no"):
                 saida("")
                 saida("Seguindo com o RMD que ja esta na pasta.")
@@ -245,7 +259,19 @@ def escolher_modo_no_menu(entrada=None, saida=print):
         saida("  %d. %-8s %s" % (i, modo, _EXPLICACAO[modo]))
     saida("")
     while True:
-        escolha = entrada("numero (ou o nome do modo): ").strip().lower()
+        # ENTRADA FECHADA NAO E ERRO DE OPERADOR, e ausencia de operador.
+        # Medido em 08/10/2026 rodando o atalho com a entrada redirecionada:
+        # dez linhas de traceback (EOFError) onde cabia uma frase. No
+        # duplo-clique nao acontece; no Agendador de Tarefas, acontece sempre.
+        # O destino e o MESMO padrao que main() usa quando nao ha terminal --
+        # 'tudo' -- para a resposta nao depender de por onde se entrou.
+        try:
+            escolha = entrada("numero (ou o nome do modo): ").strip().lower()
+        except EOFError:
+            saida("")
+            saida("nao ha entrada para responder (entrada fechada) -- seguindo "
+                  "em 'tudo', que e o padrao de quem chama sem bandeira.")
+            return "tudo"
         if escolha in _EXPLICACAO:
             return escolha
         if escolha.isdigit() and 1 <= int(escolha) <= len(ordem):
@@ -268,6 +294,12 @@ def main(argumentos=None):
     analisador.add_argument(
         "--sem-coleta", action="store_true",
         help="nao baixa nada; usa os arquivos ja presentes em data/raw/",
+    )
+    # SOBRESCREVE UM ARQUIVO DE data/raw, que e imutavel por invariante -- por
+    # isso e bandeira explicita e nunca o padrao. Ver fetch_leiloes.baixar.
+    analisador.add_argument(
+        "--rebaixar-planilha", action="store_true",
+        help="rebaixa a planilha historica do Tesouro, sobrescrevendo a salva",
     )
     analisador.add_argument("--ano", type=int, help="ano do RMD a baixar")
     # choices, e nao validacao la dentro: o argparse recusa ANTES de a
@@ -338,7 +370,7 @@ def main(argumentos=None):
         if "coleta_leiloes" in passos:
             _fase("baixando os leiloes")
             from . import fetch_leiloes
-            fetch_leiloes.baixar()
+            fetch_leiloes.baixar(forcar=opcoes.rebaixar_planilha)
             # E O RESULTADO DO DIA, PELA API -- sem isto a coleta de leiloes
             # nao coleta leilao nenhum.
             #
