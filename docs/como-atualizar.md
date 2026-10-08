@@ -118,10 +118,8 @@ As duas dizem no cabeçalho de quando são.
 **Antes de mandar o e-mail, confira o cabeçalho da página.** Se ele não mudou,
 a atualização não atualizou e você estaria anunciando o leilão de ontem.
 
-O projeto **não manda e-mail**. Há uma receita comentada em `pipeline.py`, junto
-da fase rápida, com as três coisas que precisam ser decididas antes de ligar
-isso: qual servidor SMTP, de quem para quem, e se a página vai anexada (1,05 MB)
-ou como link.
+O projeto **não manda e-mail**: ele grava as páginas, e o envio é seu, no seu
+cliente de e-mail.
 
 **A economia de tempo é modesta, e isso está dito de propósito.** O que os modos
 entregam de fato é outra coisa: não tocar na Bloomberg quando ela não é
@@ -150,11 +148,11 @@ comando sai com erro. Banda quebrada não vira gráfico com banda errada.
 Desde 02/10/2026, antes de perguntar qualquer coisa:
 
 ```
-O RMD que o projeto tem e de julho/2026.
+O RMD que o projeto tem e de julho/2026.        <- o mes que estiver na pasta
 
 Se quiser um mais novo:
   1. abra   https://www.tesourotransparente.gov.br/publicacoes/relatorio-mensal-da-divida-rmd
-  2. salve o anexo em   ...\dataawmd
+  2. salve o anexo em   ...\data\raw\rmd
   3. volte aqui e de Enter em branco nas duas perguntas
 ```
 
