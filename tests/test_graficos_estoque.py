@@ -899,3 +899,43 @@ def test_o_passo_da_grade_sai_da_escala_e_e_um_numero_redondo():
         assert 3 <= quantas <= 12, (intervalo, maior, quantas)
         mantissa = maior / 10 ** int(round(__import__("math").log10(maior)))
         assert round(mantissa, 6) in (0.1, 0.2, 0.5, 1.0, 2.0), (intervalo, maior)
+
+
+# ---------------------------------------------------------------------------
+# A NOTA PUBLICADA CONTRA O DADO -- achado da Prova 2 em 08/10/2026.
+#
+# Reconstruido data/processed a partir do anexo de JULHO, 40 assercoes ficaram
+# vermelhas, todas nos arquivos onde as ancoras foram remedidas. A nota do
+# dashboard NAO ficou: ela diz "199 dos 199 meses" num texto escrito a mao, e
+# com o dado de julho o certo seria 198. Nenhum teste olhava a frase.
+#
+# O numero e publicado -- ela leva esta pagina para os colegas.
+# ---------------------------------------------------------------------------
+
+def test_a_NOTA_do_decay_diz_o_numero_de_meses_QUE_A_SERIE_TEM():
+    import re
+
+    from tesouro.graficos import dashboard, estoque
+
+    d = estoque.dados_variacao_do_dv()
+    meses = len(d)
+
+    nota = next((g.nota for g in dashboard.REGISTRO
+                 if g.nota and "decay tirou risco" in g.nota), None)
+    assert nota, "a nota do decay sumiu do REGISTRO do dashboard"
+
+    # Todo "N dos N meses" da frase tem de ser o N da serie. A busca e por
+    # PADRAO e nao pela string "199": procurar o numero certo acharia o numero
+    # certo e nao acusaria o errado.
+    pares = re.findall(r"(\d+) dos (\d+)", nota)
+    assert pares, "a nota perdeu o 'N dos N' -- se mudou de forma, mude o teste"
+    for esquerda, direita in pares:
+        assert int(direita) == meses, (
+            f"a nota diz 'dos {direita}' e a serie tem {meses} meses")
+        assert int(esquerda) == meses, (
+            f"a nota diz '{esquerda} dos' e a serie tem {meses} meses")
+
+    # E O QUE A FRASE AFIRMA TEM DE SER VERDADE, nao so bem contado: ela diz
+    # que o decay tirou risco em TODOS eles, e a emissao pos em todos.
+    assert int((d["decay"] < 0).sum()) == meses
+    assert int((d[EMISSAO] > 0).sum()) == meses
