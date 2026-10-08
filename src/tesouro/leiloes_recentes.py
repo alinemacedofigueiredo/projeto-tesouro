@@ -165,8 +165,23 @@ def gravar_recentes(candidatos, estagio="aceito", base=None):
     substitui o ofertado, e nunca o contrario. Assim, reprocessar um arquivo antigo
     de oferta nao desfaz um resultado ja conhecido.
 
-    Devolve (caminho, quantos_entraram, quantos_ja_estavam) -- os tres numeros que
-    quem roda isso a noite precisa ver no log.
+    Devolve (caminho, entraram, ja_na_planilha, ja_no_provisorio).
+
+    OS DOIS ULTIMOS ERAM UM SO, e ser um so fazia o log mentir. A conta antiga
+    era 'len(candidatos) - len(entram)': um residuo que somava dois motivos
+    diferentes para uma linha nao entrar, e que o chamador depois narrava como
+    se fosse sempre o primeiro --
+
+        ja_na_planilha    a planilha historica do Tesouro ja traz aquele leilao,
+                          e por isso ele deixou de ser novidade (ver novidades);
+        ja_no_provisorio  a planilha NAO traz, mas este arquivo ja tinha a linha
+                          num estagio igual ou mais adiantado (aceito vence
+                          ofertado).
+
+    Medido em 08/10/2026 as 15:11: as seis pernas do edital chegaram depois de o
+    resultado do dia estar guardado, e o programa anunciou "a planilha do
+    Tesouro ja alcancou tudo". A planilha para em 13/08 e nao tinha nenhuma das
+    seis.
     """
     if estagio not in ORDEM_DOS_ESTAGIOS:
         raise LookupError(
@@ -217,7 +232,11 @@ def gravar_recentes(candidatos, estagio="aceito", base=None):
     caminho = config.PROCESSED_DIR / ARQUIVO_RECENTES
     config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     juntos.to_csv(caminho, index=False, encoding="utf-8")
-    return caminho, len(entram), len(candidatos) - len(entram)
+    # OS DOIS MOTIVOS, contados onde cada um e conhecido: 'chegando' ja passou
+    # por novidades(), entao o que caiu ali e o que a planilha alcancou; o que
+    # sobrou e nao entrou foi barrado pelo estagio.
+    ja_na_planilha = len(candidatos) - len(chegando)
+    return caminho, len(entram), ja_na_planilha, len(chegando) - len(entram)
 
 
 def completo(ate_o_estagio="ofertado"):

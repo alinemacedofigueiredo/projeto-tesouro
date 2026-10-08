@@ -91,25 +91,47 @@ def test_dia_sem_leilao_diz_isso_em_vez_de_inventar_tabela():
         email_leilao.tabela(vazio)
 
 
-def test_o_corpo_AVISA_quando_os_numeros_sao_de_oferta():
-    # 24/09/2026 e uma OFERTA: o resultado nao saiu. O financeiro e o DV sao
-    # derivados da taxa emprestada do leilao anterior daquele papel -- erro
-    # mediano de 11 bp -- e a quantidade e o TETO ofertado, que historicamente
-    # cai para 83,9% dele.
+def _no_estagio(monkeypatch, quando, estagio):
+    """O leilao daquele dia, forcado a um estagio. Sem tocar o CSV.
+
+    O ESTAGIO E CONSTRUIDO, e nao procurado no calendario. A versao anterior
+    cravava 24/09/2026 "porque era uma oferta" -- e em 08/10/2026 a coleta
+    trouxe o resultado daquele dia, o estagio virou 'aceito' e o teste ficou
+    vermelho sem nada ter quebrado. Um teste sobre a REGRA nao pode depender de
+    que dia do calendario ainda esta esperando resultado.
+    """
+    real = email_leilao._base
+
+    def base_falsa(q):
+        return real(q).assign(estagio=estagio)
+
+    monkeypatch.setattr(email_leilao, "_base", base_falsa)
+    return quando
+
+
+def test_o_corpo_AVISA_quando_os_numeros_sao_de_oferta(monkeypatch):
+    # Numa OFERTA o resultado nao saiu: o financeiro e o DV sao derivados da
+    # taxa emprestada do leilao anterior daquele papel -- erro mediano de 11 bp
+    # -- e a quantidade e o TETO ofertado, que historicamente cai para 83,9%.
     #
     # Mostrar esses numeros com a mesma cara dos definitivos e exatamente o modo
     # de falha que este projeto chama de plausivel e errado.
-    html, _ = email_leilao.corpo(PREFIXADO)
-    assert email_leilao.e_oferta(PREFIXADO)
+    quando = _no_estagio(monkeypatch, PREFIXADO, "ofertado")
+    html, _ = email_leilao.corpo(quando)
+    assert email_leilao.e_oferta(quando)
     assert "teto" in html.lower()
     assert "resultado" in html.lower()
 
 
-def test_o_corpo_NAO_avisa_quando_o_resultado_ja_saiu():
+def test_o_corpo_NAO_avisa_quando_o_resultado_ja_saiu(monkeypatch):
     # O aviso tem de sumir sozinho quando o dado vira definitivo, senao vira
     # ruido que ninguem le -- e no dia em que importar, ninguem ve.
-    html, _ = email_leilao.corpo(INDEXADO)
-    assert not email_leilao.e_oferta(INDEXADO)
+    #
+    # O MESMO DIA dos dois testes, so o estagio muda: assim o par prova que quem
+    # liga e desliga o aviso e o estagio, e nao alguma diferenca entre as datas.
+    quando = _no_estagio(monkeypatch, PREFIXADO, "aceito")
+    html, _ = email_leilao.corpo(quando)
+    assert not email_leilao.e_oferta(quando)
     assert "teto" not in html.lower()
 
 

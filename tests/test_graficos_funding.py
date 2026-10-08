@@ -14,14 +14,16 @@ def net():
 
 
 def test_o_net_do_ultimo_mes_bate_com_o_medido(net):
-    # Julho de 2026, e o NET VIROU NEGATIVO: o Tesouro resgatou mais do que
-    # emitiu. Em junho era +143,4. Nao e erro de sinal -- resgate 260,1 contra
-    # emissao 198,1 -- e o teste abaixo (net = emissao - resgate em toda linha)
-    # e quem garante que a leitura esta certa.
+    # AGOSTO de 2026, e o net ficou AINDA MAIS negativo: -83,9, contra -61,9 de
+    # julho. E o mes do vencimento da NTN-B 15/08/2026 (258,2 bi de principal),
+    # que puxou o resgate para 295,4 contra emissao de 211,5.
+    #
+    # Nao e erro de sinal -- o teste abaixo (net = emissao - resgate em toda
+    # linha) e quem garante que a leitura esta certa.
     u = net.iloc[-1]
-    assert round(u["emissao"] / 1000, 1) == 198.1
-    assert round(u["resgate"] / 1000, 1) == 260.1
-    assert round(u["net"] / 1000, 1) == -61.9
+    assert round(u["emissao"] / 1000, 1) == 211.5
+    assert round(u["resgate"] / 1000, 1) == 295.4
+    assert round(u["net"] / 1000, 1) == -83.9
 
 
 def test_a_mm3_e_o_acumulado_batem_com_o_medido(net):
@@ -29,9 +31,14 @@ def test_a_mm3_e_o_acumulado_batem_com_o_medido(net):
     # doze alisava demais e escondia o giro trimestral. Naquele dia a de doze
     # dava 27,7 -- numero da EPOCA, guardado como registro da decisao.
     u = net.iloc[-1]
-    assert round(u["mm3"] / 1000, 1) == 72.4
+    # A MEDIA DE TRES MESES FICOU NEGATIVA: -0,8, contra +72,4 em julho. Dois
+    # meses de net negativo seguidos bastaram para virar o sinal da media -- e
+    # exatamente o giro que a de doze meses esconderia, que foi o motivo de ela
+    # ter escolhido a de tres.
+    assert round(u["mm3"] / 1000, 1) == -0.8
     assert "mm12" not in net.columns
-    assert round(u["acum12"] / 1000, 1) == 301.4
+    # O acumulado de doze meses caiu de 301,4 para 80,6.
+    assert round(u["acum12"] / 1000, 1) == 80.6
 
 
 def test_o_net_e_emissao_menos_resgate_em_toda_linha(net):
@@ -42,7 +49,7 @@ def test_o_net_e_emissao_menos_resgate_em_toda_linha(net):
 def test_so_o_dpmfi_entra(net):
     bruto = pd.read_csv(config.PROCESSED_DIR / "funding_por_canal.csv")
     assert set(bruto["esfera"]) > {"DPMFi"}, "o teste so vale se houver outra esfera"
-    assert round(net.iloc[-1]["net"] / 1000, 1) == -61.9
+    assert round(net.iloc[-1]["net"] / 1000, 1) == -83.9
 
 
 def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
@@ -55,9 +62,11 @@ def test_a_janela_de_5_anos_corta_mas_preserva_o_ultimo_mes():
 
 def test_a_emissao_por_indexador_do_ultimo_mes_bate():
     u = funding.dados_emissao_indexador().iloc[-1]
-    assert round(u["Taxa Flutuante"] / 1000, 1) == 124.1
-    assert round(u["Prefixados"] / 1000, 1) == 66.7
-    assert round(u["\u00cdndice de Pre\u00e7os"] / 1000, 1) == 7.3
+    # A emissao indexada TRIPLICOU, de 7,3 para 21,9: o Tesouro reemitiu parte
+    # do que venceu em NTN-B. O prefixado tambem subiu, de 66,7 para 84,1.
+    assert round(u["Taxa Flutuante"] / 1000, 1) == 105.5
+    assert round(u["Prefixados"] / 1000, 1) == 84.1
+    assert round(u["\u00cdndice de Pre\u00e7os"] / 1000, 1) == 21.9
 
 
 def test_a_emissao_anual_em_100_bate_com_o_medido():
@@ -85,11 +94,23 @@ def test_o_net_leva_rotulo_no_maior_no_menor_e_no_ultimo():
     escritos = [a.get_text() for ax in fig.axes for a in ax.texts]
     plt.close(fig)
 
-    assert "155,9" in escritos, "o maior net da janela"
-    assert "-302,3" in escritos, "o menor"
-    assert "-61,9" in escritos, "o ultimo"
-    assert "72,4" in escritos, "o ultimo ponto da media movel"
-    assert "702,8" in escritos and "-447,0" in escritos, "os extremos do acumulado"
+    # OS VALORES SAEM DO DADO, e nao cravados. Os seis viviam escritos aqui
+    # ("155,9", "-302,3", ...) e envelheciam por DOIS motivos a cada RMD: o
+    # ultimo mes muda, e a janela de cinco anos desliza, trocando os extremos.
+    #
+    # O assunto deste teste e a REGRA -- o pior mes, o melhor e onde estamos
+    # levam rotulo -- e nao quanto cada um vale. Trocado em 07/10/2026.
+    d = funding.dados_net(janela=5)
+    n = d["net"] / 1000
+    for valor, papel in ((n.max(), "o maior net da janela"),
+                         (n.min(), "o menor"),
+                         (n.iloc[-1], "o ultimo"),
+                         (d["mm3"].iloc[-1] / 1000,
+                          "o ultimo ponto da media movel")):
+        assert estilo.num_br(valor, 1) in escritos, papel
+    a = d["acum12"] / 1000
+    assert estilo.num_br(a.max(), 1) in escritos, "o maximo do acumulado"
+    assert estilo.num_br(a.min(), 1) in escritos, "o minimo do acumulado"
 
 
 def test_o_net_tem_grade_menor_alem_da_maior():

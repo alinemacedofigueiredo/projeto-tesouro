@@ -135,7 +135,8 @@ def test_gravar_recentes_conta_o_que_entrou_e_o_que_ja_estava(base, monkeypatch,
     nova["data_liquidacao"] = pd.Timestamp("2026-09-16")
     candidatos = pd.concat([base.iloc[-2:], nova], ignore_index=True)
 
-    caminho, entraram, ja_estavam = lr.gravar_recentes(candidatos, "aceito", base)
+    caminho, entraram, ja_estavam, _ = lr.gravar_recentes(
+        candidatos, "aceito", base)
     assert entraram == 1
     assert ja_estavam == 2
     assert caminho.exists()
@@ -308,3 +309,37 @@ def test_a_chave_e_montada_num_lugar_so(base):
     assert das_colunas == lr._chaves(amostra)
     indexado = lr._indexa_por_chave(amostra)
     assert set(indexado.index) == das_colunas
+
+
+# ---------------------------------------------------------------------------
+# OS DOIS MOTIVOS DE UMA LINHA NAO ENTRAR, contados separados desde 08/10/2026.
+# A conta antiga era um residuo unico, e o log a narrava sempre como "a planilha
+# do Tesouro ja tinha" -- inclusive quando a planilha nao tinha nada.
+# ---------------------------------------------------------------------------
+
+def test_a_contagem_separa_a_planilha_do_proprio_provisorio(base, monkeypatch,
+                                                            tmp_path):
+    monkeypatch.setattr(lr.config, "PROCESSED_DIR", tmp_path)
+
+    # Um leilao que a planilha NAO tem, gravado primeiro como aceito.
+    novo = _leilao(base, "2026-09-15", 1_000_000, 620_000)
+    _, entraram, na_planilha, no_provisorio = lr.gravar_recentes(
+        novo, "aceito", base)
+    assert (entraram, na_planilha, no_provisorio) == (1, 0, 0)
+
+    # O MESMO leilao chegando como OFERTADO depois: nao entra, e o motivo e o
+    # provisorio -- nao a planilha. E esta a linha que fazia o log mentir.
+    _, entraram, na_planilha, no_provisorio = lr.gravar_recentes(
+        _leilao(base, "2026-09-15", 1_000_000), "ofertado", base)
+    assert entraram == 0
+    assert no_provisorio == 1, "o motivo foi o estagio, e tem de ser contado aqui"
+    assert na_planilha == 0, "a planilha nao tem este leilao; nao pode levar o credito"
+
+
+def test_a_contagem_credita_a_planilha_quando_e_dela(base, monkeypatch, tmp_path):
+    # O outro lado: uma linha que a planilha JA tem conta como da planilha.
+    monkeypatch.setattr(lr.config, "PROCESSED_DIR", tmp_path)
+    da_planilha = base.head(1).copy()
+    _, entraram, na_planilha, no_provisorio = lr.gravar_recentes(
+        da_planilha, "aceito", base)
+    assert (entraram, na_planilha, no_provisorio) == (0, 1, 0)

@@ -89,11 +89,14 @@ def test_a_composicao_do_ULTIMO_MES_bate_com_o_anexo(comp):
     #     Taxa Flutuante   4.747,2540 / 9.288,7803 = 51,1075%
     #     Cambio             338,8513 / 9.288,7803 =  3,6480%
     u = comp.iloc[-1]
-    assert round(u["Prefixado"], 1) == 19.2
-    assert round(u["\u00cdndice Pre\u00e7os"], 1) == 26.0
-    assert round(u["Taxa Flutuante"], 1) == 51.1
-    assert round(u["C\u00e2mbio"], 1) == 3.6
-    assert round(u["estoque_milhoes"] / 1000, 1) == 9288.8
+    # Remedido para AGOSTO em 07/10/2026. O Indice de Precos caiu 2,8 pp num
+    # mes -- 26,0 para 23,2 -- com o vencimento da NTN-B 15/08/2026, que levou
+    # 258,2 bi de principal. O prefixado e a taxa flutuante absorveram.
+    assert round(u["Prefixado"], 1) == 20.3
+    assert round(u["\u00cdndice Pre\u00e7os"], 1) == 23.2
+    assert round(u["Taxa Flutuante"], 1) == 52.7
+    assert round(u["C\u00e2mbio"], 1) == 3.7
+    assert round(u["estoque_milhoes"] / 1000, 1) == 9292.7
 
 
 def test_cada_mes_da_composicao_soma_100(comp):
@@ -122,7 +125,7 @@ def test_o_cambio_cai_do_pico_de_51_para_menos_de_quatro(comp):
     cam = comp["C\u00e2mbio"]
     assert round(cam.max(), 1) == 51.0
     assert cam.idxmax() == pd.Timestamp("2002-09-30")
-    assert round(cam.iloc[-1], 2) == 3.65
+    assert round(cam.iloc[-1], 2) == 3.74
 
 
 def test_a_area_de_100_por_cento_empilha_as_cinco_faixas():
@@ -140,10 +143,12 @@ def test_a_area_de_100_por_cento_empilha_as_cinco_faixas():
 
     assert len(faixas) == 5, "uma faixa por indexador, com Demais"
     assert limites == (0, 100)
-    # Os valores do ultimo mes escritos na ponta de cada faixa que cabe --
-    # os mesmos do anexo de julho.
-    for esperado in ("19,2", "26,0", "51,1"):
-        assert esperado in rotulos
+    # OS VALORES SAEM DO DADO. O comentario antigo ja dizia que sao "os valores
+    # do ultimo mes", e ainda assim estavam cravados -- envelheciam a cada RMD
+    # num teste cujo assunto e a area EMPILHAR as cinco faixas.
+    u = estoque.dados_composicao().iloc[-1]
+    for faixa in ("Prefixado", "\u00cdndice Pre\u00e7os", "Taxa Flutuante"):
+        assert estilo.num_br(u[faixa], 1) in rotulos, faixa
     # E o pico do cambio dito com todas as letras.
     assert any("51,0" in r for r in rotulos)
 
@@ -187,10 +192,13 @@ def test_o_desenho_da_composicao_traz_as_quatro_linhas_e_os_rotulos():
     assert "Demais" not in nomes
     assert set(nomes) == {"Prefixado", "\u00cdndice Pre\u00e7os", "Taxa Flutuante",
                           "C\u00e2mbio"}
-    # E a figura carrega as mesmas ancoras que dados_composicao ja tem --
-    # os percentuais do anexo de julho (ver test_a_composicao_do_ULTIMO_MES).
-    for esperado in ("19,2", "26,0", "51,1", "3,6"):
-        assert esperado in rotulos
+    # E A FIGURA CARREGA AS MESMAS ANCORAS que dados_composicao ja tem -- e
+    # por isso saem DO DADO, e nao cravadas aqui. O proprio comentario ja
+    # apontava para test_a_composicao_do_ULTIMO_MES; faltava o codigo seguir o
+    # comentario. Trocado em 07/10/2026.
+    u = estoque.dados_composicao().iloc[-1]
+    for faixa in nomes:
+        assert estilo.num_br(u[faixa], 1) in rotulos, faixa
 
 
 def test_o_desenho_traz_a_banda_de_cada_ano_visivel():

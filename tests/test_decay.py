@@ -273,8 +273,13 @@ def test_decay_do_sistema_na_DATA_BASE_bate_com_o_valor_medido(d):
     do_rmd, _ = rolagem.base_do_rmd()
     assert base == do_rmd.date(), (
         f"o decay parte de {base}, e o RMD carregado e de {do_rmd.date()}")
-    # Medidos em 04/09/2026 com a base em 31/07.
-    esperado_sobreviventes = {"1du": 0.3407, "5du": 3.4062, "21du": 14.7909}
+    # Remedidos em 07/10/2026 com a base em 31/08.
+    #
+    # O DE 1 DIA UTIL MAIS QUE DOBROU (0,3407 -> 0,7982), e isso vale reparar:
+    # em julho ele era anomalamente BAIXO. Se o decay fosse linear nos dias,
+    # 5du seria cerca de cinco vezes o de 1du -- em julho a razao era 10,0, em
+    # agosto e 5,0. Agosto e MAIS coerente internamente que julho, e nao menos.
+    esperado_sobreviventes = {"1du": 0.7982, "5du": 4.0294, "21du": 15.4280}
     medidos = {}
     for horizonte, valor in esperado_sobreviventes.items():
         sub = d[(d["data_base"] == base) & (d["horizonte"] == horizonte)]

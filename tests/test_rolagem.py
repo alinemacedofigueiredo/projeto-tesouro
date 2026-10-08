@@ -10,23 +10,90 @@ def banda_ultima_liquidacao():
     return banda._ultima_liquidacao()
 
 
+# O erro de recuperacao do VNA, medido em 07/10/2026 na POPULACAO INTEIRA: todos
+# os fins de mes que o vna.csv conhece, que sao 158 para a SELIC e 185 para o
+# IPCA (o vna.csv e mensal, de 2010 a data-base do RMD).
+#
+#            mediana     p90      pior
+#     SELIC   0,0411%  0,0532%  0,0578%  (jan/2016)
+#     IPCA    0,0926%  0,1808%  0,4175%  (dez/2019)
+#
+# OS LIMITES ABAIXO SAEM DESSA POPULACAO, e nao da janela que o teste olha nem
+# do mes que estiver passando. Ficam acima do pior medido em dezesseis anos, e
+# ainda assim bem abaixo do que qualquer defeito de verdade produz: esquecer o
+# carrego da ancora ate a data, por exemplo, custa 0,56% na SELIC e 0,27% no
+# IPCA so em 07/10/2026 (quinze dias de distancia ate o leilao-ancora).
+_ERRO_DO_VNA = {        # (mediana maxima, pior mes aceito), em %
+    "SELIC": (0.08, 0.10),
+    "IPCA": (0.15, 0.50),
+}
+
+# Vinte e quatro meses, a mesma janela do backtest da rolagem.
+_MESES_DO_VNA = 24
+
+
 def test_o_VNA_recuperado_do_leilao_bate_com_o_conhecido():
     # ESTE E O TESTE QUE DISPENSA A BLOOMBERG. O vna.csv termina exatamente na
     # data-base do RMD, e os leiloes vao alem dela. Sem VNA nesses dias nao ha termo
     # de juros, e a LFT sai ~2% subestimada.
     #
     # PU = VNA x cotacao, e a cotacao depende so da taxa e das datas: o PU efetivo
-    # dividido pela cotacao devolve o VNA que o Tesouro usou. Medido nos 98 leiloes
-    # que caem em data de VNA conhecida, o erro mediano e 0,045%.
+    # dividido pela cotacao devolve o VNA que o Tesouro usou.
+    #
+    # POR QUE ELE OLHA 24 MESES, E NAO UM. Ate 07/10/2026 ele comparava SO o
+    # ultimo fim de mes do vna.csv, com tolerancia de 0,002 -- e o comentario
+    # dele ja citava uma medicao de POPULACAO ("o erro mediano e 0,045%"). Media
+    # uma populacao e afirmava um sorteio dela. Em 31/08/2026 o sorteio deu
+    # 0,2017% no IPCA e o teste ficou vermelho sem que nada tivesse quebrado:
+    # 0,2017% e o percentil ~92 de uma distribuicao que vai a 0,4175%.
+    #
+    # O QUE NAO FOI FEITO, de proposito: afrouxar o 0,002 ate o mes passar. Isso
+    # seria numero ajustado contra o proprio dado, que e o vicio que esta
+    # entrega remove. O que mudou e O QUE SE AFIRMA -- a mediana da janela e um
+    # teto por mes, os dois vindos da populacao de dezesseis anos.
+    #
+    # E O ERRO NAO E DISTANCIA ATE A ANCORA: medida a correlacao entre o erro e
+    # os dias ate o leilao-ancora, da -0,01 na SELIC e +0,09 no IPCA, e as
+    # medianas por faixa de dias (0, 1-3, 4-7, 8-15) sao planas. Quem domina e a
+    # inversao PU/cotacao de cada leilao, nao o carrego.
+    #
+    # PROVA DE DENTES, feita em 07/10/2026 com a mutacao mais obvia -- fazer
+    # _carrega_vna devolver a ancora sem carregar nada, que e exatamente o vies
+    # de R$ 12,1 bi fechado em 27/08/2026:
+    #
+    #     teste NOVO    vermelho (mediana da SELIC 0,1071% contra o teto 0,08%)
+    #     teste VELHO   PASSARIA (o ultimo mes dava 0,1543% na SELIC e 0,1212%
+    #                   no IPCA, os dois abaixo do 0,2% que ele exigia)
+    #
+    # Ou seja: o ponto unico nao via desaparecer o carrego que ele mesmo existe
+    # para proteger. A janela ve.
     from tesouro import config
 
     v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
-    for indice in ("SELIC", "IPCA"):
-        s = v[v["indice"] == indice].set_index("data")["vna"]
-        quando = s.index[-1]
-        recuperado = rolagem.vna_em(indice, quando)
-        real = float(s.loc[quando])
-        assert abs(recuperado - real) / real < 0.002, (indice, recuperado, real)
+    for indice, (limite_mediana, limite_pior) in _ERRO_DO_VNA.items():
+        s = (v[v["indice"] == indice].set_index("data")["vna"]
+             .sort_index().tail(_MESES_DO_VNA))
+        assert len(s) == _MESES_DO_VNA, \
+            f"o vna.csv tem {len(s)} meses de {indice}, e a janela pede {_MESES_DO_VNA}"
+
+        erros = pd.Series(
+            {quando: abs(rolagem.vna_em(indice, quando) / float(real) - 1) * 100
+             for quando, real in s.items()})
+
+        assert erros.median() < limite_mediana, (
+            f"{indice}: a mediana do erro de recuperacao do VNA subiu para "
+            f"{erros.median():.4f}%, acima de {limite_mediana}%. Isso nao e um "
+            f"mes atipico -- e a recuperacao inteira piorando.\n{erros}")
+        assert erros.max() < limite_pior, (
+            f"{indice}: {erros.idxmax():%d/%m/%Y} errou {erros.max():.4f}%, "
+            f"acima do teto de {limite_pior}% (o pior em dezesseis anos foi "
+            f"0,0578% na SELIC e 0,4175% no IPCA).\n{erros}")
+
+        # E O ULTIMO MES ENTRA NA CONTA, explicitamente: e ele que a rolagem de
+        # hoje usa como vizinho da ancora, e um teste de janela poderia deixar o
+        # mes novo de fora sem ninguem notar.
+        assert s.index[-1] == v["data"].max(), \
+            "a janela nao termina na ultima data do vna.csv"
 
 
 def test_sem_leilao_para_recuperar_o_VNA_ele_LEVANTA():
@@ -357,6 +424,11 @@ def test_o_provisorio_entra_DEPOIS_de_onde_a_planilha_acaba():
             entrou = tudo.tail(len(alem))
             assert (entrou["data_liquidacao"] > fronteira).all()
 
+def fronteira_da_planilha(oficial):
+    """A ultima liquidacao que a planilha do Tesouro ja traz."""
+    return oficial["data_liquidacao"].max()
+
+
 def test_a_rolagem_ENXERGA_o_leilao_que_a_planilha_ainda_nao_traz():
     """O ponto da decisao 3, medido no numero e nao na existencia do arquivo.
 
@@ -368,12 +440,28 @@ def test_a_rolagem_ENXERGA_o_leilao_que_a_planilha_ainda_nao_traz():
 
     oficial = rolagem.leiloes(com_provisorio=False)
     tudo = rolagem.leiloes()
-    fronteira = oficial["data_liquidacao"].max()
-    depois = tudo[tudo["data_liquidacao"] > fronteira]
-    if depois.empty:
-        pytest.skip("a planilha esta em dia; nao ha provisorio para somar")
-
     base, _ = rolagem.base_do_rmd()
+
+    # O PONTO DE PARTIDA E O MAIOR DOS DOIS, e nao a fronteira da planilha.
+    #
+    # MEDIDO EM 06/10/2026, quando este teste ficou vermelho: a fronteira da
+    # planilha era 17/08 e a base do RMD passou a ser 31/08 -- a base ficou
+    # DEPOIS da fronteira, o contrario do que era com o RMD de julho.
+    #
+    # A rolagem comeca na base do RMD, porque o que liquidou antes dela ja esta
+    # dentro do estoque daquele RMD; somar de novo seria contar duas vezes. O
+    # teste, porem, esperava tudo o que veio depois da fronteira da planilha, e
+    # acusou uma diferenca de 48.926,1 em prefixado.
+    #
+    # Conferido: 48.926,1 e EXATAMENTE o que liquidou entre 17/08 e 31/08. A
+    # producao estava certa; a suposicao "base vem antes da fronteira" e que
+    # deixou de valer.
+    partida = max(pd.Timestamp(base), fronteira_da_planilha(oficial))
+    depois = tudo[tudo["data_liquidacao"] > partida]
+    if depois.empty:
+        pytest.skip("nao ha leilao depois da partida; nada a somar")
+
+    fronteira = partida
     ate = tudo["data_liquidacao"].max()
 
     com = rolagem.leiloes_liquidados(base, ate)

@@ -108,6 +108,69 @@ def tabela_do_edital(quando=None):
     return do_dia.assign(data_liquidacao=_proximo_dia_util(quando))
 
 
+def _o_que_o_calendario_diz(quando, registros=None):
+    """Por que nao ha edital: nao e dia de leilao, ou ainda nao saiu?
+
+    A FRASE ANTIGA DIZIA AS DUAS COISAS AO MESMO TEMPO. "nao ha edital para este
+    dia -- nada a gravar" serve para "hoje nao tem leilao" e para "hoje tem
+    leilao e o Tesouro ainda nao publicou", que sao avisos opostos: o primeiro
+    manda esquecer, o segundo manda voltar mais tarde.
+
+    MEDIDO EM 08/10/2026, e e dela o achado. Ela rodou o atalho as 10:32 numa
+    quinta-feira -- dia de prefixado -- leu a frase como "hoje nao tem leilao" e
+    achou estranho ver o resultado publicado depois. Os tres instantes:
+
+        10:11   a API nao tinha edital nem resultado para 08/10
+        10:32   idem -- o leilao ainda nao havia acontecido
+        14:36   edital E resultado, as seis pernas (3 LTN, 3 NTN-F)
+
+    TRES RESPOSTAS, e a terceira e a que este projeto obriga. Passada a ultima
+    data que o Tesouro publicou, dizer "nao tem leilao" seria plausivel e errado
+    -- e errado exatamente onde a frase soa mais segura. Ali a resposta e nao
+    sei, com a data em que o calendario acaba.
+
+    Recebe 'registros' para os testes nao tocarem a rede.
+    """
+    from . import api_leiloes, parse_api_leiloes
+
+    quando = pd.Timestamp(quando).normalize()
+    try:
+        if registros is None:
+            registros, _ = api_leiloes.buscar("calendario")
+        if not len(registros):
+            return ("   e o calendario do Tesouro voltou vazio, entao nao da "
+                    "para dizer se hoje e dia de leilao.")
+        agenda = parse_api_leiloes.calendario(registros)
+    except (LookupError, OSError) as erro:
+        # NAO AFIRMA NADA quando a fonte da resposta falhou. A frase sem o
+        # calendario e a frase antiga, e era ela o problema.
+        return ("   e o calendario do Tesouro nao pode ser consultado (%s), "
+                "entao nao da para dizer se hoje e dia de leilao." % erro)
+
+    # "HOJE" SO QUANDO E HOJE. A funcao aceita 'quando', e chamada com outra
+    # data ela dizia "para hoje" de qualquer jeito -- rotulo descolado do dado,
+    # que e o defeito que este projeto pegou tres vezes em 09/09/2026.
+    dia = ("hoje" if quando == pd.Timestamp.today().normalize()
+           else quando.strftime("%d/%m/%Y"))
+
+    dias = agenda["data_leilao"].dt.normalize()
+    do_dia = agenda[dias == quando]
+    if not do_dia.empty:
+        papeis = ", ".join(sorted(set(do_dia["titulo"])))
+        return ("   o calendario do Tesouro traz %s para %s, e o edital ainda "
+                "nao foi publicado.\n"
+                "   O leilao acontece perto do meio-dia e o resultado sai de "
+                "tarde -- rode de novo depois disso." % (papeis, dia))
+
+    ultimo = dias.max()
+    if quando > ultimo:
+        return ("   e o calendario publicado do Tesouro termina em %s, entao "
+                "nao da para dizer se %s e dia de leilao." %
+                (ultimo.strftime("%d/%m/%Y"), quando.strftime("%d/%m/%Y")))
+    return ("   e o calendario do Tesouro nao traz leilao para %s "
+            "(ele vai ate %s)." % (dia, ultimo.strftime("%d/%m/%Y")))
+
+
 def do_edital(quando=None, refazer_graficos=True):
     """O caminho da OFERTA sem digitacao: o que o Tesouro anunciou hoje.
 
@@ -124,7 +187,9 @@ def do_edital(quando=None, refazer_graficos=True):
         print("   o /editais nao respondeu no formato esperado: %s" % erro)
         return 0
     if tabela is None:
-        print("   nao ha edital para este dia -- nada a gravar.")
+        # NAO BASTA DIZER QUE NAO HA -- ver _o_que_o_calendario_diz.
+        print("   nao ha edital para este dia na API,")
+        print(_o_que_o_calendario_diz(quando))
         return 0
     print("   %d perna(s) ofertada(s): %s"
           % (len(tabela), ", ".join(sorted(set(tabela["titulo"])))))
@@ -134,13 +199,27 @@ def do_edital(quando=None, refazer_graficos=True):
 def _guardar_e_desenhar(tabela, estagio, refazer_graficos):
     """Do dado normalizado ate as paginas gravadas. Comum aos dois caminhos."""
     print("2. comparando com o historico da planilha do Tesouro...")
-    destino, entraram, ja_estavam = leiloes_recentes.gravar_recentes(tabela, estagio)
-    print(f"   {entraram} nova(s), {ja_estavam} que a planilha ja tinha")
+    destino, entraram, na_planilha, no_provisorio = \
+        leiloes_recentes.gravar_recentes(tabela, estagio)
+    # CADA MOTIVO COM O SEU NOME -- ver o docstring de gravar_recentes. A frase
+    # unica dizia "que a planilha ja tinha" para as duas coisas, e em 08/10/2026
+    # anunciou que a planilha havia alcancado seis leiloes que ela nao tem.
+    print(f"   {entraram} nova(s), {na_planilha} que a planilha do Tesouro ja "
+          f"tem, {no_provisorio} que o provisorio ja cobria")
     print(f"   gravado: {destino}")
 
     if entraram == 0:
-        print("\nNada novo. A planilha do Tesouro ja alcancou tudo -- os graficos "
-              "continuam validos como estao.")
+        if na_planilha and not no_provisorio:
+            print("\nNada novo: a planilha do Tesouro ja alcancou estas linhas "
+                  "-- os graficos continuam validos como estao.")
+        elif no_provisorio and not na_planilha:
+            print("\nNada novo: estas linhas ja estavam aqui, num estagio igual "
+                  "ou mais adiantado. A planilha do Tesouro NAO as alcancou "
+                  "ainda -- os graficos continuam validos como estao.")
+        else:
+            print("\nNada novo: parte ja esta na planilha do Tesouro, parte ja "
+                  "estava aqui num estagio igual ou mais adiantado -- os "
+                  "graficos continuam validos como estao.")
         return 0
 
     print("3. recalculando o DV01, com o provisorio...")
@@ -162,8 +241,15 @@ def _guardar_e_desenhar(tabela, estagio, refazer_graficos):
         print("Quando o resultado sair, rode  python -m tesouro.leilao_do_dia  "
               "para pegar o aceito pela API: ele substitui o teto sozinho.")
     else:
-        print("Quando a planilha do Tesouro trouxer este leilao, a linha some "
-              "sozinha.")
+        # A FRASE ANTIGA PROMETIA O QUE NAO ACONTECIA: "quando a planilha do
+        # Tesouro trouxer este leilao, a linha some sozinha". Medido em
+        # 08/10/2026 -- fetch_leiloes.baixar nunca rebaixava a planilha, entao
+        # ela nunca trazia o leilao e a linha nunca sumia. O estado real: o
+        # numero esta certo (o provisorio tem taxa e financeiro do proprio
+        # Tesouro), e a linha fica.
+        print("A linha fica como provisoria. Ela so sai quando a planilha do "
+              "Tesouro for rebaixada -- o que NAO acontece sozinho: rode com "
+              "--rebaixar-planilha quando quiser renovar.")
     return entraram
 
 

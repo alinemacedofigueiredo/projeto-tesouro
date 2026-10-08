@@ -92,67 +92,156 @@ def _e_interativo():
     return sys.stdin is not None and sys.stdin.isatty()
 
 
-def _dizer_qual_rmd_esta_carregado(saida=print):
-    """Qual anexo o projeto tem, e onde pegar outro.
+# Quantas vezes o menu repete a pergunta antes de desistir e seguir com o que
+# esta em disco. Cinco e generoso para quem erra a tecla e curto o bastante para
+# nao parecer travado.
+TENTATIVAS_NO_MENU = 5
 
-    A URL e a PASTA saem do codigo que as usa, e nao escritas aqui. Caminho
-    repetido a mao e caminho que fica errado no dia em que o outro muda -- e
-    esta mensagem existe justamente para ela COLAR no navegador e no Explorer.
 
-    NO MENU, e nao no fim da rodada. A primeira versao avisava depois do
-    "concluido.", e ela recusou: "nao quero assim". Estava certa -- no fim a
-    informacao chega depois de a decisao ter sido tomada.
-    """
-    from . import config, fetch_rmd, leitura_rmd
+def _nome_do_rmd_salvo():
+    """"julho/2026", ou None se nao ha nenhum anexo na pasta."""
+    from . import leitura_rmd
 
     base = leitura_rmd.mes_base_carregado()
-    saida("")
     if base is None:
-        saida("Nao ha anexo de RMD na pasta ainda.")
-    else:
-        ano, mes = base
-        saida("O RMD que o projeto tem e de %s."
-              % leitura_rmd._nome_do_mes(ano, mes))
+        return None
+    return leitura_rmd._nome_do_mes(*base)
+
+
+def _onde_pegar_o_rmd(saida):
+    """O site e a pasta, para ela colar no navegador e no Explorer.
+
+    OS DOIS SAEM DO CODIGO que os usa -- fetch_rmd.BASE e config.RMD_DIR -- e
+    nao escritos aqui. Caminho repetido a mao fica errado no dia em que o outro
+    muda.
+    """
+    from . import config, fetch_rmd
+
     saida("")
-    saida("Se quiser um mais novo:")
-    saida("  1. abra   %s" % fetch_rmd.BASE)
-    saida("  2. salve o anexo em   %s" % config.RMD_DIR)
-    saida("  3. volte aqui e de Enter em branco nas duas perguntas")
+    saida("  1. abra o site:")
+    saida("       %s" % fetch_rmd.BASE)
+    saida("  2. baixe o ANEXO do mes e salve nesta pasta:")
+    saida("       %s" % config.RMD_DIR)
     saida("")
 
 
 def escolher_rmd_no_menu(entrada=None, saida=print):
-    """Qual RMD puxar -- pedido dela, com estas palavras: "quando a pessoa
-    decidir atualizar o rmd tem q ter a opcao, qual rmd vc quer puxar?".
+    """Continuar com o RMD salvo, ou ir buscar um mais novo.
 
-    Devolve (ano, mes), ou None para "segue com o que ja esta em disco". Sem
-    isto, escolher "atualizar o RMD" no menu nao baixava nada -- o pipeline
-    imprimia que estava usando o anexo ja presente e seguia, que e a ultima
-    coisa que quem escolheu aquele item espera.
+    DESENHO DELA em 02/10/2026: "se eu escolho 1 rmd, ai vc me diz, o ultimo rmd
+    que vc salvou e da data tal. quer atualizar ou continuar? se continuar, pega
+    esse. se clicar em atualizar, diz para pegar no site e salvar na pasta e tem
+    q avisar q salvou. e ai roda de novo".
+
+    Devolve sempre None -- "use o anexo que esta na pasta". A versao anterior
+    perguntava ano e mes e tentava BAIXAR, o que nao funciona nesta maquina: o
+    site trava no certificado do SERPRO. Baixar continua possivel pelas
+    bandeiras --ano/--mes, na maquina onde funcionar.
+
+    DEPOIS DO "salvei", RELE O DISCO e mostra o mes de novo. E ali que ela
+    descobre se o arquivo foi para o lugar certo -- em vez de descobrir na
+    pagina, uma hora depois.
     """
-    # RESOLVE input() AQUI DENTRO, e nao como valor padrao do parametro. Um
-    # padrao 'entrada=input' captura o builtin NA DEFINICAO do modulo, e
-    # substitui-lo depois nao muda nada -- o teste que finge o teclado passava
-    # a nao ter efeito, e a funcao ficava esperando um Enter que ninguem daria.
-    entrada = entrada or input
-    _dizer_qual_rmd_esta_carregado(saida)
-    saida("Qual RMD voce quer puxar?")
-    saida("  (Enter em branco segue com o anexo que ja esta na pasta)")
-    ano = entrada("ano  (ex.: 2026): ").strip()
-    if not ano:
-        return None
-    mes = entrada("mes  (1 a 12): ").strip()
-    if not mes:
-        return None
-    try:
-        ano, mes = int(ano), int(mes)
-    except ValueError:
-        saida("ano ou mes nao e numero; seguindo com o anexo em disco.")
-        return None
-    if not 1 <= mes <= 12:
-        saida("mes fora de 1 a 12; seguindo com o anexo em disco.")
-        return None
-    return ano, mes
+    entrada = entrada or input          # ver o comentario em escolher_modo_no_menu
+
+    # O LACO TEM FIM, e o fim e a saida segura. Sem este limite, resposta que
+    # nunca casa repetia a pergunta para sempre: num terminal isso irrita, mas
+    # em qualquer coisa automatizada pendura -- um teste ficou 43 minutos preso
+    # aqui em 06/10/2026, e foi assim que o defeito apareceu.
+    for _ in range(TENTATIVAS_NO_MENU):
+        nome = _nome_do_rmd_salvo()
+        saida("")
+        if nome is None:
+            saida("Nao ha nenhum RMD salvo na pasta ainda.")
+        else:
+            saida("O ultimo RMD que voce salvou e de %s." % nome)
+        saida("")
+        saida("  C. continuar  -- usa esse mesmo")
+        saida("  A. atualizar  -- pegar um mais novo no site")
+        saida("")
+
+        try:
+            escolha = entrada("C ou A (Enter = continuar): ").strip().lower()
+        except EOFError:
+            # MESMO DESTINO DO ENTER VAZIO -- continuar com o anexo salvo. Ver
+            # o comentario do EOFError em escolher_modo_no_menu.
+            saida("")
+            saida("nao ha entrada para responder (entrada fechada) -- "
+                  "continuando com o anexo que esta na pasta.")
+            return None
+
+        # ENTER E CONTINUAR. E a tecla de quem nao quer decidir nada, e aqui
+        # nao decidir nada tem significado obvio e seguro: usar o anexo que ja
+        # esta na pasta. O menu antigo fazia isso, e eu havia tirado sem
+        # perceber.
+        if escolha in ("", "c", "continuar", "1"):
+            return None
+
+        if escolha in ("a", "atualizar", "2"):
+            _onde_pegar_o_rmd(saida)
+            try:
+                pronto = entrada("Salvou? S para seguir, N para desistir: ")
+            except EOFError:
+                saida("")
+                saida("nao ha entrada para responder (entrada fechada) -- "
+                      "continuando com o anexo que esta na pasta.")
+                return None
+            if pronto.strip().lower() in ("n", "nao", "no"):
+                saida("")
+                saida("Seguindo com o RMD que ja esta na pasta.")
+                return None
+            # Qualquer outra resposta conta como "salvei": o laco volta ao topo,
+            # LE O DISCO DE NOVO e mostra o mes encontrado. Exigir um "S" exato
+            # seria pedir precisao de quem acabou de fazer a parte chata.
+            continue
+
+        saida("nao entendi '%s' -- responda C para continuar ou A para "
+              "atualizar." % escolha)
+
+    saida("")
+    saida("Seguindo com o RMD que ja esta na pasta.")
+    return None
+
+
+_COMECO = []
+
+
+def _fase(nome):
+    """Anuncia uma fase com HORA e tempo decorrido desde o comeco.
+
+    ANTES de rodar, e nao depois: anunciar no fim deixa o silencio sem
+    explicacao justamente enquanto ele dura.
+
+    A hora absoluta serve para comparar com o relogio -- andou nos ultimos
+    minutos? O decorrido serve para saber se o silencio de agora e normal: na
+    rodada anterior a mesma fase levou o mesmo tanto.
+    """
+    import time
+
+    desde = int(time.time() - _COMECO[0]) if _COMECO else 0
+    print("[%s] +%4ds  %s" % (time.strftime("%H:%M:%S"), desde, nome))
+
+
+def _comecou(modo):
+    """O cabecalho que diz que comecou, e onde olhar.
+
+    PALAVRAS DELA: "como sei que esta rodando? fui checar na pagina paf, e nao
+    esta atualizado, entao nao sei se esta rodando". As paginas sao o ULTIMO
+    passo -- olhar para elas no meio da rodada nao diz nada, e e preciso dizer
+    isso antes de ela ir olhar.
+    """
+    import time
+
+    _COMECO.clear()
+    _COMECO.append(time.time())
+    print("")
+    print("=" * 66)
+    print(" COMECOU as %s  --  modo %s" % (time.strftime("%H:%M:%S"), modo))
+    print("")
+    print(" Cada linha abaixo e uma fase, com a hora e o tempo decorrido.")
+    print(" Enquanto aparecer linha nova, esta rodando.")
+    print(" As paginas sao o ULTIMO passo: so mudam quando sair 'concluido.'")
+    print("=" * 66)
 
 
 def escolher_modo_no_menu(entrada=None, saida=print):
@@ -170,7 +259,19 @@ def escolher_modo_no_menu(entrada=None, saida=print):
         saida("  %d. %-8s %s" % (i, modo, _EXPLICACAO[modo]))
     saida("")
     while True:
-        escolha = entrada("numero (ou o nome do modo): ").strip().lower()
+        # ENTRADA FECHADA NAO E ERRO DE OPERADOR, e ausencia de operador.
+        # Medido em 08/10/2026 rodando o atalho com a entrada redirecionada:
+        # dez linhas de traceback (EOFError) onde cabia uma frase. No
+        # duplo-clique nao acontece; no Agendador de Tarefas, acontece sempre.
+        # O destino e o MESMO padrao que main() usa quando nao ha terminal --
+        # 'tudo' -- para a resposta nao depender de por onde se entrou.
+        try:
+            escolha = entrada("numero (ou o nome do modo): ").strip().lower()
+        except EOFError:
+            saida("")
+            saida("nao ha entrada para responder (entrada fechada) -- seguindo "
+                  "em 'tudo', que e o padrao de quem chama sem bandeira.")
+            return "tudo"
         if escolha in _EXPLICACAO:
             return escolha
         if escolha.isdigit() and 1 <= int(escolha) <= len(ordem):
@@ -194,8 +295,21 @@ def main(argumentos=None):
         "--sem-coleta", action="store_true",
         help="nao baixa nada; usa os arquivos ja presentes em data/raw/",
     )
+    # SOBRESCREVE UM ARQUIVO DE data/raw, que e imutavel por invariante -- por
+    # isso e bandeira explicita e nunca o padrao. Ver fetch_leiloes.baixar.
+    analisador.add_argument(
+        "--rebaixar-planilha", action="store_true",
+        help="rebaixa a planilha historica do Tesouro, sobrescrevendo a salva",
+    )
     analisador.add_argument("--ano", type=int, help="ano do RMD a baixar")
-    analisador.add_argument("--mes", type=int, help="mes do RMD a baixar")
+    # choices, e nao validacao la dentro: o argparse recusa ANTES de a
+    # rodada comecar, e diz o valor recusado. Medido em 06/10/2026 --
+    # "--mes 13" estourava ValueError com traceback DEPOIS de imprimir
+    # que a rodada tinha comecado, e traceback e um jeito confuso de
+    # dizer "digitei 13".
+    analisador.add_argument("--mes", type=int, choices=range(1, 13),
+                            metavar="1..12",
+                            help="mes do RMD a baixar")
     analisador.add_argument(
         "--modo", choices=sorted(PASSOS_DO_MODO),
         help="o que atualizar; sem isto, faz tudo (ou pergunta, no terminal)",
@@ -213,6 +327,7 @@ def main(argumentos=None):
         modo = escolher_modo_no_menu() if interativo else "tudo"
     passos = PASSOS_DO_MODO[modo]
     print("modo: %s -- %s" % (modo, _EXPLICACAO[modo]))
+    _comecou(modo)
 
     if opcoes.sem_coleta and (opcoes.ano or opcoes.mes):
         # Combinacao plausivel: o README ensina as duas formas em blocos
@@ -244,8 +359,8 @@ def main(argumentos=None):
     # quebrada nao pode virar grafico com banda errada. So o modo 'paf' passa
     # por aqui, porque so ele existe por causa de uma edicao a mao.
     if "valida_paf" in passos:
+        _fase("conferindo a banda do PAF")
         from . import valida_referencia
-        print("\n--- conferindo referencia/paf_bandas.csv ---")
         if valida_referencia.main([]) != 0:
             print("\nATENCAO: a referencia do PAF nao passou. Nada foi "
                   "redesenhado -- corrija o CSV e rode de novo.")
@@ -253,8 +368,9 @@ def main(argumentos=None):
 
     if not opcoes.sem_coleta:
         if "coleta_leiloes" in passos:
+            _fase("baixando os leiloes")
             from . import fetch_leiloes
-            fetch_leiloes.baixar()
+            fetch_leiloes.baixar(forcar=opcoes.rebaixar_planilha)
             # E O RESULTADO DO DIA, PELA API -- sem isto a coleta de leiloes
             # nao coleta leilao nenhum.
             #
@@ -306,6 +422,7 @@ def main(argumentos=None):
                 print(f"ATENCAO: {mensagem}")
                 falhas.append(mensagem)
         if "coleta_rmd" in passos:
+            _fase("baixando o anexo do RMD")
             from . import fetch_rmd
             ano, mes = opcoes.ano, opcoes.mes
             # SE NINGUEM DISSE QUAL, PERGUNTA -- mas so quando ha a quem. Num
@@ -353,10 +470,10 @@ def main(argumentos=None):
             falhas.append(mensagem)
 
     if "parse_leiloes" in passos:
-        print("\n--- leiloes ---")
+        _fase("lendo os leiloes")
         parse_leiloes.gravar()
     if "parse_rmd" in passos:
-        print("\n--- rmd ---")
+        _fase("lendo o RMD")
         parse_rmd.gravar_tudo()
 
     if "parse_bloomberg" in passos:
@@ -365,6 +482,7 @@ def main(argumentos=None):
         parse_bloomberg.gravar()
 
     if "dv" in passos:
+        _fase("calculando o DV01")
         print("\n--- dv01 e decay ---")
         from . import dv as _dv
         _dv.gravar_painel()
@@ -372,7 +490,7 @@ def main(argumentos=None):
         _dv.gravar_resultado()
 
     if "figuras" in passos:
-        print("\n--- figuras ---")
+        _fase("desenhando as figuras do RMD")
         from . import figuras
         figuras.gravar_todas()
 
@@ -404,10 +522,10 @@ def main(argumentos=None):
         # tinha posto la.
         leiloes_dv.gravar(ate_o_estagio="ofertado")
 
-    print("\n--- dashboard ---")
     try:
         from .graficos import dashboard
         if "dashboard" in passos:
+            _fase("gravando o dashboard")
             # DUAS paginas desde 21/08/2026, por tamanho -- ver PAGINAS_DO_RMD.
             for caminho in dashboard.grava_o_rmd():
                 print(f"dashboard gravado em {caminho}")
@@ -457,6 +575,7 @@ def main(argumentos=None):
                   "sair; as demais paginas continuam sendo geradas.")
             print()
         if "emissoes" in passos:
+            _fase("gravando as paginas de emissao")
             painel_emissoes.grava_todas()
         # Os nomes saem das tabelas do painel, e nao do retorno da funcao: o
         # pipeline nao precisa do valor de volta para dizer o que gravou, e
@@ -487,6 +606,7 @@ def main(argumentos=None):
         # de leilao faltam, e isso a estimativa sabe dar.
         registros_do_calendario = [] if opcoes.sem_coleta else None
         if "paf" in passos:
+            _fase("gravando a pagina do PAF")
             print("pagina do PAF gravada: "
                   f"{painel_paf.grava(registros=registros_do_calendario)}")
 

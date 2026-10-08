@@ -102,6 +102,21 @@ def grava(caminho=None, hoje=None, registros=None):
     calendario que usou.
     """
     caminho = caminho or (config.PROCESSED_DIR / ARQUIVO)
+
+    # CALCULA ANTES DE ESCREVER. Esta ordem e o conserto de 02/10/2026: antes,
+    # dashboard.grava (que ESCREVE o arquivo) vinha primeiro, e as tabelas
+    # depois. Quando a projecao estourou por falta de curva em 31/08, o arquivo
+    # ja estava em disco com o cabecalho novo e sem a projecao -- 10 KB em vez
+    # de 30, com cara de pagina atualizada.
+    #
+    # Pagina velha e honesta; pagina pela metade nao. Se o calculo falha, nada
+    # e tocado e a de ontem continua la, dizendo a data de ontem.
+    de_hoje = banda.dados_hoje(hoje)
+    # 'hoje' VAI PARA OS DOIS. Sem isto a tabela de hoje andava e a projecao
+    # ficava na ultima liquidacao real, e os dois blocos da mesma pagina partiam
+    # de datas diferentes -- exatamente o que o ruling 1 existiu para evitar.
+    projetado = banda.dados_projecao(registros=registros, hoje=hoje)
+
     escrito = dashboard.grava(caminho, [("paf", None)], REGISTRO, GRUPOS,
                               "Contra o PAF", agrupar=False)
     html = escrito.read_text(encoding="utf-8")
@@ -113,11 +128,6 @@ def grava(caminho=None, hoje=None, registros=None):
     inicio = html.index(marca) + len(marca)
     fim = html.rindex("</main>")
 
-    de_hoje = banda.dados_hoje(hoje)
-    # 'hoje' VAI PARA OS DOIS. Sem isto a tabela de hoje andava e a projecao
-    # ficava na ultima liquidacao real, e os dois blocos da mesma pagina partiam
-    # de datas diferentes -- exatamente o que o ruling 1 existiu para evitar.
-    projetado = banda.dados_projecao(registros=registros, hoje=hoje)
     corpo = "\n".join([
         # O ACHADO NOS DOIS BLOCOS, como a spec 7.3 pede. Ele responde "com que
         # frequencia o Tesouro fecha dentro da banda", que e pergunta tanto de

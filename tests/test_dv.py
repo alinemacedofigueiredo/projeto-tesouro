@@ -114,12 +114,15 @@ def test_dv_por_titulo_no_ultimo_mes_bate_com_o_valor_medido(p):
     # pegaria -- todas as parcelas escalariam juntas e continuariam coerentes.
     # Medidos em 04/09/2026 com a base em 31/07; tolerancia de 1% cobre
     # reprocessamento com o mesmo dado de origem.
-    esperado = {"LTN": -201.24, "NTN-F": -175.91, "NTN-B": -1091.29}
+    # Remedido em 07/10/2026 com a base em 31/08. O DV subiu em modulo nos tres
+    # papeis mesmo com 258 bi menos de estoque: o vencimento da NTN-B 15/08 era
+    # papel CURTO, e o que sobrou carrega mais risco por real.
+    esperado = {"LTN": -206.02, "NTN-F": -179.03, "NTN-B": -1113.05}
     for titulo, valor in esperado.items():
         medido = ult[ult["titulo"] == titulo]["dv_posicao_milhoes"].sum()
         assert medido == pytest.approx(valor, rel=0.01)
     total = ult[ult["dv_posicao_milhoes"].notna()]["dv_posicao_milhoes"].sum()
-    assert total == pytest.approx(-1468.44, rel=0.01)
+    assert total == pytest.approx(-1498.09, rel=0.01)
 
     # E a ORDEM entre os papeis, que vale em qualquer mes: a NTN-B carrega muito
     # mais risco de taxa que as prefixadas somadas. Se um dia inverter, o

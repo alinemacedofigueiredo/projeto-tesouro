@@ -184,3 +184,111 @@ def test_taxa_de_referencia_ignora_leilao_sem_aceite(base):
     # zero seu, e emprestar taxa dela nao serviria para nada.
     assert set(ultimas.index.get_level_values("titulo")) == set(
         leilao_ofertado.PAPEIS_PRECIFICADOS)
+
+
+# ---------------------------------------------------------------------------
+# POR QUE NAO HA EDITAL: nao e dia de leilao, ou ainda nao saiu?
+#
+# ELA RODOU O ATALHO EM 08/10/2026 as 10:32 -- quinta-feira, dia de prefixado --
+# e leu "nao ha edital para este dia" como "hoje nao tem leilao". O leilao
+# aconteceu perto do meio-dia e o resultado saiu de tarde: as 14:36 a API tinha
+# as seis pernas. O programa estava certo; a frase, nao.
+# ---------------------------------------------------------------------------
+
+def _agenda_falsa(datas_e_titulos):
+    """Registros do /calendario como a API os devolve, sem tocar a rede."""
+    return [{"DATA_LEILAO": data, "TITULO": titulo,
+             "VENCIMENTO": "2030-01-01", "TIPO_LEILAO": "Venda"}
+            for data, titulo in datas_e_titulos]
+
+
+def test_dia_de_leilao_sem_edital_diz_QUE_AINDA_NAO_SAIU():
+    # O caso dela. O calendario do Tesouro traz prefixado para hoje, e o edital
+    # nao esta la: a resposta nao e "nao tem leilao", e "ainda nao saiu".
+    from tesouro import leilao_do_dia
+
+    frase = leilao_do_dia._o_que_o_calendario_diz(
+        "2026-10-08", registros=_agenda_falsa([("2026-10-08", "LTN"),
+                                               ("2026-10-08", "NTN-F"),
+                                               ("2026-10-13", "NTN-B")]))
+    assert "ainda nao" in frase, frase
+    # E DIZ DE QUE PAPEL E O DIA -- sem isso ela nao sabe o que esperar.
+    assert "LTN" in frase and "NTN-F" in frase, frase
+    # E nao pode dizer o contrario na mesma frase.
+    assert "nao traz leilao" not in frase, frase
+
+
+def test_dia_SEM_leilao_no_calendario_diz_que_nao_e_dia():
+    # Sexta-feira, dentro da janela publicada: o calendario de fato nao traz
+    # leilao. Aqui "nao tem leilao hoje" e a resposta certa.
+    from tesouro import leilao_do_dia
+
+    frase = leilao_do_dia._o_que_o_calendario_diz(
+        "2026-10-09", registros=_agenda_falsa([("2026-10-08", "LTN"),
+                                               ("2026-10-13", "NTN-B")]))
+    assert "nao traz leilao" in frase, frase
+    assert "ainda nao" not in frase, frase
+
+
+def test_ALEM_do_calendario_publicado_a_resposta_e_NAO_SEI():
+    # A TERCEIRA RESPOSTA, e a que este projeto obriga. Passada a ultima data
+    # que o Tesouro publicou, dizer "nao tem leilao" seria plausivel e errado --
+    # e errado justamente onde a frase soa mais segura.
+    from tesouro import leilao_do_dia
+
+    frase = leilao_do_dia._o_que_o_calendario_diz(
+        "2026-12-30", registros=_agenda_falsa([("2026-10-08", "LTN"),
+                                               ("2026-10-13", "NTN-B")]))
+    assert "13/10/2026" in frase, frase
+    assert "nao da para dizer" in frase, frase
+    # NAO PODE AFIRMAR NENHUM DOS DOIS LADOS.
+    assert "nao traz leilao" not in frase and "ainda nao" not in frase, frase
+
+
+def test_sem_calendario_nenhum_a_frase_NAO_INVENTA():
+    # A API pode responder vazio. A frase tem de dizer que nao sabe, e nao cair
+    # no ramo de "nao e dia de leilao" por o calendario estar vazio.
+    from tesouro import leilao_do_dia
+
+    frase = leilao_do_dia._o_que_o_calendario_diz("2026-10-08", registros=[])
+    assert "nao traz leilao" not in frase, frase
+    assert "ainda nao" not in frase, frase
+    assert "calend" in frase, frase
+
+
+def test_do_edital_sem_edital_IMPRIME_a_explicacao(monkeypatch, capsys):
+    # A ligacao entre as duas pontas: a frase do calendario tem de chegar a
+    # tela. Antes saia so "nada a gravar", e era isso que ela lia.
+    from tesouro import leilao_do_dia
+
+    monkeypatch.setattr(leilao_do_dia, "tabela_do_edital",
+                        lambda quando=None: None)
+    monkeypatch.setattr(
+        leilao_do_dia, "_o_que_o_calendario_diz",
+        lambda quando, registros=None: "A FRASE DO CALENDARIO")
+    assert leilao_do_dia.do_edital(quando="2026-10-08") == 0
+    assert "A FRASE DO CALENDARIO" in capsys.readouterr().out
+
+
+def test_a_frase_diz_HOJE_so_quando_e_hoje():
+    # Rotulo descolado do dado: a funcao aceita 'quando', e dizia "para hoje"
+    # para qualquer data. Em producao nao erraria -- do_edital chama com hoje --
+    # mas e a mesma classe de defeito que o projeto pegou tres vezes.
+    import pandas as pd
+
+    from tesouro import leilao_do_dia
+
+    registros = _agenda_falsa([("2026-10-08", "LTN"), ("2026-10-13", "NTN-B")])
+    hoje = pd.Timestamp.today().normalize()
+
+    outro_dia = leilao_do_dia._o_que_o_calendario_diz("2026-10-13",
+                                                      registros=registros)
+    if hoje != pd.Timestamp("2026-10-13"):
+        assert "13/10/2026" in outro_dia, outro_dia
+        assert "para hoje" not in outro_dia, outro_dia
+
+    # E com a data de hoje de verdade a palavra volta -- sem isso o conserto
+    # teria trocado uma frase natural por uma data em toda rodada normal.
+    agenda_de_hoje = _agenda_falsa([(hoje.strftime("%Y-%m-%d"), "LTN")])
+    frase = leilao_do_dia._o_que_o_calendario_diz(hoje, registros=agenda_de_hoje)
+    assert "para hoje" in frase, frase

@@ -14,7 +14,11 @@ def test_a_interpolacao_IGNORA_vencimento_sem_cotacao():
 
     d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
-    ult = d[d["data"] == d["data"].max()]
+    # A DATA VEM DA PRODUCAO, e nao de d["data"].max(): a regra e "a
+    # mais recente COM cotacao" desde 02/10/2026, quando o RMD de agosto
+    # trouxe 52 linhas sem taxa nenhuma. Perguntar em vez de reproduzir
+    # mantem o teste no assunto dele.
+    ult = d[d["data"] == curva.data_da_curva()]
     sem_taxa = ult[(ult["titulo"] == "LTN") & ult["taxa_pct"].isna()]
     assert len(sem_taxa), "a LTN sem cotacao sumiu do dado; reveja este teste"
 
@@ -29,8 +33,12 @@ def test_a_selic_implicita_fica_entre_as_pontas_da_curva():
 
     d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
-    ult = d[(d["data"] == d["data"].max()) & (d["titulo"] == "LTN")
-            & d["taxa_pct"].notna()]
+    # A DATA VEM DA PRODUCAO, e nao de d["data"].max(): a regra e "a
+    # mais recente COM cotacao" desde 02/10/2026, quando o RMD de agosto
+    # trouxe 52 linhas sem taxa nenhuma. Perguntar em vez de reproduzir
+    # mantem o teste no assunto dele.
+    ult = d[(d["data"] == curva.data_da_curva())
+            & (d["titulo"] == "LTN") & d["taxa_pct"].notna()]
     taxa = curva.selic_implicita(pd.Timestamp("2026-12-31")) * 100
     assert ult["taxa_pct"].min() <= taxa <= ult["taxa_pct"].max()
 
@@ -73,15 +81,27 @@ def test_selic_implicita_bate_o_valor_medido():
     limiar teria de sair de 0,1 pp para menos de 0,075, escolhido para caber
     entre dois meses que por acaso andaram pouco. Seria numero ajustado contra o
     proprio dado, que e o vicio que esta entrega inteira remove.
+
+    EM 07/10/2026 ESSA DECISAO SE PROVOU CERTA. Remedida com a curva de 31/08:
+    13,5446%, contra 13,69% de julho -- movimento de 0,145 pp, ACIMA da
+    tolerancia de 0,1. A mesma ancora que nao distinguia junho de julho
+    distingue julho de agosto. A tolerancia nunca foi o problema; foi um mes que
+    andou pouco. Apertar o limiar naquele dia teria deixado uma amarra frouxa
+    disfarcada de rigor.
     """
     taxa = curva.selic_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(taxa - 0.1369) < 0.001, taxa
+    assert abs(taxa - 0.1354) < 0.001, taxa
 
 
 def test_inflacao_implicita_bate_o_valor_medido():
-    # Medido em 04/09/2026, com a curva de 31/07: 5,1880% de breakeven.
+    # Remedido em 07/10/2026, com a curva de 31/08: 6,3131% de breakeven.
+    # Era 5,188% com a curva de 31/07 -- movimento de 1,12 pp, ONZE vezes a
+    # tolerancia. Esta ancora trava o mes com folga, e sempre travou.
+    #
+    # O movimento e grande e entra direto na projecao do indice de precos ate
+    # 31/12: nao e defeito, e mercado, mas e numero para olhar.
     infl = curva.inflacao_implicita(pd.Timestamp("2026-12-31"))
-    assert abs(infl - 0.0519) < 0.001, infl
+    assert abs(infl - 0.0631) < 0.001, infl
 
 
 def test_o_juro_real_implicito_e_positivo_e_plausivel():
@@ -114,7 +134,11 @@ def test_extrapolacao_plana_antes_da_primeira_ponta():
 
     d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
-    base = d["data"].max()
+    # A DATA VEM DA PRODUCAO, e nao de d["data"].max(): a regra e "a
+    # mais recente COM cotacao" desde 02/10/2026, quando o RMD de agosto
+    # trouxe 52 linhas sem taxa nenhuma. Perguntar em vez de reproduzir
+    # mantem o teste no assunto dele.
+    base = curva.data_da_curva()
     ult = d[(d["data"] == base) & (d["titulo"] == "LTN") & d["taxa_pct"].notna()]
     taxa_curta = ult.sort_values("vencimento").iloc[0]["taxa_pct"] / 100
 
@@ -129,7 +153,11 @@ def test_extrapolacao_plana_depois_da_ultima_ponta():
 
     d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
-    base = d["data"].max()
+    # A DATA VEM DA PRODUCAO, e nao de d["data"].max(): a regra e "a
+    # mais recente COM cotacao" desde 02/10/2026, quando o RMD de agosto
+    # trouxe 52 linhas sem taxa nenhuma. Perguntar em vez de reproduzir
+    # mantem o teste no assunto dele.
+    base = curva.data_da_curva()
     ult = d[(d["data"] == base) & (d["titulo"] == "LTN") & d["taxa_pct"].notna()]
     taxa_longa = ult.sort_values("vencimento").iloc[-1]["taxa_pct"] / 100
 
@@ -143,9 +171,15 @@ def test_data_base_explicita_e_usada_em_vez_do_dado_mais_recente():
 
     d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
-    datas = sorted(d["data"].unique())
-    assert len(datas) > 1, "precisa de mais de uma data no dado para este teste"
+    # A PENULTIMA COM COTACAO, e nao a penultima do arquivo. Com o RMD de
+    # agosto em disco, a ultima do arquivo (31/08) nao tem taxa nenhuma: a
+    # penultima do arquivo virou a PRIMEIRA que a producao usa, e o teste
+    # comparava a base padrao com ela mesma.
+    datas = sorted(d.loc[d["taxa_pct"].notna(), "data"].unique())
+    assert len(datas) > 1, "precisa de duas datas com cotacao para este teste"
     base_anterior = pd.Timestamp(datas[-2])
+    assert base_anterior != curva.data_da_curva(), (
+        "a base anterior tem de ser diferente da que a producao usa por padrao")
 
     taxa_ultima = curva.selic_implicita(pd.Timestamp("2026-12-31"))
     taxa_anterior = curva.selic_implicita(pd.Timestamp("2026-12-31"),
@@ -199,3 +233,51 @@ def test_a_curva_aceita_data_base_que_nao_existe_no_arquivo():
 def test_sem_curva_nenhuma_ate_a_data_ele_LEVANTA():
     with pytest.raises(LookupError, match="curva"):
         curva.data_da_curva(pd.Timestamp("1999-01-01"))
+
+
+def test_a_data_base_PULA_mes_sem_cotacao_nenhuma():
+    # O QUE ACONTECEU EM 02/10/2026: ela trouxe o RMD de agosto. O
+    # dv_por_papel.csv ganhou 52 linhas em 31/08 -- quantidade e vencimento, que
+    # vem do RMD -- e ZERO taxas, que vem da Bloomberg e nao foi puxada.
+    #
+    # _data_base escolhia a data mais recente com QUALQUER linha, entao parava
+    # em 31/08 e _curva estourava: "nenhuma LTN com cotacao em 31/08/2026". A
+    # pagina do PAF nao saia.
+    #
+    # DECISAO DELA: usar a curva de julho, dizendo de quando ela e. O rodape da
+    # projecao ja imprime data_da_curva, entao a mistura de datas fica escrita.
+    import pandas as pd
+
+    from tesouro import curva
+
+    d = pd.DataFrame({
+        "data": pd.to_datetime(["2026-07-31", "2026-07-31",
+                                "2026-08-31", "2026-08-31"]),
+        "titulo": ["LTN", "NTN-B", "LTN", "NTN-B"],
+        "vencimento": pd.to_datetime(["2028-01-01", "2029-05-15",
+                                      "2028-01-01", "2029-05-15"]),
+        "taxa_pct": [13.5, 7.1, float("nan"), float("nan")],
+    })
+
+    # Pedindo agosto, tem de cair em julho -- a ultima data COM cotacao.
+    assert curva._data_base(d, pd.Timestamp("2026-08-31")) == pd.Timestamp("2026-07-31")
+    # E sem pedir nada, tambem: "a mais recente" quer dizer a mais recente util.
+    assert curva._data_base(d, None) == pd.Timestamp("2026-07-31")
+
+
+def test_sem_cotacao_em_lugar_nenhum_ainda_LEVANTA():
+    # A degradacao tem limite: se nao ha cotacao em data nenhuma, nao ha curva,
+    # e inventar premissa continua sendo pior que parar.
+    import pandas as pd
+    import pytest
+
+    from tesouro import curva
+
+    d = pd.DataFrame({
+        "data": pd.to_datetime(["2026-08-31"]),
+        "titulo": ["LTN"],
+        "vencimento": pd.to_datetime(["2028-01-01"]),
+        "taxa_pct": [float("nan")],
+    })
+    with pytest.raises(LookupError, match="curva"):
+        curva._data_base(d, pd.Timestamp("2026-08-31"))

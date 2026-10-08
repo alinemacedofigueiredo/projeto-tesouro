@@ -39,13 +39,13 @@ def test_a_participacao_dos_DOIS_ULTIMOS_MESES_bate_com_o_anexo(part):
     # O NOME DIZIA "junho" e os dois meses andam a cada RMD. Aba 2.7 do anexo de
     # julho -- o mes da base e o anterior, pegos pela posicao e nao pelo rotulo.
     ultimo, anterior = part.index[-1], part.index[-2]
-    assert round(part.loc[ultimo, "Inst. Financeiras"], 1) == 31.3
-    assert round(part.loc[ultimo, "Fundos"], 1) == 22.2
-    assert round(part.loc[ultimo, "Previd\u00eancia"], 1) == 22.7
-    assert round(part.loc[ultimo, "N\u00e3o-residentes"], 1) == 9.8
-    assert round(part.loc[ultimo, "Demais Grupos"], 1) == 13.9
-    assert round(part.loc[anterior, "Inst. Financeiras"], 1) == 31.8
-    assert round(part.loc[anterior, "Fundos"], 1) == 22.0
+    assert round(part.loc[ultimo, "Inst. Financeiras"], 1) == 31.2
+    assert round(part.loc[ultimo, "Fundos"], 1) == 22.5
+    assert round(part.loc[ultimo, "Previd\u00eancia"], 1) == 22.6
+    assert round(part.loc[ultimo, "N\u00e3o-residentes"], 1) == 9.9
+    assert round(part.loc[ultimo, "Demais Grupos"], 1) == 13.7
+    assert round(part.loc[anterior, "Inst. Financeiras"], 1) == 31.3
+    assert round(part.loc[anterior, "Fundos"], 1) == 22.2
 
 
 def test_toda_coluna_soma_100(part):
@@ -65,11 +65,16 @@ def test_a_variacao_vai_em_reais_e_bate_com_a_pagina_do_rmd():
     # Instituicoes Financeiras e os Nao-residentes REDUZIRAM posicao (-28,5 e
     # -8,8), enquanto Fundos e Previdencia aumentaram. Em junho os quatro eram
     # positivos.
-    assert round(v.loc["Inst. Financeiras", "no ano"], 1) == 72.6
-    assert round(v.loc["Inst. Financeiras", "no m\u00eas"], 1) == -28.5
-    assert round(v.loc["Fundos", "no ano"], 1) == 261.8
-    assert round(v.loc["Previd\u00eancia", "no ano"], 1) == 143.0
-    assert round(v.loc["N\u00e3o-residentes", "em 12 meses"], 1) == 126.7
+    #
+    # REMEDIDO PARA AGOSTO em 07/10/2026. Os sinais do MES mudaram de grupo: em
+    # agosto quem reduziu foi Inst. Financeiras (-12,9) e Previdencia (-9,8),
+    # e quem aumentou foi Fundos (+25,1) e Nao-residentes (+7,2). O mes do
+    # vencimento da NTN-B mexeu com todo mundo.
+    assert round(v.loc["Inst. Financeiras", "no ano"], 1) == 59.7
+    assert round(v.loc["Inst. Financeiras", "no m\u00eas"], 1) == -12.9
+    assert round(v.loc["Fundos", "no ano"], 1) == 286.9
+    assert round(v.loc["Previd\u00eancia", "no ano"], 1) == 133.2
+    assert round(v.loc["N\u00e3o-residentes", "em 12 meses"], 1) == 114.8
 
 
 def test_a_variacao_falha_alto_se_faltar_o_mes_de_referencia(monkeypatch):
@@ -94,16 +99,22 @@ def test_o_rotulo_perde_o_numero_da_nota_de_rodape(part):
 
 def test_a_quebra_por_papel_soma_o_estoque_do_papel():
     # A quebra de um papel entre os oito detentores tem de somar o estoque
-    # daquele papel: 4.744,1 bi de LFT em jul/26 (aba 2.8 do anexo).
+    # daquele papel: 4.896,6 bi de LFT em ago/26 (aba 2.8 do anexo).
+    # Remedido em 07/10/2026 -- era 4.744,1 em julho.
     lft = detentores.dados_financeiro_do_papel("LFT")
-    assert round(lft.iloc[-1].sum() / 1000, 1) == 4744.1
+    assert round(lft.iloc[-1].sum() / 1000, 1) == 4896.6
     assert len(lft.columns) == 8
-    assert round(lft.iloc[-1]["Inst. Financeiras"] / 1000, 1) == 1749.9
+    assert round(lft.iloc[-1]["Inst. Financeiras"] / 1000, 1) == 1834.8
 
     ntnb = detentores.dados_financeiro_do_papel("NTN-B")
-    assert round(ntnb.iloc[-1].sum() / 1000, 1) == 2330.4
-    # A Previdencia carrega quase metade da NTN-B, e e o fato do papel.
-    assert round(ntnb.iloc[-1]["Previd\u00eancia"] / ntnb.iloc[-1].sum() * 100, 1) == 44.8
+    # 2.330,4 -> 2.070,1 com o vencimento da NTN-B 15/08/2026 (258,2 bi de
+    # principal). Conferido: o anexo diz o mesmo, e a serie de julho nao foi
+    # revisada entre os dois anexos.
+    assert round(ntnb.iloc[-1].sum() / 1000, 1) == 2070.1
+    # A Previdencia carrega quase metade da NTN-B, e e o fato do papel. SUBIU de
+    # 44,8 para 48,3 porque o papel que venceu era distribuido e o que sobrou e
+    # mais concentrado nela -- concentracao por saida, e nao por compra.
+    assert round(ntnb.iloc[-1]["Previd\u00eancia"] / ntnb.iloc[-1].sum() * 100, 1) == 48.3
 
 
 def test_papel_que_nao_existe_falha_alto():
@@ -124,11 +135,13 @@ def papel():
 def test_quem_carrega_cada_papel_bate_com_o_medido(papel):
     # Os quatro fatos que o grafico existe para mostrar: a LFT e de banco e fundo,
     # a NTN-B e da previdencia, e o estrangeiro esta na ponta prefixada.
-    assert round(papel.loc["LFT", "Inst. Financeiras"], 1) == 36.9
-    assert round(papel.loc["LFT", "Fundos"], 1) == 32.5
-    assert round(papel.loc["NTN-B", "Previd\u00eancia"], 1) == 44.8
-    assert round(papel.loc["NTN-F", "N\u00e3o-residente"], 1) == 41.0
-    assert round(papel.loc["LTN", "N\u00e3o-residente"], 1) == 29.2
+    # Remedido para agosto. A NTN-B na previdencia subiu de 44,8 para 48,3 --
+    # tres pontos e meio num mes, o maior movimento dos quatro.
+    assert round(papel.loc["LFT", "Inst. Financeiras"], 1) == 37.5
+    assert round(papel.loc["LFT", "Fundos"], 1) == 32.3
+    assert round(papel.loc["NTN-B", "Previd\u00eancia"], 1) == 48.3
+    assert round(papel.loc["NTN-F", "N\u00e3o-residente"], 1) == 40.9
+    assert round(papel.loc["LTN", "N\u00e3o-residente"], 1) == 28.8
 
 
 def test_cada_papel_soma_100_entre_os_detentores(papel):
@@ -147,13 +160,13 @@ def fin():
 
 def test_o_financeiro_por_detentor_bate_com_o_medido(fin):
     u = fin.iloc[-1]
-    assert round(u["Inst. Financeiras"] / 1000, 1) == 2805.0
-    assert round(u["Previd\u00eancia"] / 1000, 1) == 2034.2
-    assert round(u["Fundos"] / 1000, 1) == 1989.5
-    assert round(u["Tesouro Direto"] / 1000, 1) == 272.3
+    assert round(u["Inst. Financeiras"] / 1000, 1) == 2792.1
+    assert round(u["Previd\u00eancia"] / 1000, 1) == 2024.4
+    assert round(u["Fundos"] / 1000, 1) == 2014.6
+    assert round(u["Tesouro Direto"] / 1000, 1) == 272.0
     # A soma bate com o estoque total da DPF do mesmo anexo (aba 2.4): 8.948,7
     # e o total da 2.8, que exclui o que a 2.4 chama de fora do detalhe.
-    assert round(u.sum() / 1000, 1) == 8948.7
+    assert round(u.sum() / 1000, 1) == 8944.5
     # A 2.8 comeca em fev/2011, quatro anos depois da 2.7. As duas series nao sao
     # a mesma coisa e nao vao para o mesmo eixo.
     assert fin.index.min() == pd.Timestamp("2011-02-28")
