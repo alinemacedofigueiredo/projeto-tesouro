@@ -1221,3 +1221,56 @@ def test_a_mensagem_de_falha_das_paginas_usa_a_fase():
     assert "a geracao do dashboard FALHOU" not in fonte, (
         "a mensagem voltou a nomear o dashboard para qualquer pagina")
     assert "_ULTIMA_FASE[0] if _ULTIMA_FASE" in fonte
+
+
+def test_a_rotina_do_calendario_novo_esta_LIGADA_na_coleta():
+    # PEDIDO DELA em 20/10/2026: "quando ter uma rotina para quando sai um
+    # calendario novo?". Guarda de fonte: a comparacao tem de acontecer na
+    # coleta e chegar a tela. Sem ela, o projeto volta a baixar, salvar e ficar
+    # calado -- e a publicacao de um comunicado novo e o evento que mais muda a
+    # projecao do fim do ano.
+    import pathlib
+
+    fonte = (pathlib.Path(__file__).resolve().parents[1]
+             / "src" / "tesouro" / "pipeline.py").read_text(encoding="utf-8")
+
+    # O GUARDADO E LIDO ANTES DE SALVAR: depois de salvar, o "anterior" seria o
+    # proprio arquivo de hoje e a comparacao nunca acusaria nada.
+    antes = fonte.index('guardado_em_disco("calendario")')
+    salva = fonte.index('_api.guardar("calendario")')
+    assert antes < salva, "le o guardado DEPOIS de salvar; nada seria acusado"
+
+    assert "mudou_a_cobertura(antes_cal, registros_cal)" in fonte
+    assert "_anuncia_calendario_novo(" in fonte
+
+
+def test_o_anuncio_do_calendario_FICA_CALADO_quando_nada_mudou():
+    # Aviso que sai em toda rodada deixa de ser lido, e no dia em que importar
+    # ninguem ve.
+    import tesouro.pipeline as pipeline
+
+    linhas = []
+    assert pipeline._anuncia_calendario_novo([], saida=linhas.append) is False
+    assert linhas == []
+
+
+def test_o_anuncio_do_calendario_SAI_INTEIRO_quando_mudou():
+    # A prova de dentes pegou a versao inline: o teste era um grep, e trocar a
+    # condicao por 'if False' o deixava verde. Agora o comportamento e afirmado.
+    import tesouro.pipeline as pipeline
+
+    linhas = []
+    mudou = pipeline._anuncia_calendario_novo(
+        ["LTN: esticou de 17/12/2026 para 30/03/2027",
+         "NTN-B: ENCURTOU de 23/03/2027 para 29/09/2026 -- a projecao vai "
+         "depender mais do estimador"],
+        saida=linhas.append)
+    junto = "\n".join(linhas)
+
+    assert mudou is True
+    assert "CALENDARIO NOVO" in junto
+    # CADA LINHA SAI, e nao so a primeira.
+    assert "LTN: esticou" in junto
+    assert "NTN-B: ENCURTOU" in junto
+    # E A CONSEQUENCIA, que e por que isto existe.
+    assert "projecao do fim do ano" in junto

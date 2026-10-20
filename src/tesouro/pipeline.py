@@ -321,6 +321,33 @@ def _executa(fase, funcao):
         raise FaltaDado("%s: %s" % (fase, erro)) from erro
 
 
+def _anuncia_calendario_novo(mudancas, saida=print):
+    """Anuncia a mudanca de cobertura do calendario. Silencio quando nao houve.
+
+    PEDIDO DELA em 20/10/2026: "quando ter uma rotina para quando sai um
+    calendario novo?". A publicacao de um comunicado novo e o evento que mais
+    muda a projecao do fim do ano -- dezenas de dias passam de estimado para
+    publicado de uma vez -- e passava em silencio.
+
+    SILENCIO QUANDO NADA MUDOU, de proposito: aviso que sai em toda rodada
+    deixa de ser lido, e no dia em que importar ninguem ve.
+
+    Funcao separada, e nao inline no main(), porque a prova de dentes pegou o
+    inline: o teste dele era um grep, e trocar a condicao por 'if False' o
+    deixava verde.
+    """
+    if not mudancas:
+        return False
+    saida("")
+    saida("=== CALENDARIO NOVO: a cobertura do Tesouro mudou")
+    for linha in mudancas:
+        saida("===   %s" % linha)
+    saida("=== Mais dia publicado e menos dia estimado muda a projecao do "
+          "fim do ano.")
+    saida("")
+    return True
+
+
 def _onde_estao_as_paginas(saida=print):
     """Lista as paginas, a pasta e a hora de cada uma, no fim da rodada.
 
@@ -456,10 +483,18 @@ def main(argumentos=None):
             # arquivo mais recente do disco, e se nao houver nenhum a pagina
             # estima o calendario inteiro e DIZ que estimou.
             from . import api_leiloes as _api
+            from . import calendario_leiloes as _cal
             try:
+                # O GUARDADO E LIDO ANTES DE SALVAR, para poder comparar. Na
+                # segunda rodada do mesmo dia o "anterior" ja e o de hoje, e a
+                # comparacao da "nada mudou" -- o aviso sai UMA vez, no dia em
+                # que a cobertura de fato andou, e nao a cada rodada.
+                antes_cal, _quando_antes = _api.guardado_em_disco("calendario")
                 caminho, registros_cal = _api.guardar("calendario")
                 print("calendario publicado guardado: %s (%d registros)"
                       % (caminho, len(registros_cal)))
+                _anuncia_calendario_novo(
+                    _cal.mudou_a_cobertura(antes_cal, registros_cal))
             except Exception as erro_do_calendario:      # noqa: BLE001
                 print("AVISO: nao guardei o calendario publicado hoje (%s)."
                       % erro_do_calendario)
