@@ -359,7 +359,12 @@ def _onde_estao_as_paginas(saida=print):
               % (arquivo, rotulo, time.strftime("%H:%M", time.localtime(quando)),
                  marca))
     saida("")
-    saida("  Abra qualquer uma com dois cliques.")
+    # NAO PROMETER CLIQUE AQUI. Erro meu, achado por ela em 20/10/2026: a
+    # versao anterior dizia "abra qualquer uma com dois cliques", e na janela do
+    # cmd isso e TEXTO -- nao ha link. Pelo atalho, a tecla do fim abre a pasta;
+    # de um terminal, o comando abaixo abre.
+    saida("  Pelo atalho, a tecla do fim abre essa pasta. De um terminal:")
+    saida('      explorer "%s"' % config.PROCESSED_DIR)
 
 
 def main(argumentos=None):
@@ -441,6 +446,25 @@ def main(argumentos=None):
 
     if not opcoes.sem_coleta:
         if "coleta_leiloes" in passos:
+            # O CALENDARIO ENTRA COMO ENTRADA, junto dos resultados. Ate
+            # 20/10/2026 ele era buscado na rede a cada gravacao de pagina e
+            # jogado fora -- e com a API fora ("Server Error", naquela tarde) a
+            # pagina do PAF deixava de ser gravada por falta de um documento
+            # TRIMESTRAL que o projeto tinha na mao uma hora antes.
+            #
+            # FALHA AQUI E ROTINA, e nao derruba nada: quem desenha le o
+            # arquivo mais recente do disco, e se nao houver nenhum a pagina
+            # estima o calendario inteiro e DIZ que estimou.
+            from . import api_leiloes as _api
+            try:
+                caminho, registros_cal = _api.guardar("calendario")
+                print("calendario publicado guardado: %s (%d registros)"
+                      % (caminho, len(registros_cal)))
+            except Exception as erro_do_calendario:      # noqa: BLE001
+                print("AVISO: nao guardei o calendario publicado hoje (%s)."
+                      % erro_do_calendario)
+                print("       As paginas usam o mais recente que estiver em "
+                      "data/raw/leiloes_api/.")
             _fase("baixando os leiloes")
             from . import fetch_leiloes
             fetch_leiloes.baixar(forcar=opcoes.rebaixar_planilha)

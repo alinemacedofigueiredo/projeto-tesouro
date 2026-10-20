@@ -28,7 +28,8 @@ import collections
 
 import pandas as pd
 
-from . import calendario, config, curva, leiloes_dv, leitura
+from . import (api_leiloes, calendario, config, curva, leiloes_dv,
+               leitura)
 
 # Qual papel serve para recuperar o VNA de cada indice.
 _PAPEL_DO_INDICE = {"SELIC": "LFT", "IPCA": "NTN-B"}
@@ -797,6 +798,11 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
                    else leiloes()["data_liquidacao"].max())
         inicial = estoque_em(partida)
 
+    # RESOLVE O CALENDARIO AQUI, para a projecao saber DE QUANDO ele e e
+    # poder dizer na pagina. dias_ate tambem resolveria sozinho, mas devolve
+    # dois valores e nao a data do arquivo -- e mudar a assinatura dele mexeria
+    # em nove pontos para ganhar um dado que so esta pagina usa.
+    registros, _de_onde, baixado_em = api_leiloes.calendario_publicado(registros)
     dias, fronteira = calendario_leiloes.dias_ate(ate, registros=registros,
                                                   hoje=partida)
     quantos = len(dias)
@@ -843,6 +849,10 @@ def projecao(ate, de_snapshot=None, registros=None, hoje=None):
             "data_da_curva": curva.data_da_curva(partida),
             "dias_de_leilao": quantos,
             "fronteira_do_calendario": fronteira,
+            # DE QUANDO E O ARQUIVO DO CALENDARIO. "publicado ate 17/12" sem
+            # isto nao distingue um calendario de hoje de um de tres meses
+            # atras -- e desde 20/10/2026 ele e lido do disco.
+            "calendario_baixado_em": baixado_em,
             "de": partida, "ate": ate}
 
 

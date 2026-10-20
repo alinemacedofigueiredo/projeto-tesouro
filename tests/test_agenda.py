@@ -358,11 +358,25 @@ def pagina(tmp_path_factory, registros, monkeypatch_module, base_ate_hoje):
     """
     from tesouro import api_leiloes
 
-    def nao_va_a_rede(nome):
-        assert nome == "calendario", f"a pagina pediu '{nome}' a API"
-        return registros, {"origem": "amostra congelada do teste"}
+    # O ALARME DE REDE FICA, e nao deve disparar nunca: desde 20/10/2026 o
+    # calendario e lido do DISCO (api_leiloes.calendario_publicado), e quem
+    # desenha pagina nao toca a rede -- e o que o README do projeto promete.
+    # Se este stub disparar, alguem pos rede de volta no caminho de desenho.
+    def nao_va_a_rede(nome, timeout=None):
+        raise AssertionError(
+            "a pagina foi a rede pedir '%s'; o calendario vem do disco" % nome)
 
     monkeypatch_module.setattr(api_leiloes, "buscar", nao_va_a_rede)
+
+    # E A AMOSTRA CONGELADA ENTRA PELO LUGAR NOVO. Ela chegava por dentro do
+    # 'buscar'; agora chega por onde o calendario de fato entra.
+    def do_disco_congelado(registros_pedidos=None, destino=None):
+        if registros_pedidos is not None:
+            return registros_pedidos, "injetado", None
+        return registros, "disco", None
+
+    monkeypatch_module.setattr(api_leiloes, "calendario_publicado",
+                               do_disco_congelado)
 
     # E O HISTORICO DE TAXAS TAMBEM CONGELADO, pelo mesmo motivo que a fixture
     # 'dados' congela: painel_agenda.grava chama agenda.proximos(hoje=HOJE) sem

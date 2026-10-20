@@ -169,6 +169,69 @@ def _registros(bruto, nome):
     return registros
 
 
+def guardado_em_disco(nome, destino=None):
+    """A resposta guardada mais recente de um endpoint: (registros, data).
+
+    Devolve (None, None) quando nao ha nenhuma.
+
+    MAIS RECENTE PELA DATA DO NOME do arquivo, e nao pelo carimbo -- a mesma
+    decisao que leitura_rmd.caminho_do_rmd tomou em 09/09/2026, e pelo mesmo
+    motivo: reabrir e salvar um arquivo antigo nao pode fazer o projeto voltar
+    no tempo. Nome que nao se deixa ler e IGNORADO, nao adivinhado.
+    """
+    destino = Path(destino) if destino else (config.RAW_DIR / PASTA)
+    if not destino.is_dir():
+        return None, None
+
+    achados = []
+    for caminho in destino.glob("%s-*.json" % nome):
+        texto = caminho.stem[len(nome) + 1:]
+        try:
+            achados.append((datetime.date.fromisoformat(texto), caminho))
+        except ValueError:
+            continue
+    if not achados:
+        return None, None
+
+    quando, caminho = max(achados)
+    return _registros(caminho.read_bytes(), nome), quando
+
+
+def calendario_publicado(registros=None, destino=None):
+    """O calendario do Tesouro: (registros, de_onde, de_quando).
+
+    DISCO PRIMEIRO, REDE DEPOIS -- e essa ordem e a observacao dela de
+    20/10/2026: "o calendario e dado antes, nao atualiza todo dia que tem
+    leilao". O comunicado do Tesouro e TRIMESTRAL. Buscar na rede a cada
+    gravacao de pagina gastava rede e, com a API fora, impedia a pagina de
+    sair por falta de um documento que o projeto tinha guardado.
+
+    NAO TOCA A REDE, E NAO ESCREVE NADA. Quem busca e guarda e a fase de
+    coleta do pipeline, e so ela -- esta funcao e para quem DESENHA. Foi erro
+    meu na primeira versao: sem arquivo no disco ela chamava guardar(), que
+    busca na rede e grava em data/raw. Os testes do agenda pegaram, e pelo
+    motivo certo: eles trocam api_leiloes.buscar por uma funcao que estoura se
+    alguem for a rede durante a gravacao de pagina. O README do projeto diz
+    "os parsers nunca acessam a rede", e data/raw e imutavel por invariante.
+
+    'de_onde' e "injetado", "disco" ou "ausente"; 'de_quando' e a data do
+    arquivo, ou None. Quem desenha usa os dois para DIZER de quando e o
+    calendario que esta mostrando.
+
+    AUSENTE NAO E FALHA: devolve lista vazia, e com ela calendario_leiloes
+    estima o periodo inteiro e a pagina diz "de calendario inteiramente
+    estimado" -- caminho que ja existia e que ja se anuncia.
+    """
+    if registros is not None:
+        return registros, "injetado", None
+
+    do_disco, quando = guardado_em_disco("calendario", destino)
+    if do_disco is not None:
+        return do_disco, "disco", quando
+
+    return [], "ausente", None
+
+
 def guardar(nome, quando=None, destino=None, timeout=TEMPO_LIMITE):
     """Busca e guarda a resposta CRUA, com a data no nome. Devolve (caminho, registros).
 

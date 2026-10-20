@@ -101,7 +101,10 @@ def dados_simulacao(chave, hoje=None, ate=None, registros=None):
     # nao o resultado: e a mesma lista que cada um buscaria sozinho.
     if registros is None:
         from .. import api_leiloes
-        registros, _ = api_leiloes.buscar("calendario")
+        # DISCO PRIMEIRO -- ver api_leiloes.calendario_publicado. O comunicado
+        # do Tesouro e trimestral; buscar na rede a cada gravacao de pagina
+        # gastava rede e, com a API fora, impedia a pagina de sair.
+        registros, _, _ = api_leiloes.calendario_publicado()
 
     p = rolagem.projecao(ate, registros=registros, hoje=hoje)
     projetado_pct = float(p["percentual"][indexador])

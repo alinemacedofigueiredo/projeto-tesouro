@@ -20,7 +20,14 @@ set CODIGO=%errorlevel%
 
 rem PAUSE SEMPRE. Clicando duas vezes, a janela fecharia junto com o programa e
 rem levaria o resultado embora.
+rem
+rem E A TECLA ABRE A PASTA DAS PAGINAS. Ela perguntou em 20/10/2026 "como clico
+rem duas vezes nos links do cmd?" -- nao da, aquilo e texto. E depois do pause a
+rem janela fecha, entao nao sobra nem onde digitar um comando. A tecla que ela ja
+rem aperta passa a levar ao lugar onde o clique funciona.
 echo.
-pause
+echo Aperte uma tecla para abrir a pasta das paginas.
+pause >nul
+start "" "%~dp0data\processed"
 
 exit /b %CODIGO%

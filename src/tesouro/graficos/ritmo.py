@@ -52,7 +52,10 @@ def dados_ritmo(hoje=None, ate=None, registros=None):
         else pd.Timestamp(f"{hoje.year}-12-31")
     if registros is None:
         from .. import api_leiloes
-        registros, _ = api_leiloes.buscar("calendario")
+        # DISCO PRIMEIRO -- ver api_leiloes.calendario_publicado. O comunicado
+        # do Tesouro e trimestral; buscar na rede a cada gravacao de pagina
+        # gastava rede e, com a API fora, impedia a pagina de sair.
+        registros, _, _ = api_leiloes.calendario_publicado()
 
     p = rolagem.projecao(ate, registros=registros, hoje=hoje)
     ritmos = rolagem.pace(hoje)
