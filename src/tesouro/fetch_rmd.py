@@ -65,23 +65,67 @@ def _traduzir_erro_de_rede(url, erro):
     Medido no mesmo dia: quem assina o tesourotransparente.gov.br e a "AC SERPRO
     AR46 OV TLS CA 2025", e a cadeia chega incompleta. O navegador contorna
     buscando o elo que falta; o Python nao faz isso.
+
+    E EM 20/10/2026 FALTAVA O OUTRO CASO, o da rede do banco: o site derruba a
+    conexao ("[WinError 10054]"), e isso nao casa com CERTIFICATE nem com SSL,
+    entao o URLError cru voltava a vazar pilha. Qualquer falha de rede agora
+    devolve a frase; so a orientacao do SSL_CERT_FILE fica restrita ao caso de
+    certificado, porque mandar mexer nele quem teve a conexao derrubada e
+    apontar o lugar errado.
+
+    O QUE NAO E DE REDE CONTINUA SUBINDO como esta: defeito de codigo tem de
+    aparecer como defeito.
     """
+    from urllib.error import HTTPError, URLError
     from urllib.parse import urlsplit
 
     from . import certificado
 
     texto = str(erro)
-    if "CERTIFICATE" not in texto.upper() and "SSL" not in texto.upper():
+    de_certificado = "CERTIFICATE" in texto.upper() or "SSL" in texto.upper()
+    # A TRAVA DO BANCO NAO E ERRO DE CERTIFICADO. Medido em 20/10/2026 na
+    # maquina dela: o tesourotransparente derruba a conexao -- "[WinError
+    # 10054] Foi forcado o cancelamento de uma conexao existente pelo host
+    # remoto" -- e isso nao casa com CERTIFICATE nem com SSL. Antes desta
+    # linha, esse caso vazava o URLError cru e a pessoa recebia uma pilha no
+    # lugar da instrucao. O caminho a mao resolve os dois iguais.
+    de_rede = isinstance(erro, (URLError, OSError, TimeoutError))
+    if not de_certificado and not de_rede:
         return erro
     host = urlsplit(url).hostname or url
+    # TRES CAUSAS, TRES FRASES. Medido em 20/10/2026: a primeira versao deste
+    # conserto punha HTTPError no balde de "a rede nao deixou a conexao
+    # completar", e isso e falso -- a rede deixou, o servidor respondeu, e para
+    # o RMD de setembro a resposta foi 404 porque ele nao estava publicado.
+    # Mandar investigar proxy nesse caso e afirmar o que o programa nao sabe.
+    if de_certificado:
+        especifica = certificado.orientacao(host) + "\n\n"
+    elif isinstance(erro, HTTPError):
+        if erro.code == 404:
+            especifica = (
+                "O SITE RESPONDEU 404: nao ha publicacao nesse endereco.\n"
+                "Quase sempre quer dizer que o RMD daquele mes ainda nao saiu "
+                "-- o\nTesouro publica com algumas semanas de atraso. Se o mes "
+                "ja saiu no\nsite, entao o padrao do endereco mudou e o "
+                "projeto precisa de ajuste.\n\n")
+        else:
+            especifica = (
+                "O SITE RESPONDEU %s. A rede chegou la; a resposta nao foi a "
+                "esperada.\n\n" % erro.code)
+    else:
+        especifica = (
+            "A CONEXAO NAO COMPLETOU ate o %s.\nNao ha o que ajustar no "
+            "projeto: pode ser bloqueio de saida, proxy\nou inspecao de TLS "
+            "da sua rede.\n\n" % host)
     return LookupError(
         "nao consegui baixar o anexo do RMD.\n\n"
         "%s\n\n"
-        "%s\n\n"
-        "ENQUANTO ISSO, o caminho a mao funciona e nao depende de nada disto:\n"
-        "salve o anexo pelo NAVEGADOR em data/raw/rmd/ e rode de novo dando\n"
-        "Enter em branco nas duas perguntas (ano e mes) -- ele usa o que esta\n"
-        "na pasta." % (texto, certificado.orientacao(host))
+        "%s"
+        "O CAMINHO A MAO FUNCIONA e nao depende de nada disto:\n"
+        "  1. abra NO NAVEGADOR %s\n"
+        "  2. baixe o ANEXO do mes (nao o PDF) e salve em data/raw/rmd/\n"
+        "  3. rode de novo sem --ano/--mes -- ele usa o que esta na pasta."
+        % (texto, especifica, BASE)
     )
 
 
@@ -148,4 +192,13 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) != 3:
         sys.exit("uso: python -m tesouro.fetch_rmd <ano> <mes>")
-    baixar(int(sys.argv[1]), int(sys.argv[2]))
+    try:
+        baixar(int(sys.argv[1]), int(sys.argv[2]))
+    except LookupError as erro:
+        # SEM TRACEBACK. _traduzir_erro_de_rede ja devolve a frase inteira,
+        # com o caminho a mao; embrulha-la em pilha era desperdicar o trabalho
+        # dela. Medido em 20/10/2026 na maquina dela.
+        print()
+        print(erro)
+        print()
+        sys.exit(1)
