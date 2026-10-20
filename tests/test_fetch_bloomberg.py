@@ -4,9 +4,12 @@ from datetime import date
 
 import pandas as pd
 import pytest
-from tesouro import calendario, fetch_bloomberg, parse_bloomberg
+from tesouro import fetch_bloomberg, parse_bloomberg
 
-CAL = calendario.padrao()
+# O calendario e pedido SO QUANDO USADO -- ver tests/calendario_tardio.py.
+# No topo do modulo ele quebrava a COLETA do pytest numa maquina sem
+# data/raw/anbima/feriados_nacionais.xls, e com isso a suite inteira.
+from calendario_tardio import CAL
 
 
 def _fim_mes(ano, mes):
@@ -223,7 +226,14 @@ def test_conteudo_vna_grava_divergencia_em_reais_nao_no_fator_cru(monkeypatch):
 # tudo usa tmp_path.
 # ---------------------------------------------------------------------------
 
-M1, M2, M3 = _fim_mes(2023, 1), _fim_mes(2023, 2), _fim_mes(2023, 3)
+# AS TRES DATAS DO PAINEL FALSO: ultimo dia util de jan, fev e mar de
+# 2023. CRAVADAS DE PROPOSITO -- calcula-las aqui pedia o calendario de
+# feriados na COLETA do pytest, e um erro de coleta aborta a suite
+# inteira numa maquina sem data/raw/anbima (achado em 20/10/2026 no
+# teste do clone limpo). Quem confere que sao mesmo os ultimos dias
+# uteis e test_as_datas_do_painel_falso_sao_os_ultimos_dias_uteis,
+# abaixo, que roda onde o calendario existe.
+M1, M2, M3 = date(2023, 1, 31), date(2023, 2, 28), date(2023, 3, 31)
 
 _PAPEIS_FAKE = pd.DataFrame([
     # ativo o periodo inteiro -- serve para testar o corte incremental
@@ -559,3 +569,14 @@ def test_baixar_ainda_recusa_sobrescrever_o_tipo_que_ja_existe(tmp_path,
 
     with pytest.raises(RuntimeError, match="nada novo"):
         fetch_bloomberg.baixar(destino=tmp_path)
+
+
+def test_as_datas_do_painel_falso_sao_os_ultimos_dias_uteis():
+    # As tres datas do painel sintetico estao cravadas no topo do modulo, para
+    # a coleta do pytest nao depender do calendario de feriados. Este teste e
+    # quem mantem a afirmacao checada: onde o calendario existe, ele confere.
+    #
+    # Sem o calendario na maquina, ele falha com a frase que diz qual arquivo
+    # baixar -- que e exatamente o que se quer numa instalacao nova.
+    assert (M1, M2, M3) == (_fim_mes(2023, 1), _fim_mes(2023, 2),
+                            _fim_mes(2023, 3))

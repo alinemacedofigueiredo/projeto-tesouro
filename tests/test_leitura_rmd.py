@@ -200,6 +200,10 @@ def test_os_dois_criterios_CONCORDAM_no_dado_de_hoje():
     from tesouro import config
 
     arquivos = sorted(config.RMD_DIR.glob("*.xlsx"))
+    # A PRECONDICAO, com a mesma frase do teste vizinho: sem ela, numa maquina
+    # sem anexo o teste estourava "ValueError: max() iterable argument is
+    # empty", que nao diz o que fazer. Achado em 20/10/2026 no clone limpo.
+    assert arquivos, "nao ha anexo nenhum em disco"
     por_mtime = max(arquivos, key=lambda p: p.stat().st_mtime)
     assert leitura_rmd.caminho_do_rmd().name == por_mtime.name
 

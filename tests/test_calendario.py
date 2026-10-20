@@ -109,3 +109,41 @@ def test_data_anterior_ao_primeiro_ano_com_feriado_levanta_erro(cal):
 def test_mover_alem_do_fim_da_janela_levanta_erro(cal):
     with pytest.raises(ValueError):
         cal.mover(date(2099, 12, 28), 5)
+
+
+# ---------------------------------------------------------------------------
+# A SUITE TEM DE COLETAR NUMA MAQUINA SEM DADO NENHUM -- achado em 20/10/2026
+# no teste do clone limpo. Cinco arquivos pediam calendario.padrao() no topo do
+# modulo; isso le data/raw/anbima/feriados_nacionais.xls, que nao vem no
+# repositorio, e erro na coleta aborta a rodada INTEIRA: `pytest` num clone
+# novo dava "Interrupted: 5 errors during collection" e zero testes.
+#
+# Esta guarda e de FONTE de proposito: ela afirma a propriedade que o clone
+# limpo precisa (a coleta nao toca o disco de dados) sem precisar de um clone
+# limpo para rodar.
+# ---------------------------------------------------------------------------
+
+def test_nenhum_teste_pede_o_calendario_na_COLETA():
+    import pathlib
+
+    import re
+
+    raiz = pathlib.Path(__file__).resolve().parent
+    # QUALQUER uso do calendario no topo do modulo, e nao uma grafia so: a
+    # primeira versao desta guarda procurava "calendario.padrao()" e deixou
+    # passar "M1, M2, M3 = _fim_mes(...)", que chega no calendario por dentro.
+    # Dentro de funcao ou fixture e justamente o que se quer, e por isso o
+    # criterio e a INDENTACAO.
+    usa_calendario = re.compile(r"\b(calendario\.padrao\(\)|CAL\.|_fim_mes\()")
+    pedem = []
+    for arquivo in sorted(raiz.glob("test_*.py")):
+        for n, linha in enumerate(
+                arquivo.read_text(encoding="utf-8").splitlines(), 1):
+            if linha[:1] in ("", " ", "\t", "#") or linha.startswith("def "):
+                continue
+            if usa_calendario.search(linha.split("#")[0]):
+                pedem.append("%s:%d" % (arquivo.name, n))
+    assert not pedem, (
+        "estes arquivos pedem o calendario de feriados na coleta, e isso "
+        "aborta a suite inteira numa maquina sem data/raw/anbima: %s. Use "
+        "'from calendario_tardio import CAL'." % pedem)

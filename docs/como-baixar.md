@@ -20,8 +20,12 @@ bash:
 3. Se vier compactado, extraia o `.xlsx`.
 4. Coloque o `.xlsx` em `data/raw/rmd/`.
 
-O projeto usa o `.xlsx` mais recente da pasta (por data de modificação do
-arquivo — ver `leitura_rmd.caminho_do_rmd`). Não apague os antigos: eles
+O projeto usa o `.xlsx` mais recente da pasta **pelo mês escrito no nome**
+(ver `leitura_rmd.caminho_do_rmd`) — não pela data de modificação. O
+critério era o carimbo do sistema até 09/09/2026 e foi trocado porque
+bastava reabrir e salvar um anexo antigo para o projeto inteiro voltar
+àquele mês, sem exceção e sem aviso. Por isso o **nome do arquivo tem de
+trazer o mês**, como o Tesouro o publica (`Anexo RMD_Agosto_26.xlsx`). Não apague os antigos: eles
 preservam os retratos mensais da aba 3.4 (`cronograma_vencimentos.csv`),
 que é substituída a cada execução e não tem histórico dentro do próprio
 arquivo.
