@@ -102,21 +102,52 @@ def _abrir(url, timeout=TEMPO_LIMITE):
             _ERRO_DE_REDE.format(url=url, motivo=motivo)) from erro
 
 
+# A RESPOSTA DE CADA ENDPOINT, GUARDADA PARA A RODADA. Medido em 20/10/2026
+# gravando a pagina do PAF: o endpoint 'calendario' era buscado CINCO vezes na
+# mesma pagina, 6,9 s de rede. Quem pede sao a banda, a projecao e a agenda, que
+# nao sabem uma da outra.
+#
+# NAO E SO VELOCIDADE: com uma busca so, as cinco leitoras veem o MESMO retrato
+# do calendario. Antes, duas respostas podiam chegar diferentes no meio da
+# gravacao -- e a pagina diria duas coisas sobre o mesmo dia.
+#
+# SO SUCESSO ENTRA. Falha nao e guardada: um tropeco de rede na primeira
+# chamada nao pode condenar a rodada inteira, e o proximo pedido tenta de novo.
+_GUARDADO = {}
+
+
+def esquece():
+    """Esvazia o guardado. Para teste, e para quem quer buscar de novo na mesma
+    rodada."""
+    _GUARDADO.clear()
+
+
 def buscar(nome, timeout=TEMPO_LIMITE):
     """Os registros de um endpoint, como lista de dicionarios.
 
     Levanta LookupError quando o endpoint nao e um dos que este projeto usa: a lista
     e curta de proposito, e um nome novo merece uma linha em ENDPOINTS dizendo para
     que serve, e nao entrar de contrabando por string.
+
+    DENTRO DE UMA RODADA a resposta e buscada UMA VEZ por endpoint -- ver o
+    comentario de _GUARDADO. Para forcar outra busca, chame esquece().
     """
     if nome not in ENDPOINTS:
         raise LookupError(
             f"endpoint {nome!r} nao esta na lista deste projeto. Os que estao: "
             f"{sorted(ENDPOINTS)}."
         )
+    if nome in _GUARDADO:
+        registros, bruto = _GUARDADO[nome]
+        # Copia da LISTA: quem chama nao pode encurtar ou reordenar o que o
+        # proximo vai receber. Os dicionarios dentro dela sao os mesmos, e
+        # ninguem neste projeto os altera (os parsers so montam DataFrame).
+        return list(registros), bruto
     with _abrir(BASE + nome, timeout) as resposta:
         bruto = resposta.read()
-    return _registros(bruto, nome), bruto
+    registros = _registros(bruto, nome)
+    _GUARDADO[nome] = (registros, bruto)
+    return list(registros), bruto
 
 
 def _registros(bruto, nome):

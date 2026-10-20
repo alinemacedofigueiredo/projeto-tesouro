@@ -28,7 +28,7 @@ import collections
 
 import pandas as pd
 
-from . import calendario, config, curva, leiloes_dv
+from . import calendario, config, curva, leiloes_dv, leitura
 
 # Qual papel serve para recuperar o VNA de cada indice.
 _PAPEL_DO_INDICE = {"SELIC": "LFT", "IPCA": "NTN-B"}
@@ -60,7 +60,10 @@ def leiloes(com_provisorio=True):
     Sem o arquivo provisorio -- num clone novo, antes do primeiro
     'python -m tesouro.leilao_do_dia' -- devolve so a planilha, sem reclamar.
     """
-    oficial = pd.read_csv(config.PROCESSED_DIR / "leiloes.csv",
+    # LEITURA EM CACHE -- ver leitura.py. Medido em 20/10/2026: esta funcao e
+    # chamada 270 vezes numa pagina do PAF, e relia os dois arquivos em cada
+    # uma -- 16,8 s de parse para um dado que nao muda durante a conta.
+    oficial = leitura.csv(config.PROCESSED_DIR / "leiloes.csv",
                           parse_dates=DATAS_DO_LEILAO)
     if not com_provisorio:
         return oficial
@@ -69,7 +72,7 @@ def leiloes(com_provisorio=True):
     if not caminho.exists():
         return oficial
 
-    novo = pd.read_csv(caminho, parse_dates=DATAS_DO_LEILAO)
+    novo = leitura.csv(caminho, parse_dates=DATAS_DO_LEILAO)
     novo = novo[novo["data_liquidacao"] > oficial["data_liquidacao"].max()]
     if novo.empty:
         return oficial
@@ -261,7 +264,7 @@ def carga_do_prefixado(quando):
     quando_custo = custo["data"].max()
     custo = custo[custo["data"] == quando_custo].set_index("titulo")["custo_aa_pct"]
 
-    estoque = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+    estoque = leitura.csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                           parse_dates=["data"])
     estoque = estoque[(estoque["data"] <= quando)
                       & (estoque["titulo"].isin(_PREFIXADOS))]
@@ -355,7 +358,7 @@ def _vna_para_apropriacao(indice, quando):
     chamado.
     """
     quando = pd.Timestamp(quando)
-    v = pd.read_csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
+    v = leitura.csv(config.PROCESSED_DIR / "vna.csv", parse_dates=["data"])
     s = v[v["indice"] == indice]
     if quando <= s["data"].max():
         conhecido = s[s["data"] <= quando].sort_values("data")
@@ -403,7 +406,7 @@ def taxa_real_do_estoque(quando):
     """
     quando = pd.Timestamp(quando)
 
-    e = pd.read_csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
+    e = leitura.csv(config.PROCESSED_DIR / "estoque_titulos_vencimento.csv",
                     parse_dates=["data", "vencimento"])
     e = e[(e["data"] <= quando) & (e["titulo"].isin(_INDEXADOS_A_PRECOS))]
     if e.empty:
