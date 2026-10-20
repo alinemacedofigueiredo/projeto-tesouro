@@ -1,9 +1,12 @@
 from datetime import date
 
 import pytest
-from tesouro import calendario, dv, figuras
+from tesouro import dv, figuras
 
-CAL = calendario.padrao()
+# O calendario e pedido SO QUANDO USADO -- ver tests/calendario_tardio.py.
+# No topo do modulo ele quebrava a COLETA do pytest numa maquina sem
+# data/raw/anbima/feriados_nacionais.xls, e com isso a suite inteira.
+from calendario_tardio import CAL
 
 
 def test_usa_backend_sem_janela():

@@ -289,6 +289,31 @@ class _PulaAgenda(Exception):
     """
 
 
+class FaltaDado(Exception):
+    """Falta um arquivo de entrada -- nao e defeito, e instalacao incompleta.
+
+    EXISTE PARA A MENSAGEM NAO VIR EM TRACEBACK. Medido em 20/10/2026 no teste
+    do clone limpo: a frase do projeto ja era boa ("nenhum .xlsx encontrado em
+    ...; baixe com ... ou coloque o arquivo na pasta manualmente"), mas chegava
+    embrulhada em quinze linhas de pilha, e numa maquina nova e a primeira
+    coisa que a pessoa ve. Traceback e um jeito confuso de dizer "falta o
+    anexo" -- a mesma armadilha do "--mes 13" e do menu com a entrada fechada.
+    """
+
+
+def _executa(fase, funcao):
+    """Roda uma fase, e converte "falta arquivo" em FaltaDado.
+
+    SO FileNotFoundError VIRA FRASE. Qualquer outra excecao continua subindo
+    com a pilha inteira: defeito de codigo tem de aparecer como defeito, e
+    esconder um sob uma frase amavel seria pior do que o traceback.
+    """
+    try:
+        return funcao()
+    except FileNotFoundError as erro:
+        raise FaltaDado("%s: %s" % (fase, erro)) from erro
+
+
 def main(argumentos=None):
     analisador = argparse.ArgumentParser(description=__doc__)
     analisador.add_argument(
@@ -471,10 +496,10 @@ def main(argumentos=None):
 
     if "parse_leiloes" in passos:
         _fase("lendo os leiloes")
-        parse_leiloes.gravar()
+        _executa("lendo os leiloes", parse_leiloes.gravar)
     if "parse_rmd" in passos:
         _fase("lendo o RMD")
-        parse_rmd.gravar_tudo()
+        _executa("lendo o RMD", parse_rmd.gravar_tudo)
 
     if "parse_bloomberg" in passos:
         print("\n--- bloomberg ---")
@@ -642,4 +667,22 @@ def main(argumentos=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (FaltaDado, FileNotFoundError) as erro:
+        # SEM TRACEBACK, e com codigo 1. Ver o docstring de FaltaDado.
+        #
+        # AS DUAS JUNTAS: _executa cobre as fases de leitura, que e onde uma
+        # instalacao nova para primeiro, mas DV, figuras e paginas tambem leem
+        # CSV. Neste codigo FileNotFoundError quer dizer sempre a mesma coisa,
+        # e as mensagens nomeiam o arquivo e onde consegui-lo.
+        print()
+        print("=" * 66)
+        print(" FALTA UM ARQUIVO DE ENTRADA -- a rodada parou aqui.")
+        print("=" * 66)
+        print()
+        print(" %s" % erro)
+        print()
+        print(" O que colocar em cada pasta esta em docs/como-baixar.md.")
+        print()
+        sys.exit(1)

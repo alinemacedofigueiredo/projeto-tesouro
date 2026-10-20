@@ -1,0 +1,5 @@
+# Esta pasta precisa EXISTIR no clone, e por isso tem .gitkeep: sem
+# ele o git nao cria o diretorio, e quem instala o projeto numa
+# maquina nova nao tem onde colocar o arquivo. Achado em 20/10/2026
+# no teste do clone limpo. O que vai aqui esta em docs/como-baixar.md.
+# Aqui vai: as respostas cruas da API do Tesouro

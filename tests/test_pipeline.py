@@ -9,6 +9,8 @@ verdade (com dado real) e feito a mao no fechamento da tarefa, nao aqui.
 """
 import socket
 
+import pytest
+
 from tesouro import (
     dv, figuras, fetch_bloomberg, fetch_leiloes, fetch_rmd, parse_bloomberg,
     parse_leiloes, parse_rmd, pipeline,
@@ -1055,3 +1057,48 @@ def test_cada_fase_e_anunciada_ANTES_de_rodar_e_nao_depois(monkeypatch, capsys):
     assert "rodou o paf" in marcas
     antes = saida.lower().index("paf")
     assert antes < saida.lower().rindex("concluido")
+
+
+# ---------------------------------------------------------------------------
+# FALTA DE DADO NAO SAI EM TRACEBACK -- achado em 20/10/2026 no teste do clone
+# limpo. A frase do projeto ja era boa; ela chegava embrulhada em quinze linhas
+# de pilha, e numa maquina nova e a primeira coisa que a pessoa ve.
+# ---------------------------------------------------------------------------
+
+def test_falta_de_arquivo_vira_FaltaDado_com_a_fase_no_texto():
+    import tesouro.pipeline as pipeline
+
+    def nao_tem():
+        raise FileNotFoundError(
+            "nenhum .xlsx encontrado em data/raw/rmd; baixe o anexo")
+
+    with pytest.raises(pipeline.FaltaDado) as erro:
+        pipeline._executa("lendo o RMD", nao_tem)
+    # A FASE E A FRASE ORIGINAL, as duas: sem a fase ninguem sabe onde parou,
+    # e sem a frase original ninguem sabe qual arquivo falta.
+    assert "lendo o RMD" in str(erro.value)
+    assert "data/raw/rmd" in str(erro.value)
+    assert "baixe o anexo" in str(erro.value)
+
+
+def test_outro_erro_qualquer_NAO_e_disfarcado_de_falta_de_dado():
+    # Esconder um defeito de codigo sob uma frase amavel e pior que o
+    # traceback: ele passaria a parecer instalacao incompleta.
+    import tesouro.pipeline as pipeline
+
+    def quebrado():
+        raise ZeroDivisionError("defeito de verdade")
+
+    with pytest.raises(ZeroDivisionError):
+        pipeline._executa("lendo o RMD", quebrado)
+
+
+def test_as_fases_de_leitura_passam_por__executa():
+    # A guarda de que o conserto nao se perde: as duas fases que uma instalacao
+    # nova encontra primeiro continuam embrulhadas.
+    import pathlib
+
+    fonte = (pathlib.Path(__file__).resolve().parents[1]
+             / "src" / "tesouro" / "pipeline.py").read_text(encoding="utf-8")
+    assert '_executa("lendo o RMD", parse_rmd.gravar_tudo)' in fonte
+    assert '_executa("lendo os leiloes", parse_leiloes.gravar)' in fonte
