@@ -206,6 +206,11 @@ def escolher_rmd_no_menu(entrada=None, saida=print):
 _COMECO = []
 
 
+# A ULTIMA FASE ANUNCIADA. Guardada para a falha poder NOMEAR onde parou --
+# ver o comentario do except da geracao de paginas.
+_ULTIMA_FASE = []
+
+
 def _fase(nome):
     """Anuncia uma fase com HORA e tempo decorrido desde o comeco.
 
@@ -218,6 +223,8 @@ def _fase(nome):
     """
     import time
 
+    _ULTIMA_FASE.clear()
+    _ULTIMA_FASE.append(nome)
     desde = int(time.time() - _COMECO[0]) if _COMECO else 0
     print("[%s] +%4ds  %s" % (time.strftime("%H:%M:%S"), desde, nome))
 
@@ -312,6 +319,47 @@ def _executa(fase, funcao):
         return funcao()
     except FileNotFoundError as erro:
         raise FaltaDado("%s: %s" % (fase, erro)) from erro
+
+
+def _onde_estao_as_paginas(saida=print):
+    """Lista as paginas, a pasta e a hora de cada uma, no fim da rodada.
+
+    PERGUNTA DELA em 20/10/2026: "quando diz 'concluido' ele da os links da onde
+    estao as paginas?". Nao dava -- os caminhos saiam espalhados pela rodada, e
+    as quatro de emissoes saiam so com o nome do arquivo.
+
+    A LISTA SAI DE dashboard.PAGINAS, que e a mesma que monta a barra de
+    navegacao no topo das paginas: assim o fim da tela nao pode discordar da
+    barra. Quem for acrescentar pagina nova mexe num lugar so.
+
+    A HORA DE CADA UMA, comparada com o comeco da rodada, responde ao habito
+    dela sem ela precisar abrir arquivo: pagina que este modo nao regravou sai
+    marcada como de rodada anterior, em vez de parecer nova. Pagina que a barra
+    promete e que nao esta no disco sai marcada como ausente -- "nao gravada" e
+    uma informacao, e silencio nao e.
+    """
+    import time
+
+    from . import config
+    from .graficos import dashboard
+
+    comeco = _COMECO[0] if _COMECO else time.time()
+    saida("")
+    saida("As paginas estao em  %s" % config.PROCESSED_DIR)
+    saida("")
+    for arquivo, rotulo in dashboard.PAGINAS:
+        caminho = config.PROCESSED_DIR / arquivo
+        if not caminho.exists():
+            saida("  %-26s %-26s NAO GRAVADA" % (arquivo, rotulo))
+            continue
+        quando = caminho.stat().st_mtime
+        marca = ("" if quando >= comeco
+                 else "de rodada anterior -- este modo nao a regravou")
+        saida("  %-26s %-26s %s  %s"
+              % (arquivo, rotulo, time.strftime("%H:%M", time.localtime(quando)),
+                 marca))
+    saida("")
+    saida("  Abra qualquer uma com dois cliques.")
 
 
 def main(argumentos=None):
@@ -648,7 +696,12 @@ def main(argumentos=None):
         # quebrado -- decisao da spec, secao 6: banda quebrada nao vira grafico
         # com banda errada. Aqui isso vira falha visivel e codigo de saida 1, do
         # mesmo jeito que a coleta da Bloomberg, em vez de sumir no meio do log.
-        mensagem = f"a geracao do dashboard FALHOU: {erro}"
+        # NOMEIA A FASE QUE QUEBROU, e nao a primeira do bloco. Medido em
+        # 20/10/2026: a API respondeu "Server Error", o que quebrou foi a
+        # pagina do PAF, e a tela mandava olhar o dashboard -- que havia sido
+        # gravado com sucesso, e aparece na lista do fim com a hora da rodada.
+        onde = _ULTIMA_FASE[0] if _ULTIMA_FASE else "a geracao das paginas"
+        mensagem = f"FALHOU em '{onde}': {erro}"
         print(f"ATENCAO: {mensagem}")
         falhas.append(mensagem)
 
@@ -660,9 +713,13 @@ def main(argumentos=None):
         )
         for falha in falhas:
             print(f"  - {falha}")
+        # A LISTA SAI NOS DOIS FINS. Com falha ela importa MAIS: e nela que se
+        # ve qual pagina ficou de rodada anterior.
+        _onde_estao_as_paginas()
         return 1
 
     print("\nconcluido.")
+    _onde_estao_as_paginas()
     return 0
 
 

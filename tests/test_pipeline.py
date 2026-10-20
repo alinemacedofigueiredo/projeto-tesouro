@@ -1102,3 +1102,122 @@ def test_as_fases_de_leitura_passam_por__executa():
              / "src" / "tesouro" / "pipeline.py").read_text(encoding="utf-8")
     assert '_executa("lendo o RMD", parse_rmd.gravar_tudo)' in fonte
     assert '_executa("lendo os leiloes", parse_leiloes.gravar)' in fonte
+
+
+# ---------------------------------------------------------------------------
+# O FIM DA RODADA DIZ ONDE ESTAO AS PAGINAS -- pergunta dela em 20/10/2026:
+# "quando diz 'concluido' ele da os links da onde estao as paginas?". Nao dava:
+# os caminhos saiam espalhados pela rodada, e as quatro de emissoes saiam so
+# com o nome do arquivo.
+# ---------------------------------------------------------------------------
+
+def test_o_fim_lista_as_paginas_da_BARRA_DE_NAVEGACAO(tmp_path, monkeypatch):
+    # A LISTA SAI DE dashboard.PAGINAS, a mesma que monta a barra no topo das
+    # paginas. Assim o fim da tela nao pode discordar da barra, e quem
+    # acrescentar pagina mexe num lugar so.
+    import tesouro.pipeline as pipeline
+    from tesouro import config
+    from tesouro.graficos import dashboard
+
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+    for arquivo, _ in dashboard.PAGINAS:
+        (tmp_path / arquivo).write_text("x", encoding="utf-8")
+
+    linhas = []
+    pipeline._COMECO.clear()
+    pipeline._COMECO.append(0)          # tudo foi gravado depois do comeco
+    pipeline._onde_estao_as_paginas(saida=linhas.append)
+    junto = "\n".join(linhas)
+
+    assert str(tmp_path) in junto, "nao disse a pasta"
+    for arquivo, rotulo in dashboard.PAGINAS:
+        assert arquivo in junto, arquivo
+        assert rotulo in junto, rotulo
+    assert "NAO GRAVADA" not in junto
+    assert "rodada anterior" not in junto
+
+
+def test_pagina_que_o_modo_NAO_REGRAVOU_sai_marcada(tmp_path, monkeypatch):
+    # O habito dela, nas palavras dela: "se o cabecalho nao mudou, a
+    # atualizacao nao atualizou". A tela passa a responder isso sem ela abrir
+    # arquivo nenhum -- e no modo 'paf' as paginas de emissao de fato nao sao
+    # regravadas.
+    import time
+
+    import tesouro.pipeline as pipeline
+    from tesouro import config
+    from tesouro.graficos import dashboard
+
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+    for arquivo, _ in dashboard.PAGINAS:
+        (tmp_path / arquivo).write_text("x", encoding="utf-8")
+
+    velha = dashboard.PAGINAS[0][0]
+    antiga = time.time() - 86400
+    import os
+    os.utime(tmp_path / velha, (antiga, antiga))
+
+    linhas = []
+    pipeline._COMECO.clear()
+    pipeline._COMECO.append(time.time() - 60)
+    pipeline._onde_estao_as_paginas(saida=linhas.append)
+
+    da_velha = [l for l in linhas if velha in l]
+    assert len(da_velha) == 1, linhas
+    assert "rodada anterior" in da_velha[0], da_velha
+    # E SO ELA: as outras foram gravadas nesta rodada.
+    assert sum("rodada anterior" in l for l in linhas) == 1, linhas
+
+
+def test_pagina_AUSENTE_sai_marcada_e_nao_em_silencio(tmp_path, monkeypatch):
+    # "Nao gravada" e uma informacao; silencio nao e. Se a barra promete uma
+    # pagina que nao esta no disco, quem abrir a barra vai achar link morto --
+    # melhor descobrir aqui.
+    import tesouro.pipeline as pipeline
+    from tesouro import config
+    from tesouro.graficos import dashboard
+
+    monkeypatch.setattr(config, "PROCESSED_DIR", tmp_path)
+    presentes = dashboard.PAGINAS[1:]
+    for arquivo, _ in presentes:
+        (tmp_path / arquivo).write_text("x", encoding="utf-8")
+    faltando = dashboard.PAGINAS[0][0]
+
+    linhas = []
+    pipeline._COMECO.clear()
+    pipeline._COMECO.append(0)
+    pipeline._onde_estao_as_paginas(saida=linhas.append)
+
+    da_faltando = [l for l in linhas if faltando in l]
+    assert len(da_faltando) == 1, linhas
+    assert "NAO GRAVADA" in da_faltando[0], da_faltando
+
+
+def test_a_falha_NOMEIA_a_fase_que_quebrou():
+    # Medido em 20/10/2026 numa rodada de verdade: a API deu "Server Error", a
+    # pagina do PAF quebrou, e a tela dizia "a geracao do dashboard FALHOU" --
+    # mandando olhar justamente a pagina que tinha dado certo.
+    import tesouro.pipeline as pipeline
+
+    pipeline._ULTIMA_FASE.clear()
+    pipeline._COMECO.clear()
+    pipeline._COMECO.append(0)
+    pipeline._fase("gravando a pagina do PAF")
+    assert pipeline._ULTIMA_FASE == ["gravando a pagina do PAF"]
+
+    # E a fase mais recente VENCE: o bloco vai do dashboard ate a agenda, e o
+    # que importa e onde estava quando quebrou.
+    pipeline._fase("gravando as paginas de emissao")
+    assert pipeline._ULTIMA_FASE == ["gravando as paginas de emissao"]
+
+
+def test_a_mensagem_de_falha_das_paginas_usa_a_fase():
+    # Guarda de fonte: a mensagem tem de sair da fase guardada, e nao de uma
+    # pagina cravada no texto.
+    import pathlib
+
+    fonte = (pathlib.Path(__file__).resolve().parents[1]
+             / "src" / "tesouro" / "pipeline.py").read_text(encoding="utf-8")
+    assert "a geracao do dashboard FALHOU" not in fonte, (
+        "a mensagem voltou a nomear o dashboard para qualquer pagina")
+    assert "_ULTIMA_FASE[0] if _ULTIMA_FASE" in fonte
