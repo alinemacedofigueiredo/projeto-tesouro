@@ -38,6 +38,60 @@ def _anterior_util(cal, d):
     return d
 
 
+def cobertura_por_papel(registros):
+    """Ate quando o calendario publica cada papel: {titulo: data}.
+
+    POR PAPEL, e nao por data. O calendario do Tesouro fica completo papel a
+    papel -- em 23/09/2026 o prefixado ia ate 17/12 e a terca de LFT/NTN-B so
+    ate 29/09 -- e uma cobertura global esconde isso. Ver dias_ate.
+    """
+    from . import parse_api_leiloes
+
+    if not registros:
+        return {}
+    agenda = parse_api_leiloes.calendario(registros)
+    dias = agenda["data_leilao"].dt.normalize()
+    return {titulo: dias[agenda["titulo"] == titulo].max()
+            for titulo in sorted(set(agenda["titulo"]))}
+
+
+def mudou_a_cobertura(antes, depois):
+    """O que mudou de um calendario para o outro, em linhas para a tela.
+
+    Devolve lista vazia quando nada mudou -- e a rodada normal nao diz nada.
+
+    PEDIDO DELA em 20/10/2026: "quando ter uma rotina para quando sai um
+    calendario novo?". Ate aqui o projeto baixava, salvava e ficava calado, e a
+    publicacao de um comunicado novo e o evento mais importante para a
+    projecao: dezenas de dias passam de estimado para publicado de uma vez.
+
+    O CASO QUE ENCURTA TAMBEM SAI. "O mais recente vence" e a regra certa, mas
+    um calendario novo que cobre MENOS que o guardado piora a projecao, e isso
+    nao pode passar em silencio.
+    """
+    de = cobertura_por_papel(antes)
+    para = cobertura_por_papel(depois)
+    linhas = []
+    for titulo in sorted(set(de) | set(para)):
+        velho, novo = de.get(titulo), para.get(titulo)
+        if novo is None:
+            linhas.append("%s: saiu do calendario (ia ate %s)"
+                          % (titulo, velho.strftime("%d/%m/%Y")))
+        elif velho is None:
+            linhas.append("%s: entrou no calendario, ate %s"
+                          % (titulo, novo.strftime("%d/%m/%Y")))
+        elif novo > velho:
+            linhas.append("%s: esticou de %s para %s"
+                          % (titulo, velho.strftime("%d/%m/%Y"),
+                             novo.strftime("%d/%m/%Y")))
+        elif novo < velho:
+            linhas.append("%s: ENCURTOU de %s para %s -- a projecao vai "
+                          "depender mais do estimador"
+                          % (titulo, velho.strftime("%d/%m/%Y"),
+                             novo.strftime("%d/%m/%Y")))
+    return linhas
+
+
 def dias_possiveis(de, ate, dias_da_semana=_DIAS_DA_SEMANA):
     """Os dias de leilao pelas regras de SEMANA e FERIADO, sem a de dezembro.
 
