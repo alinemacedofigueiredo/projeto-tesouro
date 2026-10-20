@@ -105,7 +105,10 @@ def dias_ate(ate, registros=None, hoje=None):
         else pd.Timestamp.today().normalize()
 
     if registros is None:
-        registros, _ = api_leiloes.buscar("calendario")
+        # DISCO PRIMEIRO -- ver api_leiloes.calendario_publicado. O comunicado
+        # do Tesouro e trimestral; buscar na rede a cada gravacao de pagina
+        # gastava rede e, com a API fora, impedia a pagina de sair.
+        registros, _, _ = api_leiloes.calendario_publicado()
 
     publicados = []
     ultimo_do_dia = {}

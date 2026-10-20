@@ -384,8 +384,17 @@ def _rodape_automatico(dados):
         # de emissao mexem no percentual projetado de cada indexador. Sem
         # esta frase, palpite e transcricao apareciam com a mesma cara.
         fronteira = p.get("fronteira_do_calendario")
+        # E DE QUANDO E O ARQUIVO. Desde 20/10/2026 o calendario publicado e
+        # lido do disco (ver api_leiloes.calendario_publicado), porque e
+        # documento trimestral e nao precisa ser rebaixado a cada pagina. Mas
+        # entao a pagina tem de dizer de que dia e o arquivo que ela usou:
+        # "publicado ate 17/12" sem a data do download nao distingue um
+        # calendario de hoje de um de tres meses atras.
+        baixado = p.get("calendario_baixado_em")
+        de_quando = (f", baixado em {baixado:%d/%m/%Y}"
+                     if baixado is not None else "")
         origem = (f", de calend\u00e1rio publicado at\u00e9 "
-                  f"{fronteira:%d/%m/%Y} e estimado depois"
+                  f"{fronteira:%d/%m/%Y}{de_quando} e estimado depois"
                   if fronteira is not None
                   else ", de calend\u00e1rio inteiramente estimado")
         return (

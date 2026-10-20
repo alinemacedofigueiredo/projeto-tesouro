@@ -72,7 +72,10 @@ def proximos(registros=None, base=None, hoje=None, cal=None):
     congelada, e assim nao tocam a rede.
     """
     if registros is None:
-        registros, _ = api_leiloes.buscar("calendario")
+        # DISCO PRIMEIRO -- ver api_leiloes.calendario_publicado. O comunicado
+        # do Tesouro e trimestral; buscar na rede a cada gravacao de pagina
+        # gastava rede e, com a API fora, impedia a pagina de sair.
+        registros, _, _ = api_leiloes.calendario_publicado()
     agenda = parse_api_leiloes.calendario(registros)
 
     hoje = pd.Timestamp(hoje) if hoje is not None else pd.Timestamp.today().normalize()

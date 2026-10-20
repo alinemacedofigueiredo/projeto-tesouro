@@ -136,7 +136,8 @@ def _o_que_o_calendario_diz(quando, registros=None):
     quando = pd.Timestamp(quando).normalize()
     try:
         if registros is None:
-            registros, _ = api_leiloes.buscar("calendario")
+            # DISCO PRIMEIRO -- ver api_leiloes.calendario_publicado.
+            registros, _, _ = api_leiloes.calendario_publicado()
         if not len(registros):
             return ("   e o calendario do Tesouro voltou vazio, entao nao da "
                     "para dizer se hoje e dia de leilao.")

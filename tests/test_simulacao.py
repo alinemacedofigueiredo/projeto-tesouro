@@ -372,17 +372,41 @@ def test_busca_calendario_uma_unica_vez_por_TABELA(monkeypatch):
     um buscaria sozinho. Logo nenhum teste de VALOR a protege. Sem este teste
     de contagem, um refactor futuro volta a buscar por c\u00e9lula em sil\u00eancio.
     """
-    chamadas = []
+    # EM 20/10/2026 ESTE TESTE GANHOU UMA AFIRMACAO MAIS FORTE, por observacao
+    # dela: "o calendario e dado antes, nao atualiza todo dia que tem leilao".
+    # O calendario passou a ser ENTRADA, lida do disco -- entao o numero certo
+    # de buscas na rede por tabela nao e "no maximo uma", e ZERO.
+    #
+    # A contagem de resolucoes continua travada em uma, que era o ganho que
+    # este teste existia para nao perder: sem ele, um refactor volta a resolver
+    # o calendario por celula em silencio.
+    da_rede = []
+    resolucoes = []
 
-    def mock_buscar(nome, timeout=None):
-        chamadas.append(nome)
+    def nao_va_a_rede(nome, timeout=None):
+        da_rede.append(nome)
         return [], b""
 
-    monkeypatch.setattr(api_leiloes, "buscar", mock_buscar)
+    def conta_resolucoes(registros_pedidos=None, destino=None):
+        # CONTA RESOLUCAO DE VERDADE, e nao repasse. dados_simulacao resolve
+        # uma vez e passa a lista adiante; rolagem.projecao chama o resolvedor
+        # com ela na mao, e esse caminho nao le disco nem rede -- contar isso
+        # faria o teste reprovar o proprio repasse que ele existe para premiar.
+        if registros_pedidos is None:
+            resolucoes.append(1)
+            return [], "ausente", None
+        return registros_pedidos, "injetado", None
+
+    monkeypatch.setattr(api_leiloes, "buscar", nao_va_a_rede)
+    monkeypatch.setattr(api_leiloes, "calendario_publicado", conta_resolucoes)
     simulacao.dados_simulacao("prefixado_pct")
-    assert len(chamadas) <= 1, (
-        f"registros=None deve buscar no m\u00e1ximo uma vez; "
-        f"foram {len(chamadas)} chamadas")
+
+    assert not da_rede, (
+        "desenhar tabela foi a rede %d vez(es); o calendario vem do disco"
+        % len(da_rede))
+    assert len(resolucoes) <= 1, (
+        "registros=None deve resolver o calendario no maximo uma vez; "
+        "foram %d" % len(resolucoes))
 
 
 def test_a_tabela_marca_a_celula_do_projetado():
