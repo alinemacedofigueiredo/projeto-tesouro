@@ -274,3 +274,118 @@ def test_a_saida_encaixa_no_esquema_do_leiloes_csv():
 
     e = parse_api_leiloes.editais(_registros("editais"))
     assert list(e.columns) == parse_api_leiloes.COLUNAS
+
+
+# ---------------------------------------------------------------------------
+# UMA BUSCA POR ENDPOINT NA RODADA -- medido em 20/10/2026: a pagina do PAF
+# buscava 'calendario' CINCO vezes, 6,9 s de rede, porque a banda, a projecao e
+# a agenda nao sabem uma da outra. Com uma busca so, as cinco tambem passam a
+# ver o mesmo retrato.
+# ---------------------------------------------------------------------------
+
+def test_o_mesmo_endpoint_vai_a_rede_UMA_VEZ_na_rodada(monkeypatch):
+    api_leiloes.esquece()
+    idas = {"n": 0}
+
+    class _Resposta:
+        def read(self):
+            return b'[{"A": 1}]'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def abrir_contado(url, timeout):
+        idas["n"] += 1
+        return _Resposta()
+
+    monkeypatch.setattr(api_leiloes, "_abrir", abrir_contado)
+    primeiro, _ = api_leiloes.buscar("calendario")
+    segundo, _ = api_leiloes.buscar("calendario")
+    api_leiloes.buscar("calendario")
+
+    assert idas["n"] == 1, "foi a rede %d vezes pelo mesmo endpoint" % idas["n"]
+    assert primeiro == segundo
+    # E CADA UM RECEBE A SUA LISTA: encurtar a de um nao pode encurtar a do
+    # proximo.
+    primeiro.clear()
+    terceiro, _ = api_leiloes.buscar("calendario")
+    assert len(terceiro) == 1
+    api_leiloes.esquece()
+
+
+def test_cada_endpoint_recebe_O_SEU_conteudo(monkeypatch):
+    # CONTEUDO, E NAO CONTAGEM DE IDAS. A prova de dentes de 20/10/2026 pegou a
+    # versao anterior deste teste: ela contava duas idas a rede e dava por bom,
+    # entao a mutacao que guardava a resposta de um endpoint TAMBEM sob o nome
+    # de outro passava verde. O risco de um cache por nome nao e o numero de
+    # idas -- e servir o 'resultados' a quem pediu 'calendario'.
+    api_leiloes.esquece()
+    pedidos = []
+
+    class _Resposta:
+        def __init__(self, corpo):
+            self._corpo = corpo
+
+        def read(self):
+            return self._corpo
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def abrir(url, timeout):
+        pedidos.append(url)
+        nome = url.rsplit("/", 1)[-1]
+        return _Resposta(('[{"DE": "%s"}]' % nome).encode("utf-8"))
+
+    monkeypatch.setattr(api_leiloes, "_abrir", abrir)
+
+    # A ORDEM IMPORTA PARA O TESTE: pede 'resultados' primeiro, para uma troca
+    # de chaves nao se esconder atras de o primeiro pedido estar certo.
+    resultados, _ = api_leiloes.buscar("resultados")
+    calendario, _ = api_leiloes.buscar("calendario")
+
+    assert len(pedidos) == 2, pedidos
+    assert resultados == [{"DE": "resultados"}], resultados
+    assert calendario == [{"DE": "calendario"}], calendario
+
+    # E a segunda vez, servida do guardado, tambem tem de ser a certa.
+    de_novo, _ = api_leiloes.buscar("resultados")
+    assert de_novo == [{"DE": "resultados"}], de_novo
+    assert len(pedidos) == 2, "foi a rede de novo pelo que ja estava guardado"
+    api_leiloes.esquece()
+
+
+def test_FALHA_nao_e_guardada(monkeypatch):
+    # Um tropeco de rede na primeira chamada nao pode condenar a rodada: o
+    # proximo pedido tem de tentar de novo.
+    api_leiloes.esquece()
+    idas = {"n": 0}
+
+    class _Resposta:
+        def read(self):
+            return b"[]"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def tropeca_uma_vez(url, timeout):
+        idas["n"] += 1
+        if idas["n"] == 1:
+            raise ConnectionError("caiu")
+        return _Resposta()
+
+    monkeypatch.setattr(api_leiloes, "_abrir", tropeca_uma_vez)
+    with pytest.raises(ConnectionError):
+        api_leiloes.buscar("calendario")
+    api_leiloes.buscar("calendario")
+    assert idas["n"] == 2, "a falha ficou guardada e a segunda nao tentou"
+    api_leiloes.esquece()

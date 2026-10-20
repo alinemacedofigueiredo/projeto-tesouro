@@ -16,7 +16,7 @@ import bisect
 
 import pandas as pd
 
-from . import calendario, config
+from . import calendario, config, leitura
 
 
 def _data_base(d, data_base):
@@ -70,7 +70,9 @@ def _curva(titulo, data_base=None):
     semanas atras apresentada como "de hoje" e o tipo de coisa que a pagina inteira
     existe para nao fazer.
     """
-    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+    # LEITURA EM CACHE -- ver leitura.py. Medido em 20/10/2026: este arquivo
+    # era lido 547 vezes numa unica pagina do PAF, 12,1 s so de parse.
+    d = leitura.csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
     base = _data_base(d, data_base)
     g = d[(d["data"] == base) & (d["titulo"] == titulo)
@@ -96,7 +98,9 @@ def data_da_curva(data_base=None):
     justamente na data mais recente disponivel, mas outro titulo tivesse, isto
     levantaria por um motivo que nao e "nao ha curva nenhuma".
     """
-    d = pd.read_csv(config.PROCESSED_DIR / "dv_por_papel.csv",
+    # LEITURA EM CACHE -- ver leitura.py. Medido em 20/10/2026: este arquivo
+    # era lido 547 vezes numa unica pagina do PAF, 12,1 s so de parse.
+    d = leitura.csv(config.PROCESSED_DIR / "dv_por_papel.csv",
                     parse_dates=["data", "vencimento"])
     return _data_base(d, data_base)
 
