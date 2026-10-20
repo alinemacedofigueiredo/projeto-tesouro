@@ -128,3 +128,80 @@ def test_baixar_nao_sobrescreve_anexo_ja_existente(tmp_path, monkeypatch):
 
     assert fetch_rmd.baixar(2026, 6, destino=tmp_path) == ja_existe
     assert ja_existe.read_bytes() == b"PK\x03\x04 o anexo original"
+
+
+# ---------------------------------------------------------------------------
+# A TRAVA DA REDE DO BANCO, medida em 20/10/2026 tentando o anexo de setembro:
+#
+#     URLError: <urlopen error [WinError 10054] Foi forcado o cancelamento de
+#     uma conexao existente pelo host remoto>
+#
+# O tradutor so reconhecia CERTIFICATE e SSL, entao este caso vazava o erro cru
+# e a pessoa recebia pilha no lugar da instrucao -- no comando que o README e o
+# menu mandam rodar.
+# ---------------------------------------------------------------------------
+
+URL = "https://www.tesourotransparente.gov.br/publicacoes/x"
+
+
+def test_conexao_derrubada_vira_frase_com_o_caminho_a_mao():
+    import urllib.error
+
+    erro = urllib.error.URLError(OSError(10054, "cancelamento da conexao"))
+    r = fetch_rmd._traduzir_erro_de_rede(URL, erro)
+
+    assert isinstance(r, LookupError), "o erro cru voltou a vazar"
+    texto = str(r)
+    assert "CAMINHO A MAO" in texto
+    assert "data/raw/rmd/" in texto
+    assert fetch_rmd.BASE in texto, "a frase tem de dar o endereco do site"
+    # E NAO PODE MANDAR MEXER NO CERTIFICADO: conexao derrubada nao se resolve
+    # com SSL_CERT_FILE, e apontar para la manda a pessoa para o lugar errado.
+    assert "SSL_CERT_FILE" not in texto
+
+
+def test_erro_de_certificado_continua_ganhando_a_orientacao_do_SSL():
+    import urllib.error
+
+    erro = urllib.error.URLError(
+        "[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer")
+    texto = str(fetch_rmd._traduzir_erro_de_rede(URL, erro))
+    assert "SSL_CERT_FILE" in texto, "a orientacao do certificado se perdeu"
+    assert "CAMINHO A MAO" in texto
+    # A REGRA DELA: nunca sugerir desligar a verificacao.
+    assert "desligar a verifica" not in texto.lower()
+
+
+def test_o_que_NAO_e_de_rede_continua_subindo_como_esta():
+    # Esconder defeito de codigo sob frase amavel e pior que o traceback: ele
+    # passaria a parecer problema de rede do banco.
+    erro = ValueError("defeito de verdade")
+    assert fetch_rmd._traduzir_erro_de_rede(URL, erro) is erro
+
+
+def test_404_diz_que_o_MES_NAO_SAIU_e_nao_culpa_a_rede():
+    # Medido em 20/10/2026: a pagina de agosto responde 200 com o link do
+    # anexo, e a de setembro da 404 -- o RMD de setembro nao estava publicado.
+    # A rede chegou la; dizer "a conexao nao completou" seria afirmar o que o
+    # programa nao sabe, e mandaria ela investigar proxy por nada.
+    import urllib.error
+
+    erro = urllib.error.HTTPError(URL, 404, "Not Found", {}, None)
+    texto = str(fetch_rmd._traduzir_erro_de_rede(URL, erro))
+
+    assert "404" in texto
+    assert "ainda nao saiu" in texto
+    assert "CONEXAO NAO COMPLETOU" not in texto, \
+        "404 nao e falha de conexao"
+    assert "proxy" not in texto, "nao mandar investigar a rede por um 404"
+    # E O CAMINHO A MAO CONTINUA, porque e o que resolve quando o mes saiu.
+    assert "CAMINHO A MAO" in texto
+
+
+def test_outro_codigo_HTTP_diz_o_codigo_sem_inventar_a_causa():
+    import urllib.error
+
+    erro = urllib.error.HTTPError(URL, 503, "Service Unavailable", {}, None)
+    texto = str(fetch_rmd._traduzir_erro_de_rede(URL, erro))
+    assert "503" in texto
+    assert "ainda nao saiu" not in texto, "503 nao e mes que nao saiu"

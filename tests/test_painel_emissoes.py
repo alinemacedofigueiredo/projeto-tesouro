@@ -404,12 +404,47 @@ def test_a_escada_de_janelas_e_crescente_e_sem_degrau_repetido():
     # entao 50 leiloes colapsam sobre "12 meses" -- mediram-se 50 contra 51 pontos,
     # com um dia de diferenca no inicio. Duas janelas iguais e uma janela a toa.
     d = emissao.por_dia("NTN-B")
+    rotulos = [r for r, _ in painel_emissoes.JANELAS]
     tamanhos = [len(estilo.recorta(d, j)) for _, j in painel_emissoes.JANELAS]
-    assert tamanhos == sorted(tamanhos)
-    assert len(set(tamanhos)) == len(tamanhos)
-    # E cada degrau e sensivelmente maior que o anterior, e nao um empate disfarcado.
-    for antes, depois in zip(tamanhos, tamanhos[1:]):
-        assert depois >= antes * 1.25, (antes, depois)
+
+    # CRESCENTE SEMPRE: cada janela contem a anterior. "no ano" e subconjunto de
+    # "12 meses" em qualquer mes -- os doze meses corridos comecam antes de
+    # janeiro deste ano.
+    assert tamanhos == sorted(tamanhos), list(zip(rotulos, tamanhos))
+
+    # O PAR QUE CONVERGE POR CALENDARIO, e nao por defeito: "no ano" cresce ao
+    # longo do ano ate encostar nos "12 meses". Medida da razao entre os dois,
+    # com 50 pontos em doze meses: 12,50 em janeiro, 2,94 em abril, 1,72 em
+    # julho, 1,19 em outubro, 1,00 em dezembro. Em dezembro eles podem dar o
+    # MESMO numero de pontos.
+    #
+    # DECISAO DELA EM 20/10/2026: ficam as duas janelas. Em dezembro uma repete
+    # a outra por algumas semanas e nenhum numero fica errado -- sobra um botao.
+    # Por isso este par sai das duas regras abaixo, e so ele.
+    CONVERGEM = ("no ano", "12 meses")
+    assert all(r in rotulos for r in CONVERGEM), (
+        "os rotulos do par isento nao existem mais em JANELAS: %s. Isencao que "
+        "nao casa com nada deixa de proteger e passa a esconder." % rotulos)
+
+    conferidos = 0
+    for i, (antes, depois) in enumerate(zip(tamanhos, tamanhos[1:])):
+        par = (rotulos[i], rotulos[i + 1])
+        if par == CONVERGEM:
+            continue
+        # Nos outros degraus, empate e defeito: janela que repete outra e
+        # janela a toa, e foi por isso que o contador e 20 e nao 50.
+        assert depois > antes, (par, antes, depois)
+        assert depois >= antes * 1.25, (par, antes, depois)
+        conferidos += 1
+
+    # A ISENCAO VALE PARA UM PAR, E SO UM. Sem esta conta, alargar a isencao --
+    # trocar a condicao por 'if True', ou juntar mais pares nela -- deixava o
+    # teste VERDE, porque nao sobrava degrau nenhum para conferir. Achado na
+    # prova de dentes em 20/10/2026: a mutacao "a isencao engolindo todos os
+    # degraus" sobrevivia.
+    assert conferidos == len(tamanhos) - 2, (
+        "conferi %d degraus de %d; a isencao tem de cobrir exatamente o par "
+        "%s" % (conferidos, len(tamanhos) - 1, CONVERGEM))
 
 
 def test_ultimos_conta_pontos_e_desdejaneiro_conta_calendario():
