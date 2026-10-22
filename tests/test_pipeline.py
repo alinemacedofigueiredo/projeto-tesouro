@@ -7,6 +7,7 @@ gravam os 22 CSVs. Os tres ganham teste aqui, todos com monkeypatch nas
 funcoes de gravacao/coleta reais -- rodar o pipeline de ponta a ponta de
 verdade (com dado real) e feito a mao no fechamento da tarefa, nao aqui.
 """
+import pathlib
 import socket
 
 import pytest
@@ -80,6 +81,25 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
     # _stub_coletas: os tres testes que montam a coleta a mao nao chamam aquele
     # auxiliar. Sem isto eles iriam a rede e gravariam leiloes_recentes.csv.
     alvos.append((leilao_do_dia, "do_edital"))
+
+    # E A GUARDA DO CALENDARIO, que entrou na coleta em 20/10/2026. TERCEIRA
+    # vez que este arquivo vive a mesma historia -- ver os dois comentarios
+    # acima. Sem este stub, os tres testes que chamam pipeline.main([]) iam a
+    # API e gravavam data/raw/leiloes_api/calendario-AAAA-MM-DD.json de
+    # VERDADE: achado em 22/10/2026, 10.847 bytes na pasta dela, e a suite
+    # passando a depender da API estar no ar. data/raw e imutavel por
+    # invariante.
+    #
+    # ELE DEVOLVE DUPLA, e nao lista vazia como os outros: o pipeline faz
+    # 'caminho, registros_cal = _api.guardar(...)', e desempacotar [] estoura.
+    from tesouro import api_leiloes as _api_leiloes
+
+    def guardar_sem_rede(nome, *args, **kwargs):
+        if chamadas is not None:
+            chamadas.append("tesouro.api_leiloes.guardar")
+        return pathlib.Path("nao-gravado-%s.json" % nome), []
+
+    monkeypatch.setattr(_api_leiloes, "guardar", guardar_sem_rede)
 
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
@@ -465,7 +485,11 @@ def test_o_modo_TUDO_faz_o_que_o_pipeline_SEMPRE_fez(monkeypatch):
     # SO OS PASSOS DE GERACAO. Os de coleta saem daqui -- o assunto deste teste
     # e a ordem em que as paginas sao produzidas, e nao o que se busca antes.
     # do_edital entrou na coleta em 24/09/2026 e sai pelo mesmo motivo que rodar.
-    COLETA = (".baixar", ".rodar", ".do_edital")
+    # E a guarda do calendario entrou em 20/10/2026, pelo mesmo motivo ainda:
+    # ela BUSCA, e este teste e sobre a ordem em que as paginas saem. O sufixo
+    # ".guardar" e especifico -- nenhuma etapa de geracao se chama assim (elas
+    # sao gravar, gravar_tudo, gravar_painel).
+    COLETA = (".baixar", ".rodar", ".do_edital", ".guardar")
     geracao = [c for c in chamadas
                if not c.endswith(COLETA)
                and c != "tesouro.valida_referencia.main"]
@@ -1274,3 +1298,45 @@ def test_o_anuncio_do_calendario_SAI_INTEIRO_quando_mudou():
     assert "NTN-B: ENCURTOU" in junto
     # E A CONSEQUENCIA, que e por que isto existe.
     assert "projecao do fim do ano" in junto
+
+
+def test_a_coleta_NAO_ESCREVE_em_data_raw_durante_os_testes(monkeypatch, tmp_path):
+    """A guarda da guarda: nenhuma acao de coleta pode gravar em data/raw.
+
+    TERCEIRA VEZ que este arquivo vive a mesma historia: o resultado do dia
+    (09/09/2026), o edital (24/09/2026) e a guarda do calendario (20/10/2026)
+    entraram na coleta e nao foram stubadas, e os testes passaram a ir a rede e
+    a escrever na pasta de ENTRADA dela. Em 22/10/2026 achei um
+    calendario-2026-10-20.json de 10.847 bytes gravado por teste.
+
+    Em vez de confiar na memoria de quem acrescenta a proxima, este teste
+    OLHA A PASTA: roda o pipeline com a coleta stubada e exige que nada tenha
+    sido criado em data/raw.
+    """
+    from tesouro import config
+
+    # NOME, CARIMBO E TAMANHO -- e nao so o nome. A primeira versao desta
+    # guarda comparava o CONJUNTO DE NOMES, e a prova de dentes mostrou o
+    # buraco: tirar o stub fazia o teste reescrever o arquivo de HOJE, que ja
+    # existia, e nada aparecia como novo. Reescrever arquivo de entrada e tao
+    # proibido quanto criar.
+    def retrato():
+        return {p.relative_to(config.RAW_DIR).as_posix():
+                (p.stat().st_mtime_ns, p.stat().st_size)
+                for p in config.RAW_DIR.rglob("*") if p.is_file()}
+
+    antes = retrato()
+
+    chamadas = []
+    _stub_gravacoes(monkeypatch, chamadas)
+    _stub_coletas(monkeypatch, chamadas)
+    pipeline.main([])
+
+    depois = retrato()
+    mexidos = sorted(set(antes) ^ set(depois))
+    mexidos += sorted(k for k in set(antes) & set(depois)
+                      if antes[k] != depois[k])
+    assert not mexidos, (
+        "a coleta mexeu em data/raw durante o teste: %s. Toda acao de coleta "
+        "precisa de stub em _stub_gravacoes -- ver os comentarios do helper."
+        % mexidos)

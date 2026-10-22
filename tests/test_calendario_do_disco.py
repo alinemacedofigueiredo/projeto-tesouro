@@ -140,3 +140,49 @@ def test_a_pagina_DIZ_de_quando_e_o_calendario():
     assert "17/12/2026" in frase, frase
     assert "20/10/2026" in frase, (
         "a frase nao diz de quando e o calendario: %s" % frase)
+
+
+def test_a_PROJECAO_sai_com_a_REDE_BLOQUEADA(tmp_path, monkeypatch):
+    """O fecho da entrega: com o calendario no disco, a pagina nao precisa da rede.
+
+    Em 20/10/2026 a API do Tesouro respondeu "Server Error" a tarde inteira e a
+    pagina do PAF deixou de ser gravada -- por falta de um documento trimestral
+    que o projeto tinha na mao uma hora antes. Em 22/10 a API voltou, o
+    calendario ficou salvo, e esta e a pergunta que fecha: se a rede cair agora,
+    a projecao ainda sai?
+
+    O BLOQUEIO E DURO -- socket.socket e socket.getaddrinfo levantam, igual ao
+    teste de --sem-coleta deste projeto. E o RAW_DIR aponta para uma pasta
+    temporaria com um calendario construido aqui, para o teste nao depender do
+    que esta no disco dela.
+    """
+    import json
+    import socket
+
+    from tesouro import config
+    from tesouro.graficos import banda
+
+    pasta = tmp_path / "leiloes_api"
+    pasta.mkdir()
+    registros = [{"DATA_LEILAO": data, "TITULO": titulo,
+                  "VENCIMENTO": "2030-01-01", "TIPO_LEILAO": "Venda"}
+                 for data, titulo in (("2026-11-05", "LTN"),
+                                      ("2026-11-05", "NTN-F"),
+                                      ("2026-11-10", "NTN-B"),
+                                      ("2026-11-10", "LFT"))]
+    (pasta / "calendario-2026-10-22.json").write_text(
+        json.dumps(registros), encoding="utf-8")
+    monkeypatch.setattr(config, "RAW_DIR", tmp_path)
+
+    def sem_rede(*a, **k):
+        raise AssertionError("a projecao tentou usar a REDE")
+
+    monkeypatch.setattr(socket, "socket", sem_rede)
+    monkeypatch.setattr(socket, "getaddrinfo", sem_rede)
+
+    dados = banda.dados_projecao()
+
+    premissa = dados.attrs["premissa"]
+    # E DIZ DE QUANDO E O CALENDARIO, que e o que torna o disco honesto.
+    assert str(premissa["calendario_baixado_em"]) == "2026-10-22"
+    assert premissa["dias_de_leilao"] > 0
