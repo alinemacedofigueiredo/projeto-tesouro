@@ -298,7 +298,16 @@ def test_o_dia_inteiro_fica_no_estagio_menos_firme_do_csv(tmp_path, monkeypatch)
 
     base = pd.read_csv(config.PROCESSED_DIR / "dv_emitido_por_leilao.csv",
                        parse_dates=["data_leilao", "data_liquidacao"])
-    recorte = base[base["familia"] == "NTN-B acima de 10 anos"].tail(2).copy()
+    # FILTRA VENDA ANTES DO tail(2). Sem isso o teste pega as duas ULTIMAS
+    # linhas da familia, sejam elas o que forem -- e em 26 e 27/10/2026 as
+    # ultimas viraram RECOMPRA. Como por_dia() tem com_compra=False por padrao,
+    # as duas linhas eram filtradas fora e o teste recebia frame vazio: falhava
+    # dizendo "0 == 1", sem nenhuma relacao com estagio, que e o seu assunto.
+    # Amarra no lugar errado, achada em 27/10/2026.
+    familia = base[(base["familia"] == "NTN-B acima de 10 anos") &
+                   (base["operacao"] == "venda")]
+    recorte = familia.tail(2).copy()
+    assert len(recorte) == 2, "o CSV nao tem duas vendas desta familia"
     recorte["data_leilao"] = pd.Timestamp("2026-08-20")
     recorte["estagio"] = ["planilha", "ofertado"]
 

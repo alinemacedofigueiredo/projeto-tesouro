@@ -324,6 +324,17 @@ def ultimos_leiloes(quantos=LEILOES_NA_COMPARACAO, base=None):
     saida["colocado_qtd_pct"] = (
         saida["qtd_aceita"] / saida["qtd_ofertada"].replace(0, pd.NA))
 
+    # O FINANCEIRO QUE FOI OFERTADO, que o e-mail de leilao pede para dizer
+    # "aceitou 14,33 de 17,85 bi". O Tesouro oferta QUANTIDADE, nao dinheiro --
+    # entao o financeiro ofertado so existe por um preco, e o unico preco
+    # daquele dia e o que saiu do proprio leilao (financeiro / quantidade).
+    #
+    # LOTE INTEIRAMENTE REJEITADO FICA VAZIO, e nao zero: sem quantidade aceita
+    # nao ha preco, e zero diria que o Tesouro ofertou nada. Vazio diz "nao da
+    # para saber por este caminho", que e a verdade.
+    pu = saida["financeiro_milhoes"] / saida["qtd_aceita"].replace(0, pd.NA)
+    saida["financeiro_ofertado_milhoes"] = pu * saida["qtd_ofertada"]
+
     ordem = {dia: k for k, dia in enumerate(reversed(dias))}
     saida["quantos_atras"] = saida["data_leilao"].map(ordem)
     return saida.sort_values(

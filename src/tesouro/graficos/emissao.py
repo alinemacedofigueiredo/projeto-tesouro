@@ -751,7 +751,25 @@ def _marca_pontos(ax, indice, valores, formato, cor, deslocamento=(0, 7),
                               alpha=0.75))
 
 
-def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
+def _reta_da_media(eixo_do_dv, dv):
+    """A media PLANA da janela, tracejada, no eixo do DV. Devolve o valor.
+
+    PLANA, e nao movel. O rotulo promete "media dos N leiloes", e e a media da
+    janela inteira que o grafico ja mostra -- um numero so, uma reta so. Media
+    MOVEL e outra pergunta ("como o nivel andou"), e quem a responde e
+    desenha_lft, com pontilhado e nao tracejado, para as duas nao se
+    confundirem quando aparecem no mesmo e-mail.
+
+    Entrou em 27/10/2026 para os e-mails de leilao. Vem DESLIGADA por padrao:
+    as paginas gravadas do painel nao podem mudar um byte por causa disto.
+    """
+    media = float(dv.mean())
+    eixo_do_dv.axhline(media, color=_COR_DV, lw=1.3, ls=(0, (6, 4)),
+                       label="m\u00e9dia dos %d leil\u00f5es" % len(dv))
+    return media
+
+
+def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None, media=False):
     """Barra de financeiro num eixo, linha de DV no outro.
 
     O SINAL E O DE RISCO EMITIDO (docs/convencoes-dv.md): venda positiva, recompra
@@ -762,6 +780,9 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
     o sinal vinha de P&L e a linha morava no teto do grafico; corrigido o sinal na
     origem, a inversao virou desnecessaria. O parametro sobrevive para nao quebrar
     quem ja chamava.
+
+    'media' acrescenta a reta da media da janela -- ver _reta_da_media. Padrao
+    desligado, para nao mexer nas paginas ja gravadas.
     """
     largura = _largura(dados.index)
     estagios = _estagios(dados)
@@ -786,9 +807,20 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
         _marca_pontos(direita, dados.index, dv, lambda v: estilo.num_br(v, 0),
                       _COR_DV, deslocamento=(8, 8))
         _alinha_zeros(ax, direita, financeiro, dv)
+        # DEPOIS do _alinha_zeros: a reta e horizontal e nao muda escala, mas se
+        # entrasse antes o axhline entraria na conta dos limites.
+        if media:
+            _reta_da_media(direita, dv)
         direita.spines["top"].set_visible(False)
         direita.grid(False)
-    elif series != "dv":
+    else:
+        # ERA 'elif series != "dv"', e 'series' NAO EXISTE NESTA FUNCAO -- o
+        # trecho veio copiado de desenha_acumulado, que tem o parametro. Um
+        # recorte sem DV01 nenhum caia aqui e levantava NameError em vez de
+        # desenhar. Nunca apareceu porque o unico recorte sem DV e a LFT, e ela
+        # tem funcao propria (desenha_lft). Achado e consertado em 27/10/2026,
+        # ao ligar a reta da media; o e-mail de leilao passa a chamar esta
+        # funcao com recortes novos, entao o galho deixou de ser teorico.
         ax.set_ylim(*_limites_simples(financeiro))
 
     _grade(ax)
@@ -800,8 +832,11 @@ def desenha_dois_eixos(dados, ax, rotulo, dv_para_cima=None):
         m2, r2 = direita.get_legend_handles_labels()
         marcas, rotulos = marcas + m2, rotulos + r2
     extras = _legenda_dos_estagios(estagios)
+    # A coluna a mais e da reta. SOMADA e nao recalculada de len(marcas): com a
+    # media desligada a expressao tem de dar exatamente o que dava antes.
     ax.legend(marcas + extras, rotulos + [e.get_label() for e in extras],
-              ncol=2 + len(extras), frameon=False, loc="upper center",
+              ncol=2 + len(extras) + (1 if media and direita is not None else 0),
+              frameon=False, loc="upper center",
               bbox_to_anchor=(0.5, -0.10))
 
 
@@ -866,13 +901,16 @@ def _grade(ax, eixo="y"):
 
 
 def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None,
-                                 periodo="W"):
+                                 periodo="W", media=False):
     """Como desenha_dois_eixos, mas com a barra ABERTA POR FAMILIA de papel.
 
     A barra somada de "LTN + NTN-F" esconde qual dos dois moveu o dia, e eles tem
     prazos muito diferentes: dez bilhoes de LTN curta e dez de NTN-F 2037 sao a
     mesma barra e coisas incomparaveis. A linha do DV continua uma so, porque o
     risco do dia e um so.
+
+    'media' acrescenta a reta da media da janela, igual a de desenha_dois_eixos
+    -- ver _reta_da_media. Padrao desligado.
     """
     familias = familias or [f for f in ORDEM_FAMILIAS if f in dados.columns]
     largura = _largura(dados.index, _TETO_DO_PERIODO.get(periodo, TETO_DIARIO))
@@ -899,6 +937,8 @@ def desenha_dois_eixos_empilhado(dados, ax, rotulo, familias=None,
         _marca_pontos(direita, dados.index, dv, lambda v: estilo.num_br(v, 0),
                       _COR_DV, deslocamento=(8, 8))
         _alinha_zeros(ax, direita, base, dv)
+        if media:
+            _reta_da_media(direita, dv)
         direita.spines["top"].set_visible(False)
         direita.grid(False)
     else:

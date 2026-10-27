@@ -553,6 +553,30 @@ def main(argumentos=None):
                             f"os leiloes ja em disco: {erro}")
                 print(f"ATENCAO: {mensagem}")
                 falhas.append(mensagem)
+
+            # E O DOLAR DO DIA, que congela a conversao do DV01 para USD.
+            #
+            # TODA RODADA DE COLETA, e nao so em dia de leilao: errar para o
+            # lado de gravar um arquivo a mais num dia parado custa 200 bytes;
+            # errar para o outro lado perde a cotacao do dia do leilao, e ela
+            # nao volta -- amanha a PTAX de hoje ainda existe, mas a de ontem
+            # ja nao e a que o e-mail de ontem teria usado.
+            #
+            # A CHAMADA E IDEMPOTENTE: com arquivo no lugar ela devolve o que
+            # esta la e NAO vai a rede. E a guarda que impede a serie de andar
+            # para tras numa segunda rodada -- ver fetch_cambio.py.
+            try:
+                from . import fetch_cambio
+
+                _caminho_do_dolar, _dolar = fetch_cambio.guardar()
+                print("dolar do dia: %s %.4f (cotacao de %s)"
+                      % (_dolar["fonte"], _dolar["taxa"],
+                         _dolar.get("data_da_cotacao")))
+            except Exception as erro:           # noqa: BLE001
+                # Sem dolar o e-mail sai sem a coluna em USD; nada mais depende
+                # disto, entao avisa e segue.
+                print("AVISO: nao consegui guardar o dolar do dia (%s)." % erro)
+                print("       O e-mail de leilao sai sem a coluna em USD.")
         if "coleta_rmd" in passos:
             _fase("baixando o anexo do RMD")
             from . import fetch_rmd

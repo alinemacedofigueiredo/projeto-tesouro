@@ -101,6 +101,24 @@ def _stub_gravacoes(monkeypatch, chamadas=None):
 
     monkeypatch.setattr(_api_leiloes, "guardar", guardar_sem_rede)
 
+    # E O DOLAR DO DIA, que entrou na coleta em 27/10/2026. QUARTA vez que este
+    # arquivo vive a mesma historia -- ver os tres comentarios acima. Sem este
+    # stub os testes que chamam pipeline.main([]) iriam ao Banco Central e
+    # gravariam data/raw/cambio/dolar-AAAA-MM-DD.json de VERDADE.
+    #
+    # ELE DEVOLVE DUPLA (caminho, registro), e o registro precisa ter 'fonte',
+    # 'taxa' e 'data_da_cotacao': o pipeline imprime os tres, e um dicionario
+    # vazio estouraria no KeyError em vez de no stub ausente.
+    from tesouro import fetch_cambio as _fetch_cambio
+
+    def dolar_sem_rede(*args, **kwargs):
+        if chamadas is not None:
+            chamadas.append("tesouro.fetch_cambio.guardar")
+        return (pathlib.Path("nao-gravado-dolar.json"),
+                {"fonte": "PTAX", "taxa": 5.0, "data_da_cotacao": "2026-01-01"})
+
+    monkeypatch.setattr(_fetch_cambio, "guardar", dolar_sem_rede)
+
     for modulo, nome in alvos:
         def stub(*args, _nome=f"{modulo.__name__}.{nome}", **kwargs):
             if chamadas is not None:

@@ -15,6 +15,10 @@ PROCESSED_DIR = RAIZ / "data" / "processed"
 ANBIMA_DIR = RAW_DIR / "anbima"
 BLOOMBERG_DIR = RAW_DIR / "bloomberg"
 
+# Um arquivo por DIA DE LEILAO com o dolar que aquele e-mail usou. Nomeado pelo
+# dia do leilao e nunca reescrito -- ver fetch_cambio.py.
+CAMBIO_DIR = RAW_DIR / "cambio"
+
 # Nome do arquivo unico com todo o historico de leiloes desde 2000.
 ARQUIVO_LEILOES = "historico-leiloes-todos.xls"
 
