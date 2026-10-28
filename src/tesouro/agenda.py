@@ -195,7 +195,7 @@ LEILOES_NA_COMPARACAO = 6
 LEILOES_DA_LFT = 4
 
 
-def _leiloes_realizados():
+def _leiloes_realizados(com_ofertado=False):
     """A base de leiloes ja realizados: so venda, so primeira volta.
 
     So VENDA e so PRIMEIRA VOLTA: a segunda volta sai pela taxa media da primeira e
@@ -204,6 +204,11 @@ def _leiloes_realizados():
     O estagio "ofertado" fica de fora: ele ainda nao tem aceito, e uma barra de
     aceito zerada ao lado de uma de ofertado cheia se le como "nao colocou nada"
     quando o certo e "ainda nao aconteceu".
+
+    'com_ofertado' desfaz isso, e existe para UM leitor: o e-mail da OFERTA, que
+    sai as ~10h e fala justamente do que ainda nao aconteceu. Nele nao ha coluna
+    de aceito para ficar zerada, entao a razao da exclusao nao se aplica. Padrao
+    desligado, para nao mexer em quem ja lia daqui.
     """
     from . import config
 
@@ -214,7 +219,7 @@ def _leiloes_realizados():
                     parse_dates=["data_leilao", "data_vencimento"])
     d = d[d["operacao"] == "venda"]
     d = d[~d["volta"].fillna("").astype(str).str.startswith("2")]
-    if "estagio" in d.columns:
+    if "estagio" in d.columns and not com_ofertado:
         d = d[d["estagio"] != "ofertado"]
     return d
 
@@ -282,7 +287,8 @@ def total_por_dia(dias=None, quantos=LEILOES_NA_COMPARACAO):
     return total.sort_values("quantos_atras").reset_index(drop=True)
 
 
-def ultimos_leiloes(quantos=LEILOES_NA_COMPARACAO, base=None):
+def ultimos_leiloes(quantos=LEILOES_NA_COMPARACAO, base=None,
+                    com_ofertado=False):
     """Os ultimos N leiloes, uma linha por PAPEL E VENCIMENTO.
 
     E o mesmo nivel de detalhe da tabela da agenda -- titulo, vencimento,
@@ -299,7 +305,7 @@ def ultimos_leiloes(quantos=LEILOES_NA_COMPARACAO, base=None):
     quantidade e financeiro, e e mais da metade da emissao. Deixa-la de fora da
     tabela esconderia o maior numero do dia.
     """
-    d = _leiloes_realizados() if base is None else base
+    d = _leiloes_realizados(com_ofertado) if base is None else base
     if d.empty:
         return pd.DataFrame(columns=["data_leilao", "titulo", "familia",
                                      "data_vencimento", "quantos_atras"])
@@ -308,13 +314,41 @@ def ultimos_leiloes(quantos=LEILOES_NA_COMPARACAO, base=None):
     d = d[d["data_leilao"].isin(dias)].copy()
     d["_peso"] = d["taxa_media_pct"] * d["financeiro_milhoes"]
 
+    # O ESTAGIO E A MARCA DE TAXA SUPOSTA VIAJAM JUNTO quando existem. O e-mail da
+    # oferta precisa dos dois para dizer, na propria mensagem, que aquele DV01 foi
+    # calculado pela taxa do leilao anterior daquele papel -- erro medido de 11,0 bp
+    # na mediana, 0,55% no DV01 do lote (ver painel_agenda._NOTA_TAXA). Um numero
+    # suposto que nao se anuncia e o "plausivel e errado" deste projeto.
+    extras = {}
+    if "estagio" in d.columns:
+        extras["estagio"] = ("estagio", "min")
+    if "taxa_suposta" in d.columns:
+        extras["taxa_suposta"] = ("taxa_suposta", "max")
+
+    # O DV SOMA COM min_count=1, e as quantidades nao.
+    #
+    # A soma de um grupo inteiramente vazio devolve 0,0 no pandas, e para o DV
+    # isso e uma AFIRMACAO ERRADA: a LFT nao tem DV01 por decisao de modelagem,
+    # e "zero" diz que o risco dela e nulo, que e coisa diferente de "nao
+    # medimos". O resto do projeto ja trata a LFT como vazia -- painel_agenda
+    # imprime travessao, o grafico dela nao tem linha de DV -- mas o VALOR que
+    # saia daqui era 0,0, e so o formatador escondia. Achado em 28/10/2026 pelo
+    # teste do e-mail, que olha o numero e nao a tela.
+    #
+    # Quantidade e financeiro continuam sem min_count: ali o zero e um fato
+    # (nao ofertou, nao colocou), e nao a ausencia de medicao.
+    def soma_viva(coluna):
+        return pd.NamedAgg(column=coluna,
+                           aggfunc=lambda s: s.sum(min_count=1))
+
     saida = d.groupby(["data_leilao", "titulo", "familia", "data_vencimento"]).agg(
-        dv_aceito=("dv_milhoes", "sum"),
-        dv_ofertado=("dv_ofertado_milhoes", "sum"),
+        dv_aceito=soma_viva("dv_milhoes"),
+        dv_ofertado=soma_viva("dv_ofertado_milhoes"),
         qtd_aceita=("quantidade", "sum"),
         qtd_ofertada=("oferta_qtd", "sum"),
         financeiro_milhoes=("financeiro_milhoes", "sum"),
         _peso=("_peso", "sum"),
+        **extras,
     ).reset_index()
     saida["taxa_media_pct"] = saida["_peso"] / saida["financeiro_milhoes"].replace(
         0, pd.NA)

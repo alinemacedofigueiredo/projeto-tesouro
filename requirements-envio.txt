@@ -1,0 +1,13 @@
+# SO PARA MANDAR E-MAIL. Nao entra no requirements.txt principal de proposito.
+#
+# A razao e a maquina dela: o banco tem trava para baixar coisas, e se este
+# pacote estivesse na lista principal um download bloqueado derrubaria a
+# instalacao INTEIRA -- o projeto nao rodaria nem para gravar as paginas, que
+# e o que ele faz todo dia. Aqui, o que falha e so o envio, e a mensagem de
+# erro de envio.py ensina esta linha.
+#
+#     pip install -r requirements-envio.txt
+#
+# So Windows, e so com o Outlook CLASSICO instalado: o "novo Outlook" nao tem
+# a porta COM que este pacote usa. Ver o cabecalho de src/tesouro/envio.py.
+pywin32>=306; sys_platform == "win32"

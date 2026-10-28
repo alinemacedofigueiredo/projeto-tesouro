@@ -79,6 +79,12 @@ _EXPLICACAO = {
     "paf": "voce editou referencia/paf_bandas.csv -- confere e redesenha "
            "as bandas",
     "tudo": "atualiza as tres fontes e regrava todas as paginas",
+    # O 'hoje' E DE OUTRA NATUREZA e fica por ultimo no menu de proposito: os
+    # quatro de cima terminam em minutos, e este fica ESPERANDO ate as 14h.
+    # Quem clica sem ler precisa que a espera seja a excecao visivel, e nao a
+    # primeira opcao da lista.
+    "hoje": "e dia de leilao -- fica esperando e manda os e-mails da oferta "
+            "e do resultado",
 }
 
 
@@ -259,7 +265,7 @@ def escolher_modo_no_menu(entrada=None, saida=print):
     --modo, e um programa que espera input onde nao ha ninguem trava calado.
     """
     entrada = entrada or input          # ver o comentario em escolher_rmd_no_menu
-    ordem = ["rmd", "leiloes", "paf", "tudo"]
+    ordem = ["rmd", "leiloes", "paf", "tudo", "hoje"]
     saida("O que voce quer atualizar?")
     saida("")
     for i, modo in enumerate(ordem, 1):
@@ -394,6 +400,60 @@ def _onde_estao_as_paginas(saida=print):
     saida('      explorer "%s"' % config.PROCESSED_DIR)
 
 
+def _modo_hoje(opcoes):
+    """O modo "leilao hoje": espera o leilao e despacha os dois e-mails.
+
+    SEM --para, E ENSAIO, e isso nao e enfeite: um e-mail disparado para uma
+    lista nao volta atras, e "esqueci de dizer para quem" nao pode virar
+    "mandou para a ultima lista que alguem usou". Sem destinatario nao ha para
+    quem mandar, entao ele monta, grava e diz onde ficou.
+    """
+    from . import leilao_hoje
+
+    # --para GANHA DO ARQUIVO: a bandeira e o jeito de mandar so para voce
+    # mesma num teste, sem mexer na lista da mesa.
+    para = [x.strip() for x in opcoes.para.split(",") if x.strip()]
+    de_onde = "--para"
+    if not para:
+        para = leilao_hoje.destinatarios()
+        de_onde = str(leilao_hoje.ARQUIVO_DOS_DESTINATARIOS)
+    ensaio = opcoes.ensaio or not para
+
+    print("modo: hoje -- %s" % _EXPLICACAO["hoje"])
+
+    enviar = None
+    if not ensaio:
+        from . import envio
+
+        # PERGUNTA AGORA, E NAO AS 10H45. Descobrir que o Outlook nao responde
+        # na hora do despacho significa perder o e-mail do dia; descobrir as
+        # 9h30 significa ter tempo de resolver ou de avisar a mesa.
+        pode, porque = envio.outlook_responde()
+        if not pode:
+            print("")
+            print("O ENVIO NAO VAI FUNCIONAR NESTA MAQUINA:")
+            print(porque)
+            print("")
+            print("Seguindo em ENSAIO: os e-mails sao montados e gravados, e "
+                  "voce cola a mao.")
+            ensaio = True
+        else:
+            enviar = envio.pelo_outlook
+            print("destinatarios (%s): %s" % (de_onde, ", ".join(para)))
+
+    if ensaio and not opcoes.ensaio and not para:
+        print("sem destinatario: rodando em ENSAIO.")
+        print("   escreva um endereco por linha em %s,"
+              % leilao_hoje.ARQUIVO_DOS_DESTINATARIOS)
+        print("   ou rode com --para fulano@banco,sicrano@banco")
+    _comecou("hoje")
+    feitos = leilao_hoje.espera_e_despacha(enviar=enviar, para=para)
+    print("")
+    print("concluido. Despachado hoje: %s"
+          % (", ".join(feitos) if feitos else "nada"))
+    return 0
+
+
 def main(argumentos=None):
     analisador = argparse.ArgumentParser(description=__doc__)
     analisador.add_argument(
@@ -416,8 +476,19 @@ def main(argumentos=None):
                             metavar="1..12",
                             help="mes do RMD a baixar")
     analisador.add_argument(
-        "--modo", choices=sorted(PASSOS_DO_MODO),
+        "--modo", choices=sorted(PASSOS_DO_MODO) + ["hoje"],
         help="o que atualizar; sem isto, faz tudo (ou pergunta, no terminal)",
+    )
+    # O MODO 'hoje' NAO E UM CONJUNTO DE PASSOS como os outros, e por isso ele
+    # entra em PASSOS_DO_MODO so pelo nome: ele nao regrava CSV nenhum, fica
+    # esperando o leilao e despacha dois e-mails. Ver leilao_hoje.py.
+    analisador.add_argument(
+        "--ensaio", action="store_true",
+        help="no modo 'hoje': monta os e-mails e GRAVA, sem enviar nada",
+    )
+    analisador.add_argument(
+        "--para", default="",
+        help="no modo 'hoje': destinatarios separados por virgula",
     )
     opcoes = analisador.parse_args(argumentos)
 
@@ -430,6 +501,12 @@ def main(argumentos=None):
         interativo = (argumentos is None and len(sys.argv) == 1
                       and _e_interativo())
         modo = escolher_modo_no_menu() if interativo else "tudo"
+
+    # O 'hoje' SAI AQUI, antes de montar passos. Ele nao atualiza pagina
+    # nenhuma: fica esperando o leilao do dia e despacha os dois e-mails.
+    if modo == "hoje":
+        return _modo_hoje(opcoes)
+
     passos = PASSOS_DO_MODO[modo]
     print("modo: %s -- %s" % (modo, _EXPLICACAO[modo]))
     _comecou(modo)

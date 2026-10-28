@@ -1,0 +1,13 @@
+# Quem recebe os e-mails de leilao. Um endereco por linha.
+#
+# Linha em branco e linha comecando com '#' sao ignoradas -- da para deixar
+# alguem de fora por um tempo sem apagar o endereco, so pondo '#' na frente.
+#
+# SEM NENHUM ENDERECO AQUI, o modo 'hoje' roda em ENSAIO: monta os e-mails,
+# grava em data/processed e nao manda nada. E de proposito -- "esqueci de
+# configurar" nao pode virar "mandou para a lista errada".
+#
+# Comece so com voce, rode um dia de leilao inteiro, e so depois acrescente a
+# mesa: o primeiro envio de verdade e o unico que nao da para ensaiar.
+
+aline.macedo-figueiredo@itau-unibanco.com.br

@@ -16,6 +16,15 @@ invocação precisa apontar `PYTHONPATH` para `src`.
 
     pip install -r requirements.txt
 
+Para o modo `hoje` **mandar e-mail** (e só para isso), um pacote a mais:
+
+    pip install -r requirements-envio.txt
+
+Ele fica fora da lista principal de propósito: num ambiente com trava de
+download, tê-lo ali faria a instalação inteira falhar, e o projeto não rodaria
+nem para gravar as páginas. Sem ele, o modo `hoje` monta os e-mails, grava em
+`data/processed` e diz onde ficaram — é só colar.
+
 PowerShell:
 
     $env:PYTHONPATH="src"; python -m tesouro.pipeline --ano 2026 --mes 6

@@ -289,6 +289,47 @@ disco.
 desses. Se for preciso, aponte `SSL_CERT_FILE` para o pacote de certificados da
 instituição.
 
+### Dia de leilão, com e-mail automático (opção `5`)
+
+Esse modo é de outra natureza: os quatro de cima terminam em minutos, e este
+**fica esperando** até as 14h. Por isso ele é o último da lista.
+
+Rode **antes das 10h**. Ele:
+
+1. pergunta ao Outlook se o envio vai funcionar — agora, e não às 10h45;
+2. diz para quem vai mandar, lendo `referencia/destinatarios.txt`;
+3. pergunta ao Tesouro de minuto em minuto;
+4. manda o e-mail da **oferta** quando sai o edital (~10h);
+5. manda o e-mail do **resultado** quando sai o resultado (10:45);
+6. desiste às 14h, dizendo o que ficou por sair.
+
+    $env:PYTHONPATH="src"; python -m tesouro.pipeline --modo hoje
+
+Para mandar só para você num teste, sem mexer na lista da mesa:
+
+    python -m tesouro.pipeline --modo hoje --para voce@banco
+
+Para montar sem mandar nada:
+
+    python -m tesouro.pipeline --modo hoje --ensaio
+
+**Sem ninguém em `referencia/destinatarios.txt`, ele já roda em ensaio.** É de
+propósito: "esqueci de configurar" não pode virar "mandou para a lista errada".
+
+#### O que acontece quando dá errado
+
+| Situação | O que ele faz |
+|---|---|
+| A máquina caiu às 10h20 e você rodou de novo | Não remanda a oferta. Espera só o resultado. |
+| O Outlook bloqueou o envio automático | **Abre a mensagem pronta na tela**, avisa que NÃO foi enviada, não marca como enviada, não tenta de novo no minuto seguinte, e continua esperando o resultado. |
+| Não há `pywin32` ou só há o "novo Outlook" | Avisa às 9h30, cai em ensaio e grava os arquivos para você colar. |
+| Não houve leilão | Termina dizendo "nada". |
+
+A trava do reenvio é um arquivo por (dia, tipo, estágio) em
+`data/raw/emails_enviados/`, e a marca só é gravada **depois** que o envio volta
+sem erro. Marcar antes trocaria "mandei duas vezes" por "nunca mandei e achei
+que tinha" — o primeiro se percebe, o segundo não.
+
 ## O que este projeto NÃO faz sozinho
 
 - **A banda do PAF** entra a mão. O informe do Tesouro usa uma fonte com
@@ -298,3 +339,6 @@ instituição.
   certificado do site trava o download automático.
 - **Nada aqui decide por você** se um número está certo. As páginas dizem de
   onde veio cada coisa justamente para você julgar.
+- **Mandar e-mail só no modo `hoje`**, e só pelo Outlook clássico, e só para
+  quem estiver em `referencia/destinatarios.txt`. O projeto nunca vê, nunca
+  pede e nunca guarda senha — ele usa a sessão do Outlook que já está aberta.
