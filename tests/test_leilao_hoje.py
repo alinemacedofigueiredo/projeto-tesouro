@@ -296,3 +296,152 @@ def test_todo_endereco_do_arquivo_do_projeto_E_UM_ENDERECO():
         assert usuario, "endereco sem nome antes do @: %r" % endereco
         assert "." in dominio, "dominio sem ponto: %r" % endereco
         assert " " not in endereco, "espaco no meio: %r" % endereco
+
+
+# ------------------------------------ a trava dos papeis incompletos
+
+
+_CALENDARIO = [
+    {"DATA_LEILAO": "2026-10-20", "TIPO_LEILAO": "Venda",
+     "TITULO": "NTN-B", "VENCIMENTO": "2029-05-15"},
+    {"DATA_LEILAO": "2026-10-20", "TIPO_LEILAO": "Venda",
+     "TITULO": "NTN-B", "VENCIMENTO": "2045-05-15"},
+    {"DATA_LEILAO": "2026-10-20", "TIPO_LEILAO": "Venda",
+     "TITULO": "LFT", "VENCIMENTO": "2032-12-01"},
+    # Um de COMPRA no mesmo dia: nao tem e-mail e nao pode segurar nada.
+    {"DATA_LEILAO": "2026-10-20", "TIPO_LEILAO": "Compra",
+     "TITULO": "NTN-B", "VENCIMENTO": "2035-05-15"},
+    {"DATA_LEILAO": "2026-10-22", "TIPO_LEILAO": "Venda",
+     "TITULO": "LTN", "VENCIMENTO": "2028-01-01"},
+]
+
+
+def _espera(monkeypatch):
+    """Fixa os esperados do calendario de mentira.
+
+    O CONJUNTO E CALCULADO ANTES do monkeypatch: um lambda que chamasse
+    leilao_hoje.papeis_esperados chamaria a si mesmo, porque a essa altura ele
+    JA E o atributo trocado. RecursionError, e nao erro de logica -- levei uma
+    rodada para ver.
+    """
+    esperados = leilao_hoje.papeis_esperados(_DIA, _CALENDARIO)
+    monkeypatch.setattr(leilao_hoje, "papeis_esperados",
+                        lambda *a, **k: esperados)
+    return esperados
+
+
+def _so_saiu(monkeypatch, vertices):
+    """O que o dado de hoje ja tem, como (titulo, vencimento)."""
+    monkeypatch.setattr(leilao_hoje, "papeis_que_sairam",
+                        lambda *a, **k: set(vertices))
+
+
+def test_a_COMPRA_do_calendario_nao_segura_o_email_de_venda(monkeypatch):
+    """Leilao de compra existe no calendario e nao tem e-mail."""
+    esperados = leilao_hoje.papeis_esperados(_DIA, _CALENDARIO)
+    assert ("NTN-B", "2035-05-15") not in esperados
+    assert len(esperados) == 3
+
+
+def test_FALTANDO_UM_VERTICE_ele_NAO_MANDA(monkeypatch, tmp_path):
+    """O defeito que ela descreveu em 29/10/2026: "as vezes um papel demora
+    mais que outro para sair a quantidade, e ai o email sai com um dv menor".
+
+    O e-mail sairia com DV01 menor e SEM PARECER ERRADO. E por isso que a
+    comparacao e por vertice: a NTN-B 2045 atrasada nao e coberta pela 2029
+    que ja saiu.
+    """
+    _sem_montar(monkeypatch, tmp_path)
+    _as_dez_da_manha(monkeypatch)
+    _espera(monkeypatch)
+    _so_saiu(monkeypatch, [("NTN-B", "2029-05-15"),
+                           ("LFT", "2032-12-01")])      # falta a 2045
+
+    carteiro = _Carteiro()
+    falas = []
+    voltas = []
+
+    def relogio():
+        voltas.append(1)
+        return dt.datetime(2026, 10, 20, 10 if len(voltas) < 4 else 15, 0)
+    monkeypatch.setattr(leilao_hoje, "_agora", relogio)
+
+    feitos = leilao_hoje.espera_e_despacha(
+        _DIA, enviar=carteiro, para=["mesa@banco"], destino=tmp_path,
+        saida=falas.append, dormir=lambda _s: None,
+        buscar=lambda _d: {"oferta", "resultado"})
+
+    assert feitos == [], "mandou com vertice faltando"
+    assert carteiro.mandados == []
+    assert any("2045-05-15" in f for f in falas), (
+        "nao disse QUAL vertice faltou: %s" % falas)
+    assert any("mesmo-incompleto" in f for f in falas), (
+        "nao ofereceu a saida para o caso de cancelamento")
+
+
+def test_COM_TODOS_os_vertices_ele_manda(monkeypatch, tmp_path):
+    """A outra metade: sem esta, "nao mandou" passaria com a trava travada
+    para sempre."""
+    _sem_montar(monkeypatch, tmp_path)
+    _as_dez_da_manha(monkeypatch)
+    _espera(monkeypatch)
+    _so_saiu(monkeypatch, [("NTN-B", "2029-05-15"), ("NTN-B", "2045-05-15"),
+                           ("LFT", "2032-12-01")])
+
+    carteiro = _Carteiro()
+    feitos = leilao_hoje.espera_e_despacha(
+        _DIA, enviar=carteiro, para=["mesa@banco"], destino=tmp_path,
+        saida=lambda *a: None, dormir=lambda _s: None,
+        buscar=lambda _d: {"oferta", "resultado"})
+    assert feitos == ["oferta", "resultado"]
+    assert len(carteiro.mandados) == 2
+
+
+def test_vertice_A_MAIS_do_que_o_calendario_previa_NAO_segura(monkeypatch):
+    """Leilao extraordinario acontece -- os de compra de 26 e 27/10/2026 nao
+    estavam no comunicado trimestral. O que segura e o que FALTA."""
+    esperados = leilao_hoje.papeis_esperados(_DIA, _CALENDARIO)
+    sairam = esperados | {("NTN-B", "2060-08-15")}
+    assert esperados - sairam == set()
+
+
+def test_CALENDARIO_CALADO_sobre_o_dia_avisa_que_nao_da_para_conferir(
+        monkeypatch, tmp_path):
+    """Nao e "esta tudo la", e "nao da para conferir".
+
+    Ela pediu uma GARANTIA. Num dia que o calendario nao cobre nao ha
+    garantia, e dizer isso em voz alta e o minimo -- calar seria afirmar o
+    que nao se sabe.
+    """
+    _sem_montar(monkeypatch, tmp_path)
+    _as_dez_da_manha(monkeypatch)
+    monkeypatch.setattr(leilao_hoje, "papeis_esperados", lambda *a, **k: set())
+
+    carteiro = _Carteiro()
+    falas = []
+    feitos = leilao_hoje.espera_e_despacha(
+        _DIA, enviar=carteiro, para=["mesa@banco"], destino=tmp_path,
+        saida=falas.append, dormir=lambda _s: None,
+        buscar=lambda _d: {"oferta", "resultado"})
+
+    assert feitos == ["oferta", "resultado"], "parou de mandar por precaucao"
+    assert any("NAO DA PARA CONFERIR" in f for f in falas), falas
+    # UMA VEZ SO, e nao a cada volta ate as 14h.
+    assert sum("NAO DA PARA CONFERIR" in f for f in falas) == 1
+
+
+def test_mesmo_incompleto_FORCA_o_envio(monkeypatch, tmp_path):
+    """Para o dia em que o vertice foi CANCELADO -- aconteceu em 29/10/2026,
+    o leilao inteiro caiu. Cancelado e atrasado sao indistinguiveis daqui, e
+    so ela sabe qual e qual."""
+    _sem_montar(monkeypatch, tmp_path)
+    _as_dez_da_manha(monkeypatch)
+    _espera(monkeypatch)
+    _so_saiu(monkeypatch, [("NTN-B", "2029-05-15")])
+
+    carteiro = _Carteiro()
+    feitos = leilao_hoje.espera_e_despacha(
+        _DIA, enviar=carteiro, para=["mesa@banco"], destino=tmp_path,
+        saida=lambda *a: None, dormir=lambda _s: None,
+        buscar=lambda _d: {"oferta", "resultado"}, mesmo_incompleto=True)
+    assert feitos == ["oferta", "resultado"]

@@ -30,7 +30,7 @@ import datetime as dt
 import json
 import time
 
-from . import config, email_leilao, leilao_do_dia
+from . import api_leiloes, config, email_leilao, leilao_do_dia
 
 # De quanto em quanto tempo perguntar. Um minuto e barato para a API do
 # Tesouro e rapido o bastante: o que se perde no pior caso e um minuto.
@@ -138,6 +138,59 @@ def despacha(dia, tipo, estagio, enviar=None, para=None, destino=None,
     return caminho, marca
 
 
+def papeis_esperados(dia, registros=None):
+    """Os vertices que o CALENDARIO diz que saem naquele dia, como conjunto de
+    (titulo, vencimento). Vazio quando o calendario nao fala daquele dia.
+
+    SO VENDA: os e-mails sao de leilao de venda. Os de compra existem no
+    calendario (quatro, em 27/10/2026) e nao tem e-mail.
+
+    NAO TOCA A REDE -- calendario_publicado le do disco.
+    """
+    if registros is None:
+        registros, _de_onde, _de_quando = api_leiloes.calendario_publicado()
+    alvo = dia.isoformat()
+    return {(r["TITULO"], r["VENCIMENTO"][:10])
+            for r in registros or []
+            if str(r.get("DATA_LEILAO", ""))[:10] == alvo
+            and str(r.get("TIPO_LEILAO", "")).lower().startswith("venda")}
+
+
+def papeis_que_sairam(dia, tipo):
+    """Os vertices que JA aparecem no dado de hoje, como o mesmo conjunto."""
+    d = email_leilao.dados(dia, tipo, estagio="oferta")
+    return {(x["titulo"], x["vencimento"].isoformat()) for x in d["linhas"]}
+
+
+def o_que_falta(dia, tipo, registros=None):
+    """Os vertices esperados que ainda NAO sairam.
+
+    A TRAVA QUE ELA PEDIU EM 29/10/2026, com as palavras dela: "as vezes um
+    papel demora mais que outro para sair a quantidade, e ai o email sai com
+    um dv menor".
+
+    E o defeito mais perigoso que este projeto ja teve candidato a cometer: o
+    e-mail sai com DV01 MENOR e parece inteiramente correto. Ninguem confere
+    um numero que nao destoa. Por isso a comparacao e por VERTICE e nao por
+    papel -- uma NTN-B 2045 que atrasou nao e coberta pela 2029 que ja saiu.
+
+    CALENDARIO CALADO SOBRE O DIA devolve conjunto vazio, que quer dizer "nao
+    da para conferir" e NAO "esta tudo la". Quem chama distingue os dois: ver
+    espera_e_despacha.
+    """
+    esperados = papeis_esperados(dia, registros)
+    if not esperados:
+        return set()
+    try:
+        sairam = papeis_que_sairam(dia, tipo)
+    except LookupError:
+        return esperados
+    # SO O QUE FALTA, e nao a diferenca simetrica: vertice a MAIS do que o
+    # calendario previa nao segura o e-mail. Leilao extraordinario acontece --
+    # os de compra de 26 e 27/10/2026 nao estavam no comunicado trimestral.
+    return esperados - sairam
+
+
 def _agora():
     """Isolado para o teste poder trocar sem mexer no relogio da maquina."""
     return dt.datetime.now()
@@ -145,7 +198,7 @@ def _agora():
 
 def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
                       limite=LIMITE, destino=None, saida=print,
-                      dormir=time.sleep, buscar=None):
+                      dormir=time.sleep, buscar=None, mesmo_incompleto=False):
     """O laco do dia: espera a oferta, manda; espera o resultado, manda.
 
     Devolve o que foi despachado, como lista de estagios.
@@ -161,6 +214,9 @@ def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
     # despacha(), que sabe o tipo. Tentei filtrar aqui e precisava do tipo
     # ANTES de haver leilao -- que as 9h30 e justamente o que nao existe.
     pendentes = ["oferta", "resultado"]
+    # So para nao repetir a mesma lista de faltantes a cada minuto ate as 14h.
+    ultima_falta = None
+    avisei_sem_calendario = False
 
     saida("esperando o leilao de %s (ate as %s, olhando a cada %ds)"
           % (dia.strftime("%d/%m/%Y"), limite.strftime("%H:%M"), intervalo))
@@ -170,6 +226,33 @@ def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
     while pendentes and _agora().time() < limite:
         achado = buscar(dia)
         tipo = email_leilao.tipo_do_dia(dia)
+
+        # A TRAVA DOS PAPEIS INCOMPLETOS. Com um vertice faltando, o e-mail
+        # sairia com DV01 menor e sem nada parecendo errado -- ver o_que_falta.
+        # Segura os DOIS estagios: na oferta falta lote, no resultado falta
+        # risco colocado.
+        # CALENDARIO CALADO SOBRE O DIA NAO E "ESTA TUDO LA" -- e "nao da para
+        # conferir". Acontece em leilao extraordinario e quando o comunicado
+        # trimestral ja passou do fim. A trava dela nao vale ali, e dizer isso
+        # em voz alta e o minimo: ela pediu uma GARANTIA, e neste caso nao ha.
+        if tipo and not avisei_sem_calendario and not papeis_esperados(dia):
+            saida("AVISO: o calendario salvo nao fala de %s, entao NAO DA "
+                  "PARA CONFERIR se todos os papeis sairam." % dia.strftime(
+                      "%d/%m/%Y"))
+            saida("   Vou despachar pelo que estiver no dado. Confira o DV01 "
+                  "contra o que voce esperava.")
+            avisei_sem_calendario = True
+
+        falta = o_que_falta(dia, tipo) if tipo else set()
+        if falta and not mesmo_incompleto:
+            if falta != ultima_falta:
+                saida("esperando %d vertice(s) que o calendario previa: %s"
+                      % (len(falta), ", ".join("%s %s" % x
+                                               for x in sorted(falta))))
+                ultima_falta = falta
+            dormir(intervalo)
+            continue
+
         for estagio in list(pendentes):
             if estagio not in achado or tipo is None:
                 continue
@@ -196,9 +279,25 @@ def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
             dormir(intervalo)
 
     if pendentes:
-        saida("parei as %s com %s por sair. Se houve leilao e o e-mail nao "
-              "saiu, rode de novo ou monte a mao."
-              % (limite.strftime("%H:%M"), " e ".join(pendentes)))
+        saida("parei as %s com %s por sair." % (limite.strftime("%H:%M"),
+                                                " e ".join(pendentes)))
+        tipo = _tipo_ou_nada(dia)
+        falta = o_que_falta(dia, tipo) if tipo else set()
+        if falta:
+            # NOMEAR O QUE FALTOU, e nao so dizer que faltou. Um vertice
+            # cancelado -- aconteceu em 29/10/2026, o leilao inteiro caiu --
+            # e indistinguivel de um que atrasou, e so ela sabe qual e qual.
+            saida("")
+            saida("NAO MANDEI porque o calendario previa vertice(s) que nao "
+                  "sairam:")
+            for titulo, vencimento in sorted(falta):
+                saida("   %s %s" % (titulo, vencimento))
+            saida("")
+            saida("Se eles foram CANCELADOS, o e-mail esta certo sem eles --")
+            saida("rode de novo com --mesmo-incompleto para mandar assim.")
+        else:
+            saida("Se houve leilao e o e-mail nao saiu, rode de novo ou "
+                  "monte a mao.")
     return feitos
 
 
