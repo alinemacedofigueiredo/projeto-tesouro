@@ -165,6 +165,11 @@ def _linha(r, dolar):
         "dv_aceito": dv_aceito,
         "dv_aceito_usd": _em_dolar(dv_aceito, dolar),
         "taxa_suposta": bool(r.get("taxa_suposta", False)),
+        # O ESTAGIO VIAJA JUNTO porque o laco precisa saber, vertice a
+        # vertice, QUAL JA TEM RESULTADO: o e-mail do resultado so sai quando
+        # todos os que foram OFERTADOS tiverem saido, e "ofertado" e
+        # exatamente o estagio de quem ainda nao tem.
+        "estagio": r.get("estagio") or "",
         "colocado": _colocado(r),
     }
 
@@ -532,12 +537,46 @@ def _nota_da_taxa_suposta(d):
             'o que move o DV01 do lote em 0,55%%.</p>' % (_FONTE, _FRACO))
 
 
+def _aviso_do_que_faltou(faltando):
+    """O bloco que diz, DENTRO do e-mail, quais vertices nao foram puxados.
+
+    REGRA DELA, de 30/10/2026: a oferta sai as 10:05 mesmo incompleta, "e
+    avisa dentro do email os papeis que voce nao conseguiu puxar a
+    quantidade". DENTRO e a palavra que importa -- um aviso so no log serve a
+    quem rodou, e quem recebe e que vai olhar o DV01 e tirar conclusao dele.
+
+    FICA ANTES DA TABELA, e nao depois: depois seria lido tarde demais, por
+    quem ja formou opiniao sobre o numero.
+
+    Cor forte e sem meio-termo. Este e o unico lugar do e-mail onde o projeto
+    admite que o numero ao lado esta incompleto, e um aviso discreto aqui
+    seria pior que nenhum.
+    """
+    if not faltando:
+        return ""
+    linhas = "".join(
+        "<li style=\"padding:1px 0\">%s &middot; vencimento %s</li>"
+        % (titulo, dt.date.fromisoformat(vencimento).strftime("%d/%m/%Y"))
+        for titulo, vencimento in sorted(faltando))
+    return (
+        '<div style="%s;border:1px solid %s;border-left:4px solid %s;'
+        'background:#fdf6f4;padding:12px 15px;margin:0 0 18px">'
+        '<div style="font-weight:600;color:%s">Faltam %d papel(is) nesta '
+        'mensagem</div>'
+        '<div style="font-size:13px;padding:4px 0 6px">N\u00e3o consegui puxar '
+        'a quantidade ofertada destes v\u00e9rtices at\u00e9 o hor\u00e1rio de envio. '
+        '<b>O financeiro e o DV01 abaixo n\u00e3o incluem eles</b>, ent\u00e3o o lote '
+        'total do leil\u00e3o \u00e9 maior do que o que aparece aqui.</div>'
+        '<ul style="margin:0;padding-left:20px;font-size:13px">%s</ul></div>'
+        % (_FONTE, _REALCE, _REALCE, _REALCE, len(faltando), linhas))
+
+
 def _titulo(texto):
     return ('<h2 style="%s;font-size:16px;font-weight:600;margin:26px 0 10px">'
             "%s</h2>" % (_FONTE, texto))
 
 
-def html(d, figuras=None):
+def html(d, figuras=None, faltando=None):
     """O corpo do e-mail, em HTML, a partir do que dados() devolveu.
 
     'figuras' sao os PNG ja prontos; None gera na hora. Separado para o teste
@@ -569,6 +608,10 @@ def html(d, figuras=None):
         # junto -- e ai nao ha como saber de que leilao se trata.
         '<div style="%s;font-size:19px;font-weight:600;padding:0 0 14px">'
         "%s</div>" % (_FONTE, assunto(d)),
+        # O AVISO VEM ANTES DE QUALQUER NUMERO, inclusive dos quadros do
+        # topo. Depois deles seria lido por quem ja formou opiniao sobre o
+        # DV01 -- e e exatamente sobre o DV01 que ele avisa.
+        _aviso_do_que_faltou(faltando),
         _quadros(d),
         _titulo(qual),
         _tabela_do_dia(d),
@@ -585,7 +628,8 @@ def html(d, figuras=None):
     return "\n".join(partes)
 
 
-def grava(data_leilao, tipo=None, estagio="resultado", destino=None):
+def grava(data_leilao, tipo=None, estagio="resultado", destino=None,
+          faltando=None):
     """Monta e grava o e-mail como arquivo. NAO MANDA NADA.
 
     O arquivo serve a dois caminhos: e o que o modo --ensaio produz em vez de
@@ -595,7 +639,7 @@ def grava(data_leilao, tipo=None, estagio="resultado", destino=None):
     if tipo is None:
         raise LookupError("nao houve leilao em %s" % data_leilao)
     d = dados(data_leilao, tipo, estagio)
-    corpo = html(d)
+    corpo = html(d, faltando=faltando)
     pasta = destino or config.PROCESSED_DIR
     pasta.mkdir(parents=True, exist_ok=True)
     alvo = pasta / ("email-%s-%s-%s.html"

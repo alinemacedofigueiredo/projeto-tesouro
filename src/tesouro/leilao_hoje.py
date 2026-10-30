@@ -38,7 +38,19 @@ INTERVALO = 60
 
 # Quando desistir. Depois disso, ou nao houve leilao, ou houve e algo deu
 # errado -- e nos dois casos ficar rodando em silencio nao ajuda ninguem.
-LIMITE = dt.time(14, 0)
+# OS DOIS PRAZOS, dela, em 30/10/2026. Nao e um limite so: as duas pontas tem
+# regras OPOSTAS, e e por isso que sao dois numeros e nao um.
+#
+#   a oferta FALHA ABERTA  -- as 10:05 ela manda com o que tem, avisando no
+#     proprio corpo quais papeis nao conseguiu puxar. Oferta incompleta ainda
+#     informa o lote que ja saiu;
+#   o resultado FALHA FECHADO -- ao meio-dia, faltando vertice, NAO manda.
+#     Resultado incompleto mente sobre o DV01 colocado, e isso nao tem aviso
+#     que conserte: o numero menor parece certo.
+#
+# Depois do meio-dia nao sai e-mail automatico nenhum.
+PRAZO_DA_OFERTA = dt.time(10, 5)
+PRAZO_DO_RESULTADO = dt.time(12, 0)
 
 PASTA_DOS_ENVIADOS = config.RAW_DIR / "emails_enviados"
 
@@ -111,17 +123,22 @@ def _marca(dia, tipo, estagio, para, assunto, destino=None):
 
 
 def despacha(dia, tipo, estagio, enviar=None, para=None, destino=None,
-             saida=print):
+             saida=print, faltando=None):
     """Monta o e-mail e manda -- ou grava, quando 'enviar' e None (ensaio).
 
     A MARCA SO E GRAVADA DEPOIS DE 'enviar' VOLTAR SEM ERRO. Gravar antes
     trocaria "mandei duas vezes" por "nunca mandei e achei que tinha", que e
     pior: o primeiro se percebe, o segundo nao.
+
+    'faltando' sao os vertices que o calendario previa e que nao sairam ate o
+    prazo. Eles vao DENTRO do corpo do e-mail, e nao so no log: quem recebe
+    precisa saber que aquele DV01 nao e o lote inteiro. So a OFERTA chega aqui
+    com vertice faltando -- o resultado incompleto nao e enviado.
     """
     if ja_enviado(dia, tipo, estagio, destino):
         raise JaFoi("o e-mail de %s de %s ja saiu hoje" % (estagio, tipo))
 
-    caminho, d = email_leilao.grava(dia, tipo, estagio)
+    caminho, d = email_leilao.grava(dia, tipo, estagio, faltando=faltando)
     assunto = email_leilao.assunto(d)
 
     if enviar is None:
@@ -162,21 +179,29 @@ def papeis_que_sairam(dia, tipo):
     return {(x["titulo"], x["vencimento"].isoformat()) for x in d["linhas"]}
 
 
-def o_que_falta(dia, tipo, registros=None):
-    """Os vertices esperados que ainda NAO sairam.
+def com_resultado(dia, tipo):
+    """Os vertices que ja tem RESULTADO, e nao so oferta.
 
-    A TRAVA QUE ELA PEDIU EM 29/10/2026, com as palavras dela: "as vezes um
-    papel demora mais que outro para sair a quantidade, e ai o email sai com
-    um dv menor".
+    O estagio "ofertado" e exatamente o de quem ainda nao tem: a taxa dele e
+    emprestada do leilao anterior. Qualquer outro estagio quer dizer que o
+    Tesouro ja publicou o que aceitou.
+    """
+    d = email_leilao.dados(dia, tipo, estagio="oferta")
+    return {(x["titulo"], x["vencimento"].isoformat()) for x in d["linhas"]
+            if x["estagio"] != "ofertado"}
 
-    E o defeito mais perigoso que este projeto ja teve candidato a cometer: o
-    e-mail sai com DV01 MENOR e parece inteiramente correto. Ninguem confere
-    um numero que nao destoa. Por isso a comparacao e por VERTICE e nao por
-    papel -- uma NTN-B 2045 que atrasou nao e coberta pela 2029 que ja saiu.
 
-    CALENDARIO CALADO SOBRE O DIA devolve conjunto vazio, que quer dizer "nao
-    da para conferir" e NAO "esta tudo la". Quem chama distingue os dois: ver
-    espera_e_despacha.
+def falta_na_oferta(dia, tipo, registros=None):
+    """Vertices que o CALENDARIO previa e que ainda nao apareceram.
+
+    A TRAVA QUE ELA PEDIU EM 29/10/2026: "as vezes um papel demora mais que
+    outro para sair a quantidade, e ai o email sai com um dv menor".
+
+    POR VERTICE E NAO POR PAPEL -- uma NTN-B 2045 atrasada nao e coberta pela
+    2029 que ja saiu, e e justamente esse o caso dela.
+
+    SO O QUE FALTA, e nao a diferenca simetrica: vertice a MAIS do que o
+    calendario previa nao segura nada.
     """
     esperados = papeis_esperados(dia, registros)
     if not esperados:
@@ -185,10 +210,22 @@ def o_que_falta(dia, tipo, registros=None):
         sairam = papeis_que_sairam(dia, tipo)
     except LookupError:
         return esperados
-    # SO O QUE FALTA, e nao a diferenca simetrica: vertice a MAIS do que o
-    # calendario previa nao segura o e-mail. Leilao extraordinario acontece --
-    # os de compra de 26 e 27/10/2026 nao estavam no comunicado trimestral.
     return esperados - sairam
+
+
+def falta_no_resultado(dia, tipo):
+    """Vertices que foram OFERTADOS e ainda nao tem resultado.
+
+    CONTRA A OFERTA, E NAO CONTRA O CALENDARIO -- desenho dela, e melhor que o
+    meu: a oferta e a verdade DO DIA. Se o Tesouro ofertou cinco vertices, sao
+    cinco resultados. O calendario e a previsao de semanas atras, e pode ter
+    sido revisado.
+    """
+    try:
+        ofertados = papeis_que_sairam(dia, tipo)
+    except LookupError:
+        return set()
+    return ofertados - com_resultado(dia, tipo)
 
 
 def _agora():
@@ -197,72 +234,82 @@ def _agora():
 
 
 def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
-                      limite=LIMITE, destino=None, saida=print,
-                      dormir=time.sleep, buscar=None, mesmo_incompleto=False):
-    """O laco do dia: espera a oferta, manda; espera o resultado, manda.
+                      prazo_da_oferta=PRAZO_DA_OFERTA,
+                      prazo_do_resultado=PRAZO_DO_RESULTADO, destino=None,
+                      saida=print, dormir=time.sleep, buscar=None,
+                      registros=None):
+    """O dia de leilao: espera a oferta, manda; espera o resultado, manda.
 
-    Devolve o que foi despachado, como lista de estagios.
+    Devolve os estagios que foram despachados NESTA rodada.
 
-    QUEM BUSCA E INJETAVEL ('buscar') pelo mesmo motivo de 'enviar': o teste
-    precisa fazer o dia passar sem rede e sem relogio.
+    SO LEILAO DO CALENDARIO, por enquanto. Ela restringiu o escopo em
+    30/10/2026 -- leilao fora do calendario sera desenhado depois. Sem
+    previsao para o dia, isto termina NA HORA, em vez de esperar ate o
+    meio-dia por algo que nao vem: o calendario e lido do disco e nao muda
+    durante a rodada.
+
+    QUEM BUSCA e QUEM MANDA sao injetaveis pelo mesmo motivo: o teste precisa
+    fazer a manha passar sem rede, sem relogio e sem mandar nada.
     """
     dia = dia or dt.date.today()
     buscar = buscar or _procura_na_api
     feitos = []
 
-    # COMECA COM OS DOIS PENDENTES, e quem decide "ja saiu" e a guarda de
-    # despacha(), que sabe o tipo. Tentei filtrar aqui e precisava do tipo
-    # ANTES de haver leilao -- que as 9h30 e justamente o que nao existe.
-    pendentes = ["oferta", "resultado"]
-    # So para nao repetir a mesma lista de faltantes a cada minuto ate as 14h.
-    ultima_falta = None
-    avisei_sem_calendario = False
+    esperados = papeis_esperados(dia, registros)
+    if not esperados:
+        saida("o calendario salvo nao preve leilao de VENDA em %s."
+              % dia.strftime("%d/%m/%Y"))
+        saida("   Leilao fora do calendario ainda nao tem e-mail automatico.")
+        return feitos
 
-    saida("esperando o leilao de %s (ate as %s, olhando a cada %ds)"
-          % (dia.strftime("%d/%m/%Y"), limite.strftime("%H:%M"), intervalo))
+    saida("leilao de %s: %d vertice(s) previstos no calendario"
+          % (dia.strftime("%d/%m/%Y"), len(esperados)))
+    saida("   oferta ate %s (manda assim mesmo, avisando o que faltar)"
+          % prazo_da_oferta.strftime("%H:%M"))
+    saida("   resultado ate %s (nao manda se faltar)"
+          % prazo_do_resultado.strftime("%H:%M"))
     if enviar is None:
         saida("MODO ENSAIO: nada sera enviado; os e-mails sao gravados.")
 
-    while pendentes and _agora().time() < limite:
+    pendentes = ["oferta", "resultado"]
+    ultimo_aviso = {}
+
+    while pendentes and _agora().time() < prazo_do_resultado:
         achado = buscar(dia)
         tipo = email_leilao.tipo_do_dia(dia)
-
-        # A TRAVA DOS PAPEIS INCOMPLETOS. Com um vertice faltando, o e-mail
-        # sairia com DV01 menor e sem nada parecendo errado -- ver o_que_falta.
-        # Segura os DOIS estagios: na oferta falta lote, no resultado falta
-        # risco colocado.
-        # CALENDARIO CALADO SOBRE O DIA NAO E "ESTA TUDO LA" -- e "nao da para
-        # conferir". Acontece em leilao extraordinario e quando o comunicado
-        # trimestral ja passou do fim. A trava dela nao vale ali, e dizer isso
-        # em voz alta e o minimo: ela pediu uma GARANTIA, e neste caso nao ha.
-        if tipo and not avisei_sem_calendario and not papeis_esperados(dia):
-            saida("AVISO: o calendario salvo nao fala de %s, entao NAO DA "
-                  "PARA CONFERIR se todos os papeis sairam." % dia.strftime(
-                      "%d/%m/%Y"))
-            saida("   Vou despachar pelo que estiver no dado. Confira o DV01 "
-                  "contra o que voce esperava.")
-            avisei_sem_calendario = True
-
-        falta = o_que_falta(dia, tipo) if tipo else set()
-        if falta and not mesmo_incompleto:
-            if falta != ultima_falta:
-                saida("esperando %d vertice(s) que o calendario previa: %s"
-                      % (len(falta), ", ".join("%s %s" % x
-                                               for x in sorted(falta))))
-                ultima_falta = falta
-            dormir(intervalo)
-            continue
+        agora = _agora().time()
 
         for estagio in list(pendentes):
             if estagio not in achado or tipo is None:
                 continue
+
+            falta = (falta_na_oferta(dia, tipo, registros)
+                     if estagio == "oferta" else falta_no_resultado(dia, tipo))
+            no_prazo = (agora < prazo_da_oferta if estagio == "oferta"
+                        else agora < prazo_do_resultado)
+
+            if falta and no_prazo:
+                if ultimo_aviso.get(estagio) != falta:
+                    saida("%s: faltam %d vertice(s) -- %s"
+                          % (estagio, len(falta),
+                             ", ".join("%s %s" % x for x in sorted(falta))))
+                    ultimo_aviso[estagio] = falta
+                continue
+
+            if falta and estagio == "resultado":
+                continue          # fora do prazo o laco inteiro termina
+
+            if falta:
+                # A OFERTA FALHA ABERTA, e o aviso vai DENTRO do e-mail: quem
+                # recebe precisa saber que aquele DV01 nao e o lote inteiro.
+                saida("oferta: passou das %s com %d vertice(s) faltando -- "
+                      "mandando assim mesmo, com aviso no corpo."
+                      % (prazo_da_oferta.strftime("%H:%M"), len(falta)))
+
             try:
-                despacha(dia, tipo, estagio, enviar, para, destino, saida)
+                despacha(dia, tipo, estagio, enviar, para, destino, saida,
+                         faltando=falta)
             except JaFoi as erro:
-                # SAI DA FILA MAS NAO ENTRA EM 'feitos'. A versao anterior
-                # contava como feito, e o laco dizia ter mandado um e-mail que
-                # a guarda tinha acabado de impedir -- a mensagem afirmando o
-                # que nao sabe, de novo.
                 saida("nada a fazer: %s" % erro)
                 pendentes.remove(estagio)
                 continue
@@ -270,34 +317,30 @@ def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
                 saida("ATENCAO: o e-mail de %s NAO FOI ENVIADO -- %s"
                       % (estagio, erro))
                 saida("   ele esta aberto na sua tela esperando o clique.")
-                saida("   sigo esperando o resto do dia normalmente.")
                 pendentes.remove(estagio)
                 continue
             feitos.append(estagio)
             pendentes.remove(estagio)
+
         if pendentes:
             dormir(intervalo)
 
-    if pendentes:
-        saida("parei as %s com %s por sair." % (limite.strftime("%H:%M"),
-                                                " e ".join(pendentes)))
+    if "resultado" in pendentes:
         tipo = _tipo_ou_nada(dia)
-        falta = o_que_falta(dia, tipo) if tipo else set()
+        falta = falta_no_resultado(dia, tipo) if tipo else set()
+        saida("")
         if falta:
-            # NOMEAR O QUE FALTOU, e nao so dizer que faltou. Um vertice
-            # cancelado -- aconteceu em 29/10/2026, o leilao inteiro caiu --
-            # e indistinguivel de um que atrasou, e so ela sabe qual e qual.
-            saida("")
-            saida("NAO MANDEI porque o calendario previa vertice(s) que nao "
-                  "sairam:")
+            saida("NAO MANDEI O RESULTADO: as %s ainda faltava(m) %d "
+                  "vertice(s) que foram ofertados:"
+                  % (prazo_do_resultado.strftime("%H:%M"), len(falta)))
             for titulo, vencimento in sorted(falta):
                 saida("   %s %s" % (titulo, vencimento))
             saida("")
-            saida("Se eles foram CANCELADOS, o e-mail esta certo sem eles --")
-            saida("rode de novo com --mesmo-incompleto para mandar assim.")
+            saida("Resultado incompleto diria um DV01 menor do que o colocado,")
+            saida("e o numero menor nao parece errado. Monte a mao se precisar.")
         else:
-            saida("Se houve leilao e o e-mail nao saiu, rode de novo ou "
-                  "monte a mao.")
+            saida("o resultado nao saiu ate as %s."
+                  % prazo_do_resultado.strftime("%H:%M"))
     return feitos
 
 

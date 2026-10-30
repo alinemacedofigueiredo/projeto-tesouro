@@ -330,3 +330,52 @@ def test_o_CORPO_comeca_dizendo_de_que_leilao_se_trata():
     outro = email_leilao.dados(_DIA_PRE, "pre")
     assert email_leilao.assunto(outro) in email_leilao.html(outro, figuras=[])
     assert assunto not in email_leilao.html(outro, figuras=[])
+
+
+# --------------------------- o aviso dos papeis que nao foram puxados
+
+
+def _corpo_com_falta(faltando):
+    d = email_leilao.dados(_DIA_NTNB, "ntnb")
+    return email_leilao.html(d, figuras=[], faltando=faltando)
+
+
+def test_o_aviso_dos_papeis_que_FALTARAM_vai_DENTRO_do_corpo():
+    """Regra dela de 30/10/2026: a oferta sai as 10:05 mesmo incompleta, "e
+    avisa dentro do email os papeis que voce nao conseguiu puxar".
+
+    DENTRO e a palavra que decide. Um aviso so no log serve a quem rodou;
+    quem RECEBE e que vai olhar o DV01 e tirar conclusao dele. No leilao de
+    20/10, sem a NTN-B 2045 o DV01 cai de 2,922 para 2,232 -- 24% a menos,
+    num numero que ninguem tem contra o que comparar.
+    """
+    corpo = _corpo_com_falta({("NTN-B", "2045-05-15")})
+    assert "Faltam" in corpo, "o aviso nao entrou no corpo"
+    assert "15/05/2045" in corpo, "nao disse QUAL papel faltou"
+    assert "NTN-B" in corpo
+
+
+def test_o_aviso_vem_ANTES_DE_QUALQUER_NUMERO():
+    """Depois dos quadros seria lido por quem ja formou opiniao sobre o
+    DV01 -- e e exatamente sobre o DV01 que ele avisa."""
+    corpo = _corpo_com_falta({("NTN-B", "2045-05-15")})
+    assert corpo.index("Faltam") < corpo.index("Financeiro aceito")
+
+
+def test_SEM_FALTA_NENHUMA_o_aviso_NAO_aparece():
+    """Senao todo e-mail completo carregaria um alarme falso, e em pouco
+    tempo ninguem leria mais nenhum."""
+    corpo = _corpo_com_falta(None)
+    assert "Faltam" not in corpo
+    assert _corpo_com_falta(set()).count("Faltam") == 0
+
+
+def test_o_aviso_diz_que_o_DV01_abaixo_NAO_inclui_os_que_faltaram():
+    """Listar os papeis nao basta: quem le precisa saber o que isso faz com
+    o numero. Sem esta frase o aviso vira enfeite."""
+    corpo = _corpo_com_falta({("LFT", "2032-12-01"), ("NTN-B", "2045-05-15")})
+    assert "DV01" in corpo
+    sem_marcacao = corpo.replace("<b>", "").replace("</b>", "")
+    assert "n\u00e3o incluem eles" in sem_marcacao, (
+        "o aviso nao explica o efeito no numero")
+    assert "2 papel" in corpo, "nao disse QUANTOS faltaram"

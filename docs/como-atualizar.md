@@ -292,18 +292,31 @@ instituição.
 ### Dia de leilão, com e-mail automático (opção `5`)
 
 Esse modo é de outra natureza: os quatro de cima terminam em minutos, e este
-**fica esperando** até as 14h. Por isso ele é o último da lista.
+**fica esperando**. Por isso ele é o último da lista.
 
-Rode **antes das 10h**. Ele:
-
-1. pergunta ao Outlook se o envio vai funcionar — agora, e não às 10h45;
-2. diz para quem vai mandar, lendo `referencia/destinatarios.txt`;
-3. pergunta ao Tesouro de minuto em minuto;
-4. manda o e-mail da **oferta** quando sai o edital (~10h);
-5. manda o e-mail do **resultado** quando sai o resultado (10:45);
-6. desiste às 14h, dizendo o que ficou por sair.
+Rode **antes das 10h**. Ele pergunta ao Outlook se o envio vai funcionar
+— agora, e não na hora do despacho — diz para quem vai mandar, lendo
+`referencia/destinatarios.txt`, e fica perguntando ao Tesouro de minuto em
+minuto.
 
     $env:PYTHONPATH="src"; python -m tesouro.pipeline --modo hoje
+
+**As duas pontas têm regras opostas, e isso é de propósito:**
+
+| | **Oferta** | **Resultado** |
+|---|---|---|
+| Espera todos os | vértices do **calendário** | vértices **que foram ofertados** |
+| Prazo | **10:05** | **12:00** |
+| Se faltar no prazo | **manda assim mesmo**, avisando no corpo quais não puxou | **não manda** |
+
+Oferta incompleta ainda informa o lote que já saiu, e o aviso diz o que falta.
+Resultado incompleto diria um **DV01 menor do que o colocado** — e um número
+menor não parece errado para quem recebe. Não há aviso que conserte isso.
+
+O resultado se compara contra a **oferta**, e não contra o calendário: a oferta
+é a verdade do dia. Se o Tesouro ofertou cinco vértices, são cinco resultados.
+
+**Depois do meio-dia não sai e-mail automático nenhum.**
 
 Para mandar só para você num teste, sem mexer na lista da mesa:
 
@@ -320,10 +333,14 @@ propósito: "esqueci de configurar" não pode virar "mandou para a lista errada"
 
 | Situação | O que ele faz |
 |---|---|
+| O leilão de hoje não está no calendário | **Termina na hora** e diz. Leilão fora do calendário ainda não tem e-mail automático. |
 | A máquina caiu às 10h20 e você rodou de novo | Não remanda a oferta. Espera só o resultado. |
 | O Outlook bloqueou o envio automático | **Abre a mensagem pronta na tela**, avisa que NÃO foi enviada, não marca como enviada, não tenta de novo no minuto seguinte, e continua esperando o resultado. |
-| Não há `pywin32` ou só há o "novo Outlook" | Avisa às 9h30, cai em ensaio e grava os arquivos para você colar. |
-| Não houve leilão | Termina dizendo "nada". |
+| Não há `pywin32` ou só há o "novo Outlook" | Avisa no início, cai em ensaio e grava os arquivos para você colar. |
+| Um vértice não saiu até o meio-dia | Não manda o resultado, e **nomeia** quais faltaram. |
+
+Enquanto segura, ele vai dizendo na tela quais vértices estão faltando — não
+só no fim. Se às 11h50 ele está esperando a NTN-B 2045, você sabe às 11h50.
 
 A trava do reenvio é um arquivo por (dia, tipo, estágio) em
 `data/raw/emails_enviados/`, e a marca só é gravada **depois** que o envio volta
