@@ -276,7 +276,7 @@ def test_a_OFERTA_sai_quando_TODOS_saem(monkeypatch, tmp_path):
     assert len(carteiro.mandados) == 1
 
 
-def test_as_10h05_a_OFERTA_SAI_INCOMPLETA_avisando_no_CORPO(monkeypatch,
+def test_PASSADO_O_PRAZO_a_OFERTA_SAI_INCOMPLETA_avisando_no_CORPO(monkeypatch,
                                                             tmp_path):
     """A regra dela: "Se nao cumprir ate 10:05, envia o email com o que tem, e
     avisa dentro do email os papeis que voce nao conseguiu puxar".
@@ -286,7 +286,13 @@ def test_as_10h05_a_OFERTA_SAI_INCOMPLETA_avisando_no_CORPO(monkeypatch,
     """
     _sem_montar(monkeypatch, tmp_path)
     _no_calendario(monkeypatch)
-    _relogio(monkeypatch, dt.time(10, 6))
+    # DEPOIS do prazo da oferta, seja ele qual for. A primeira versao
+    # cravava 10:06 contra um prazo de 10:05, e quando ela corrigiu o horario
+    # para 10:35 -- o Tesouro mostra a oferta as 10:30 -- o teste virou
+    # vermelho sem nada estar errado na producao. Amarra no lugar errado.
+    depois = (dt.datetime.combine(_DIA, leilao_hoje.PRAZO_DA_OFERTA)
+              + dt.timedelta(minutes=1)).time()
+    _relogio(monkeypatch, depois)
     _mundo(monkeypatch, ofertados={("NTN-B", "2029-05-15")})
 
     avisados = {}
@@ -303,9 +309,11 @@ def test_as_10h05_a_OFERTA_SAI_INCOMPLETA_avisando_no_CORPO(monkeypatch,
     feitos = leilao_hoje.espera_e_despacha(
         _DIA, enviar=carteiro, para=["mesa@banco"], destino=tmp_path,
         saida=lambda *a: None, dormir=lambda _s: None,
-        buscar=lambda _d: {"oferta"}, prazo_do_resultado=dt.time(10, 7))
+        buscar=lambda _d: {"oferta"},
+        prazo_do_resultado=(dt.datetime.combine(_DIA, depois)
+                            + dt.timedelta(minutes=1)).time())
 
-    assert feitos == ["oferta"], "segurou a oferta depois das 10:05"
+    assert feitos == ["oferta"], "segurou a oferta depois do prazo"
     assert avisados["oferta"] == {("NTN-B", "2045-05-15"),
                                   ("LFT", "2032-12-01")}, (
         "nao passou a lista de faltantes para dentro do e-mail")
@@ -489,3 +497,59 @@ def test_ENQUANTO_espera_o_RESULTADO_ele_diz_quais_vertices_faltam(
     esperando = [f for f in falas if f.startswith("resultado: faltam")]
     assert esperando, "nao avisou nada enquanto segurava o resultado: %s" % falas
     assert "2045-05-15" in esperando[0], esperando
+
+
+def test_ENTRE_a_oferta_e_as_11h43_ele_nao_pergunta_NADA(monkeypatch,
+                                                         tmp_path):
+    """A janela morta, correcao dela em 05/11/2026.
+
+    Depois que a oferta sai (~10:35) e antes de o resultado existir (11:45)
+    nao ha nada para perguntar: o edital ja veio, o resultado nao existe, e o
+    historico foi carregado antes do laco. Sao uns 68 minutos; antes desta
+    correcao o laco perguntava 68 vezes pela mesma resposta.
+    """
+    _sem_montar(monkeypatch, tmp_path)
+    _no_calendario(monkeypatch)
+    _mundo(monkeypatch, ofertados=_TODOS, com_resultado=set())
+    # CADA VOLTA DO LACO LE O RELOGIO MAIS DE UMA VEZ -- a condicao do while,
+    # o 'agora' de dentro, e aqui ainda o buscar(), que anota a hora. Com uma
+    # hora por volta o teste pulava a janela morta inteira: a oferta saia de
+    # pendentes as 11:00 e a volta seguinte ja lia 11:50. Tres leituras por
+    # hora deixam cada volta DENTRO da janela que ela deveria medir.
+    _relogio(monkeypatch,
+             *([dt.time(10, 40)] * 3     # acha a oferta ja despachada
+               + [dt.time(10, 45)] * 3   # primeira volta na janela morta
+               + [dt.time(11, 0)] * 3    # segunda volta, so sinal de vida
+               + [dt.time(11, 50)] * 3))  # hora do resultado
+
+    # A oferta ja saiu numa rodada anterior.
+    leilao_hoje.despacha(_DIA, "ntnb", "oferta", _Carteiro(), ["mesa@banco"],
+                         destino=tmp_path, saida=lambda *a: None)
+
+    perguntas = []
+    falas = []
+    leilao_hoje.espera_e_despacha(
+        _DIA, enviar=_Carteiro(), para=["mesa@banco"], destino=tmp_path,
+        saida=falas.append, dormir=lambda _s: None,
+        buscar=lambda d: perguntas.append(_relogio_agora()) or {"oferta"},
+        prazo_do_resultado=dt.time(11, 55))
+
+    assert perguntas, "nao perguntou nem na hora do resultado"
+
+    # UMA PERGUNTA NA JANELA MORTA E LEGITIMA, e e a primeira: o laco so
+    # descobre que a oferta ja saiu quando TENTA despachar e leva JaFoi. Dali
+    # em diante ele sabe, e fica quieto.
+    #
+    # A primeira versao deste teste exigia ZERO perguntas antes das 11:43 e
+    # ficava vermelha por causa dessa, que nao e desperdicio nenhum.
+    cedo = [q for q in perguntas if q < leilao_hoje.HORA_DO_RESULTADO]
+    assert len(cedo) <= 1, (
+        "perguntou %d vezes na janela morta, as %s"
+        % (len(cedo), [str(q) for q in cedo]))
+    assert any("Nada a fazer ate" in f for f in falas), falas
+    # UMA VEZ SO, e nao a cada volta da janela.
+    assert sum("Nada a fazer ate" in f for f in falas) == 1
+
+
+def _relogio_agora():
+    return leilao_hoje._agora().time()

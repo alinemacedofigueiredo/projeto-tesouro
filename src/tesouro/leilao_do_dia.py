@@ -133,7 +133,16 @@ def _o_que_o_calendario_diz(quando, registros=None):
     """
     from . import api_leiloes, parse_api_leiloes
 
-    quando = pd.Timestamp(quando).normalize()
+    # SEM DATA QUER DIZER HOJE. pd.Timestamp(None) e NaT, e NaT nao tem
+    # .normalize() -- AttributeError em vez da frase que esta funcao existe
+    # para dizer.
+    #
+    # SO ESTOURAVA NO DIA EM QUE NAO HA EDITAL AINDA, porque este caminho so e
+    # alcancado quando tabela_do_edital devolve None. Ou seja: todo dia de
+    # leilao ANTES das 10h -- exatamente a janela em que o modo 'hoje' roda.
+    # Achado em 05/11/2026, as 9h47, com leilao marcado para as 10h.
+    quando = (pd.Timestamp.today() if quando is None
+              else pd.Timestamp(quando)).normalize()
     try:
         if registros is None:
             # DISCO PRIMEIRO -- ver api_leiloes.calendario_publicado.

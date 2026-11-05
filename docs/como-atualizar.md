@@ -296,8 +296,7 @@ Esse modo é de outra natureza: os quatro de cima terminam em minutos, e este
 
 Rode **antes das 10h**. Ele pergunta ao Outlook se o envio vai funcionar
 — agora, e não na hora do despacho — diz para quem vai mandar, lendo
-`referencia/destinatarios.txt`, e fica perguntando ao Tesouro de minuto em
-minuto.
+`referencia/destinatarios.txt`, e fica perguntando ao Tesouro.
 
     $env:PYTHONPATH="src"; python -m tesouro.pipeline --modo hoje
 
@@ -306,7 +305,7 @@ minuto.
 | | **Oferta** | **Resultado** |
 |---|---|---|
 | Espera todos os | vértices do **calendário** | vértices **que foram ofertados** |
-| Prazo | **10:05** | **12:00** |
+| Prazo | **10:35** | **12:00** |
 | Se faltar no prazo | **manda assim mesmo**, avisando no corpo quais não puxou | **não manda** |
 
 Oferta incompleta ainda informa o lote que já saiu, e o aviso diz o que falta.
@@ -317,6 +316,27 @@ O resultado se compara contra a **oferta**, e não contra o calendário: a ofert
 é a verdade do dia. Se o Tesouro ofertou cinco vértices, são cinco resultados.
 
 **Depois do meio-dia não sai e-mail automático nenhum.**
+
+#### Como ele espera, hora por hora
+
+Não é um pedido por minuto das 10h ao meio-dia. O endpoint de resultados do
+Tesouro **não filtra por data**: devolve os 4.708 leilões desde 2018, 2,3 MB,
+toda vez. E não dá para perguntar antes se mudou — medido em 05/11/2026, o
+servidor responde `HEAD` com `Content-Length` zero e não manda `Last-Modified`
+nem `ETag`. Então o desenho é este, e é dela:
+
+| Quando | O que ele pergunta |
+|---|---|
+| Uma vez, antes do laço | **O histórico inteiro.** Os gráficos e a tabela dos leilões anteriores ficam prontos aqui. |
+| Até a oferta sair | **Só o edital** — 0 KB. Enquanto a oferta não saiu, resultado nenhum serve. |
+| Da oferta até 11h43 | **Nada.** São uns 68 minutos sem nada a perguntar. |
+| De 11h43 ao meio-dia | O resultado, **sem dormir entre os pedidos**. |
+
+Nos últimos minutos antes da oferta (das 10h28) ele também para de dormir.
+
+Na janela morta ele dá **sinal de vida a cada 15 minutos**. Isso existe porque
+em 05/11/2026, às 11h25, ela perguntou "ainda está rodando?" com o programa
+perfeitamente vivo: calado, ele fica idêntico a travado.
 
 Para mandar só para você num teste, sem mexer na lista da mesa:
 
@@ -338,6 +358,33 @@ propósito: "esqueci de configurar" não pode virar "mandou para a lista errada"
 | O Outlook bloqueou o envio automático | **Abre a mensagem pronta na tela**, avisa que NÃO foi enviada, não marca como enviada, não tenta de novo no minuto seguinte, e continua esperando o resultado. |
 | Não há `pywin32` ou só há o "novo Outlook" | Avisa no início, cai em ensaio e grava os arquivos para você colar. |
 | Um vértice não saiu até o meio-dia | Não manda o resultado, e **nomeia** quais faltaram. |
+| O Outlook aceitou o envio e deixou a mensagem **na Caixa de Saída** | Avisa que **NÃO SAIU** e não marca o dia. Ver abaixo. |
+| A API do Tesouro ainda não publicou o resultado ao meio-dia | Não manda. Ver abaixo. |
+
+#### `Send()` não envia: ele enfileira
+
+Isto custou o primeiro leilão de verdade. Em 05/11/2026 o `Send()` devolveu
+sucesso às 10:43:54 e a mensagem ficou **vinte e cinco minutos na Caixa de
+Saída**. O programa disse "e-mail enviado", marcou o dia como enviado, e a
+trava do reenvio — que existe para proteger — passou a impedir o envio de uma
+coisa que nunca saiu.
+
+Agora a prova é **a pasta Enviados**, e não o retorno do `Send()`: ele procura o
+assunto lá dentro e, se não achar, avisa que não saiu e **não marca o dia**.
+
+#### O resultado pode sair no site antes de sair na API
+
+Também de 05/11/2026: o resultado foi publicado **às 11h45** e, às **12:00:08**
+— o último pedido do laço, no prazo — a API ainda devolvia os 4.708 leilões
+de sempre e **nenhuma linha daquele dia**. O laço fez o certo: não mandou um
+DV01 menor do que o colocado. Mas o prazo das 12h foi calibrado contra a hora
+em que **você** vê o resultado, e o programa lê **outra fonte, mais lenta**.
+
+Enquanto não soubermos de quanto é esse atraso, **o e-mail de resultado pode
+não sair em dia nenhum**, sem que nada esteja quebrado. Se faltar, o caminho é
+montar à mão depois que a API publicar:
+
+    python -m tesouro.pipeline --modo hoje --ensaio
 
 Enquanto segura, ele vai dizendo na tela quais vértices estão faltando — não
 só no fim. Se às 11h50 ele está esperando a NTN-B 2045, você sabe às 11h50.

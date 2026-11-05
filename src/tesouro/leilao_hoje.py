@@ -26,7 +26,9 @@ POR QUE PERGUNTAR E NAO ESPERAR UM HORARIO: o edital nao tem hora fixa, e o
 resultado de 10:45 as vezes sai 10:52. Dormir ate as 10:46 e torcer e pior do
 que perguntar de minuto em minuto; e barato -- uma chamada de API por volta.
 """
+import contextlib
 import datetime as dt
+import io
 import json
 import time
 
@@ -49,8 +51,39 @@ INTERVALO = 60
 #     que conserte: o numero menor parece certo.
 #
 # Depois do meio-dia nao sai e-mail automatico nenhum.
-PRAZO_DA_OFERTA = dt.time(10, 5)
+# 10:35 E NAO 10:05. O Tesouro mostra a oferta as 10:30 -- ela corrigiu em
+# 05/11/2026, com o laco rodando e a dez minutos de disparar um e-mail de
+# oferta com os seis vertices faltando, que nao serviria para nada. Eu tinha
+# escrito 10:05 lendo "a oferta sai 10h" da primeira conversa, e nunca
+# conferi contra o horario de verdade.
+PRAZO_DA_OFERTA = dt.time(10, 35)
 PRAZO_DO_RESULTADO = dt.time(12, 0)
+
+# A PARTIR DAQUI O LACO NAO DORME, decisao dela em 05/11/2026: "a partir das
+# 10:28 ela precisa rodar uma vez atras da outra, sem dormir".
+#
+# A oferta aparece as 10:30. Dormir um minuto ali pode custar a oferta inteira
+# -- acorda 10:31, e o lote ja esta na tela de todo mundo menos na dela.
+#
+# A JANELA APERTADA FECHA quando a oferta e despachada, e nao as 12h: depois
+# dela sobra 1h30 de espera pelo resultado, e martelar a API do Tesouro sem
+# pausa por hora e meia seria abuso, nao urgencia.
+HORA_DE_APERTAR = dt.time(10, 28)
+INTERVALO_APERTADO = 0
+
+# E A HORA DE COMECAR A PROCURAR O RESULTADO. O Tesouro mostra o resultado as
+# 11:45; antes disso, buscar resultado e so peso.
+#
+# CORRECAO DELA, em 05/11/2026: eu tinha ligado a busca de resultados assim
+# que a oferta era despachada, por volta das 10:35 -- uma HORA inteira
+# baixando 2,3 MB por minuto para esperar algo que so sai as 11:45. Ela
+# apontou: "quando o resultado sair, ele volta a baixar os resultados, certo?
+# quando a oferta sair ele ja tem o resultado dos anteriores para fazer os
+# graficos". Certo nas duas pontas.
+#
+# Os dois minutos de margem sao os mesmos da oferta (10:28 para 10:30), e dali
+# ate o resultado sair o laco tambem nao dorme.
+HORA_DO_RESULTADO = dt.time(11, 43)
 
 PASTA_DOS_ENVIADOS = config.RAW_DIR / "emails_enviados"
 
@@ -81,6 +114,24 @@ def destinatarios(caminho=None):
 
 class JaFoi(Exception):
     """Aquele e-mail ja saiu hoje. Nao e erro: e a guarda funcionando."""
+
+
+class FoiSoEnfileirado(Exception):
+    """O Outlook aceitou a mensagem, mas ela NAO saiu -- ficou na fila.
+
+    MORA AQUI pelo mesmo motivo de FoiSoAberto: quem precisa reagir e o laco,
+    e o laco nao pode importar o modulo de envio.
+
+    ACHADO EM 05/11/2026, no primeiro leilao de verdade. Send() nao envia:
+    ENFILEIRA, e devolve sem erro nos dois casos. O programa disse "e-mail
+    enviado as 10:43:54" e a mensagem ficou vinte e cinco minutos na Caixa de
+    Saida. Pior que a frase errada foi a consequencia: o dia ficou MARCADO
+    como enviado, e a trava do reenvio passou a impedir o envio de uma coisa
+    que nunca saiu.
+
+    Tratada como FoiSoAberto: nao marca, nao retenta no minuto seguinte, nao
+    derruba o laco. O que muda e a frase, que passa a dizer a verdade.
+    """
 
 
 class FoiSoAberto(Exception):
@@ -228,6 +279,12 @@ def falta_no_resultado(dia, tipo):
     return ofertados - com_resultado(dia, tipo)
 
 
+def caminho_do_email(dia, tipo, estagio):
+    """Onde o e-mail montado ficou, para a mensagem poder dizer."""
+    return config.PROCESSED_DIR / ("email-%s-%s-%s.html"
+                                   % (tipo, estagio, dia.isoformat()))
+
+
 def _agora():
     """Isolado para o teste poder trocar sem mexer no relogio da maquina."""
     return dt.datetime.now()
@@ -268,16 +325,63 @@ def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
           % prazo_da_oferta.strftime("%H:%M"))
     saida("   resultado ate %s (nao manda se faltar)"
           % prazo_do_resultado.strftime("%H:%M"))
+    saida("   pergunta sem parar das %s (oferta) e das %s (resultado)"
+          % (HORA_DE_APERTAR.strftime("%H:%M"),
+             HORA_DO_RESULTADO.strftime("%H:%M")))
+
+    # O HISTORICO VEM UMA VEZ SO, ANTES DO LACO -- ideia dela, em 05/11/2026.
+    #
+    # E o que torna o laco leve: os 2,3 MB de resultados carregam o grafico e
+    # a tabela dos dois leiloes anteriores, e dali em diante so falta o
+    # edital, que custa quase nada. Sem isto, cada volta rebaixava o
+    # historico inteiro para usar as mesmas 67 linhas de sempre.
+    if buscar is _procura_na_api:
+        saida("")
+        saida("baixando o historico uma vez (uns 2,3 MB, poucos segundos)...")
+        _procura_na_api(dia)
+        saida("historico carregado; dali em diante o laco so pergunta pelo "
+              "edital.")
+        saida("")
     if enviar is None:
         saida("MODO ENSAIO: nada sera enviado; os e-mails sao gravados.")
 
     pendentes = ["oferta", "resultado"]
     ultimo_aviso = {}
+    avisou_da_pausa = False
+    ultimo_sinal = None
 
     while pendentes and _agora().time() < prazo_do_resultado:
-        achado = buscar(dia)
-        tipo = email_leilao.tipo_do_dia(dia)
+        # A JANELA MORTA: oferta ja despachada e ainda nao sao 11:43.
+        #
+        # Nao ha NADA para perguntar ali -- o edital ja veio, o resultado nao
+        # existe, e o historico foi carregado antes do laco. Correcao dela em
+        # 05/11/2026: "aqui nessa janela nao precisa ficar fazendo nada".
+        #
+        # Sao uns 68 minutos; antes disto o laco perguntava o edital 68 vezes
+        # pela mesma resposta.
         agora = _agora().time()
+        if "oferta" not in pendentes and agora < HORA_DO_RESULTADO:
+            if not avisou_da_pausa:
+                saida("oferta despachada. Nada a fazer ate %s, quando o "
+                      "resultado sai." % HORA_DO_RESULTADO.strftime("%H:%M"))
+                avisou_da_pausa = True
+            # SINAL DE VIDA a cada 15 minutos. Sao 68 minutos de silencio, e o
+            # cabecalho da rodada promete "enquanto aparecer linha nova, esta
+            # rodando" -- calado, ele fica identico a travado. Ela perguntou
+            # "ainda esta rodando?" em 05/11/2026, as 11h25, com o programa
+            # perfeitamente vivo.
+            if agora.minute % 15 == 0 and agora.minute != ultimo_sinal:
+                saida("   %s -- vivo, esperando as %s"
+                      % (agora.strftime("%H:%M"),
+                         HORA_DO_RESULTADO.strftime("%H:%M")))
+                ultimo_sinal = agora.minute
+            dormir(intervalo)
+            continue
+
+        # SO O EDITAL ENQUANTO A OFERTA NAO SAIU -- ver _procura_na_api.
+        achado = (buscar(dia, "oferta" in pendentes)
+                  if buscar is _procura_na_api else buscar(dia))
+        tipo = email_leilao.tipo_do_dia(dia)
 
         for estagio in list(pendentes):
             if estagio not in achado or tipo is None:
@@ -319,11 +423,26 @@ def espera_e_despacha(dia=None, enviar=None, para=None, intervalo=INTERVALO,
                 saida("   ele esta aberto na sua tela esperando o clique.")
                 pendentes.remove(estagio)
                 continue
+            except FoiSoEnfileirado as erro:
+                saida("ATENCAO: o e-mail de %s NAO SAIU -- %s"
+                      % (estagio, erro))
+                saida("   ele esta montado em %s" % caminho_do_email(
+                    dia, tipo, estagio))
+                saida("   abra o Outlook e empurre a Caixa de Saida.")
+                pendentes.remove(estagio)
+                continue
             feitos.append(estagio)
             pendentes.remove(estagio)
 
         if pendentes:
-            dormir(intervalo)
+            # SEM DORMIR NA JANELA DA OFERTA -- ver HORA_DE_APERTAR. Fora
+            # dela, um minuto entre as perguntas.
+            agora_ = _agora().time()
+            apertado = (("oferta" in pendentes
+                         and agora_ >= HORA_DE_APERTAR)
+                        or ("resultado" in pendentes
+                            and agora_ >= HORA_DO_RESULTADO))
+            dormir(INTERVALO_APERTADO if apertado else intervalo)
 
     if "resultado" in pendentes:
         tipo = _tipo_ou_nada(dia)
@@ -351,21 +470,74 @@ def _tipo_ou_nada(dia):
         return None
 
 
-def _procura_na_api(dia):
+# As falhas da ultima busca, para o laco poder contar. Lista e nao excecao
+# porque a busca NAO pode derrubar a rodada: a API do Tesouro cai, e o laco
+# tem de sobreviver a isso -- so nao pode fingir que esta tudo bem.
+_falhas_da_busca = []
+
+
+def _procura_na_api(dia, so_edital=False):
     """Quais estagios ja existem hoje, como conjunto.
 
     O EDITAL VEM ANTES do resultado, e os dois entram pelo mesmo caminho que o
     pipeline ja usa -- nao ha fonte nova aqui.
+
+    'so_edital' PULA A BUSCA DE RESULTADOS, e a ideia e dela, em 05/11/2026:
+    "nao e melhor vc baixar essa de resultados uma vez antes de comecar a
+    procurar o edital... ai a busca do loop fica leve e rapida".
+
+    O raciocinio dela, que eu nao tinha feito: ENQUANTO A OFERTA NAO SAIU, o
+    resultado nao serve para nada -- o grafico e a tabela dos leiloes
+    anteriores ja estao montados com o historico que foi baixado no comeco.
+    So falta o edital.
+
+    O QUE ISSO POUPA, medido chamada a chamada em 05/11/2026:
+
+        editais        0 KB, 4,8 s   <- o que a oferta precisa
+        resultados   2,3 MB, 5,5 s   <- o historico INTEIRO, 4.708 leiloes
+
+    O endpoint de resultados nao filtra por data: devolve tudo desde 2018,
+    sempre, para o projeto usar as 67 linhas dos ultimos 30 dias. E nao da
+    para perguntar antes se mudou -- medido no mesmo dia, o servidor responde
+    HEAD com Content-Length zero e nao manda Last-Modified nem ETag.
     """
     achado = set()
-    try:
-        leilao_do_dia.do_edital(refazer_graficos=False)
-    except Exception:                        # noqa: BLE001
-        pass
-    try:
-        leilao_do_dia.rodar(refazer_graficos=False)
-    except Exception:                        # noqa: BLE001
-        pass
+    _falhas_da_busca.clear()
+
+    # A COLETA FALA BAIXO AQUI, e so aqui.
+    #
+    # do_edital e rodar imprimem o relatorio inteiro da coleta -- quantas
+    # linhas vieram, onde foi gravado, o aviso da planilha provisoria. Isso
+    # serve numa rodada de atualizacao, que acontece UMA vez. Aqui acontece a
+    # cada 60 segundos, por duas horas: seriam ~130 repeticoes do mesmo bloco,
+    # e o que importa -- "faltam 2 vertices", "enviado" -- fica enterrado.
+    #
+    # Ela viu isso rodando em 05/11/2026 e a palavra dela foi "que confuso".
+    # Estava certa: a tela e a unica coisa que ela tem para saber o que o
+    # programa esta fazendo enquanto espera.
+    #
+    # O QUE FOI ENGOLIDO NAO SE PERDE DE VERDADE: o que interessa daquelas
+    # linhas e o resultado, e o resultado e o que esta funcao devolve.
+    engolido = io.StringIO()
+    acoes = ((leilao_do_dia.do_edital,) if so_edital
+             else (leilao_do_dia.do_edital, leilao_do_dia.rodar))
+    for acao in acoes:
+        try:
+            with contextlib.redirect_stdout(engolido):
+                acao(refazer_graficos=False)
+        except Exception as erro:            # noqa: BLE001
+            # ENGOLIR O ERRO AQUI FAZIA O LACO ESPERAR PARA SEMPRE, CALADO.
+            #
+            # Aconteceu em 05/11/2026, no primeiro leilao de verdade: o edital
+            # saiu as 10:30 e o laco dela nao pegou. A causa provavel fui eu
+            # -- rodando diagnosticos no mesmo minuto, dois processos escrevem
+            # dv_emitido_por_leilao.csv ao mesmo tempo e um perde. Mas a causa
+            # importa menos que isto: COM O ERRO ENGOLIDO, a tela dizia
+            # "esperando" e nada estava chegando.
+            #
+            # A falha continua NAO derrubando a rodada -- a API do Tesouro cai
+            # e o laco tem de sobreviver. O que muda e que ela FALA.
+            _falhas_da_busca.append("%s: %s" % (type(erro).__name__, erro))
 
     tipo = _tipo_ou_nada(dia)
     if tipo is None:

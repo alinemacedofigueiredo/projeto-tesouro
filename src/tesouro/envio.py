@@ -68,7 +68,7 @@ class NaoMandou(Exception):
 #
 # EXCECAO E NAO AVISO, de proposito: quem chamou precisa NAO marcar o dia como
 # enviado, senao a proxima rodada acha que ja foi e ninguem recebe nada.
-from .leilao_hoje import FoiSoAberto  # noqa: F401
+from .leilao_hoje import FoiSoAberto, FoiSoEnfileirado  # noqa: F401
 
 
 def _aplicacao():
@@ -83,7 +83,8 @@ def _aplicacao():
         raise NaoMandou(_SEM_OUTLOOK.format(motivo=erro)) from erro
 
 
-def pelo_outlook(assunto, corpo, para, aplicacao=None, saida=print):
+def pelo_outlook(assunto, corpo, para, aplicacao=None, saida=print,
+                 espera=None):
     """Manda o e-mail pelo Outlook classico. Devolve a hora em que saiu.
 
     'aplicacao' existe para o teste: ele passa um Outlook de mentira e exercita
@@ -101,6 +102,10 @@ def pelo_outlook(assunto, corpo, para, aplicacao=None, saida=print):
 
     try:
         mensagem.Send()
+        _conferir_que_saiu(app, assunto,
+                           espera or ESPERA_DOS_ENVIADOS)
+    except FoiSoEnfileirado:
+        raise
     except Exception as erro:            # noqa: BLE001
         # A RECUSA NAO PODE VIRAR SILENCIO NEM VIRAR SUCESSO. Abre a mensagem
         # pronta e levanta: quem chamou nao marca o dia como enviado.
@@ -118,6 +123,58 @@ def pelo_outlook(assunto, corpo, para, aplicacao=None, saida=print):
     quando = dt.datetime.now()
     saida("e-mail enviado pelo Outlook as %s" % quando.strftime("%H:%M:%S"))
     return quando
+
+
+# Quanto esperar a mensagem aparecer nos Enviados antes de chamar de fila.
+# Dez segundos cobre o caminho normal com folga; a de 05/11/2026 ficou vinte e
+# cinco MINUTOS parada.
+ESPERA_DOS_ENVIADOS = 10
+
+
+def _conferir_que_saiu(app, assunto, espera=ESPERA_DOS_ENVIADOS):
+    """Procura a mensagem nos Enviados. Levanta FoiSoEnfileirado se nao achar.
+
+    O DEFEITO QUE ISTO CONSERTA, achado em 05/11/2026 no primeiro leilao de
+    verdade: **Send() nao envia, ENFILEIRA** -- e devolve sem erro nos dois
+    casos. O programa disse "e-mail enviado as 10:43:54", com hora e tudo, e a
+    mensagem ficou vinte e cinco minutos na Caixa de Saida. Ela so descobriu
+    porque foi olhar a caixa dela.
+
+    PIOR QUE A FRASE ERRADA: quem chamou MARCOU O DIA COMO ENVIADO, e a trava
+    do reenvio -- que existe para proteger -- passou a impedir o envio de uma
+    coisa que nunca saiu.
+
+    OS TESTES NAO PEGARAM porque o Outlook de mentira que eu escrevi devolve
+    sucesso no Send(). Modelei a API pelo que eu achava que ela fazia, e todo
+    o resto foi construido em cima disso.
+
+    A PROVA E A PASTA ENVIADOS, e nao o retorno do Send(). Quando a mensagem
+    esta la, ela saiu.
+    """
+    import time
+
+    try:
+        enviados = app.GetNamespace("MAPI").GetDefaultFolder(5)
+    except Exception:                    # noqa: BLE001
+        # Sem conseguir olhar, NAO afirma que saiu nem que ficou: devolve o
+        # controle a quem chamou, que ja trata o caso de nao saber.
+        raise FoiSoEnfileirado(
+            "nao consegui conferir a pasta Enviados; a mensagem pode ter "
+            "saido ou estar na fila")
+
+    for _ in range(max(1, espera)):
+        try:
+            itens = enviados.Items
+            for i in range(itens.Count, max(0, itens.Count - 10), -1):
+                if str(itens.Item(i).Subject) == assunto:
+                    return True
+        except Exception:                # noqa: BLE001
+            pass
+        time.sleep(1)
+
+    raise FoiSoEnfileirado(
+        "o Outlook aceitou a mensagem mas ela nao apareceu nos Enviados em "
+        "%d s -- provavelmente esta na Caixa de Saida" % espera)
 
 
 def outlook_responde():
