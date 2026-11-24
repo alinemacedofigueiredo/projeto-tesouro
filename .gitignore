@@ -1,11 +1,24 @@
-# Dados do Tesouro: baixados/gerados, nao versionados.
-# Os brutos vem do site do Tesouro; os processados sao reconstruidos pelos parsers.
+# Dados do Tesouro.
 #
-# Nota: as subpastas precisam ser reincluidas (!data/**/) antes dos .gitkeep,
+# MUDOU EM 24/11/2026, decisao dela: data/raw e data/entrada passam a ser
+# VERSIONADOS. O motivo e o banco -- o projeto precisa rodar lah dentro sem
+# alcancar o site do Tesouro, e o raw e a fonte. Antes disto a pasta inteira
+# era ignorada e so os .gitkeep subiam, para guardar a estrutura.
+#
+# data/processed CONTINUA FORA: as 12 paginas HTML e os 24 CSV sao
+# reconstruidos a partir do raw por 'pipeline --sem-coleta'. Sao 54 MB que
+# voltariam a entrar no historico a cada rodada que mudasse os dados, e o
+# historico do git nao emagrece.
+#
+# Nota: as subpastas precisam ser reincluidas (!...**/) antes dos .gitkeep,
 # porque o git nao reinclui um arquivo se o diretorio-pai esta excluido.
-data/**
-!data/**/
-!data/**/.gitkeep
+data/processed/**
+!data/processed/**/
+!data/processed/**/.gitkeep
+
+# OS RETRATOS SAO EXCECAO, e por isso sobem: diferente das paginas, eles NAO
+# sao gerados -- sao registros que ela salvou a mao, de um estado que nao volta.
+!data/processed/retrato-*.pdf
 
 # Area de rascunho da execucao assistida (briefs, relatorios, ledger)
 .superpowers/

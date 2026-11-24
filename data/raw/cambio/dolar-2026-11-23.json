@@ -1,0 +1,9 @@
+{
+  "bloomberg_falhou": "ConnectionError: o terminal Bloomberg nao esta atendendo nesta maquina; usando a PTAX",
+  "buscado_em": "2026-11-23T16:11:47",
+  "data_da_cotacao": "2026-11-23",
+  "data_do_leilao": "2026-11-23",
+  "fonte": "PTAX",
+  "hora_da_cotacao": "13:06:23.798289",
+  "taxa": 5.9708
+}
